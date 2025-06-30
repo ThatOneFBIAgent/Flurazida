@@ -94,9 +94,11 @@ CREATE TABLE IF NOT EXISTS cases (
     user_id INTEGER NOT NULL,
     username TEXT NOT NULL,
     reason TEXT,
+    timestamp INTEGER NOT NULL
     action_type TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     moderator_id INTEGER NOT NULL,
+    expiry INTEGER DEFAULT 0
     PRIMARY KEY (guild_id, case_number)
 );
 """)
@@ -349,21 +351,19 @@ def decrement_gun_use(victim_id):
 
 # unfortunately the automatic creation of tables per server is not an sql function, so we'll simulate with python code.
 @log_mod_call
-def insert_case(mod_cursor, guild_id, user_id, username, reason, action_type, moderator_id, timestamp=None):
+def insert_case(mod_cursor, guild_id, user_id, username, reason, action_type, moderator_id, timestamp=None, expiry=0):
     cur = mod_cursor
     if timestamp is None:
         timestamp = int(time.time())
-    # Get next case number for this guild
     cur.execute(
         "SELECT COALESCE(MAX(case_number) + 1, 1) FROM cases WHERE guild_id = ?",
         (guild_id,)
     )
     next_case = cur.fetchone()[0]
-    # Insert the case
     cur.execute("""
-        INSERT INTO cases (guild_id, case_number, user_id, username, reason, action_type, timestamp, moderator_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (guild_id, next_case, user_id, username, reason, action_type, timestamp, moderator_id))
+        INSERT INTO cases (guild_id, case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (guild_id, next_case, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
     mod_conn.commit()
     return next_case
 
@@ -408,3 +408,14 @@ def edit_case_reason(mod_cursor, guild_id, case_number, new_reason):
     cur = mod_cursor
     cur.execute("UPDATE cases SET reason = ? WHERE guild_id = ? AND case_number = ?", (new_reason, guild_id, case_number))
     mod_conn.commit()
+
+@log_mod_call
+def get_expired_cases(mod_cursor, action_type, now=None):
+    if now is None:
+        now = int(time.time())
+    cur = mod_cursor
+    cur.execute("""
+        SELECT guild_id, user_id, case_number FROM cases
+        WHERE action_type = ? AND expiry > 0 AND expiry <= ?
+    """, (action_type, now))
+    return cur.fetchall()

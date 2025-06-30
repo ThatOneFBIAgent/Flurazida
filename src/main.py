@@ -2,7 +2,8 @@ import discord
 from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
-import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil
+import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time
+from database import get_expired_cases, mod_cursor
 
 process = psutil.Process(os.getpid())
 
@@ -172,10 +173,44 @@ async def cycle_paired_activities():
         await bot.change_presence(activity=combined_activity, status=status)
         await asyncio.sleep(600)  # 10 minutes
 
+async def unmute_task(self):
+    await self.bot.wait_until_ready()
+    while not self.bot.is_closed():
+        now = int(time.time())
+        expired_mutes = get_expired_cases(mod_cursor, "mute", now)
+        for guild_id, user_id in expired_mutes:
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                member = guild.get_member(user_id)
+                mute_role = discord.utils.get(guild.roles, name="Muted")
+                if member and mute_role:
+                    try:
+                        await member.remove_roles(mute_role, reason="Mute duration expired")
+                    except Exception as e:
+                        logging.error(f"Failed to unmute {member}: {e}")
+        await asyncio.sleep(60)
+
+async def unban_task(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            now = int(time.time())
+            expired_bans = get_expired_cases(mod_cursor, "ban", now)
+            for guild_id, user_id in expired_bans:
+                guild = self.bot.get_guild(guild_id)
+                if guild:
+                    try:
+                        user = await self.bot.fetch_user(user_id)
+                        await guild.unban(user, reason="Temporary ban expired")
+                    except Exception as e:
+                        logging.error(f"Failed to unban {user_id} in {guild_id}: {e}")
+            await asyncio.sleep(60)
+
 async def main():
     async with bot:
         asyncio.create_task(resource_monitor())
-        asyncio.create_task(cycle_paired_activities())  # <-- Use this for combos
+        asyncio.create_task(cycle_paired_activities())
+        asyncio.create_task(unmute_task(bot))
+        asyncio.create_task(unban_task(bot))
         bot.tree.interaction_check = global_blacklist_check
         await bot.start(config.BOT_TOKEN)
 
