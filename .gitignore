@@ -1,0 +1,3 @@
+# files to ignore in the repository
+.pyc
+.env
