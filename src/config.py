@@ -1,11 +1,15 @@
 # Secrets & others
 # config.py
-import os
+import os, asyncio
+from discord import Interaction
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_OWNER = 853154444850364417
 FORBIDDEN_GUILDS = {
     1368777209375883405: {"reason": "Have fun with cat bot"},
-    1375886954889085088: {"reason": "N/a"}
+    1375886954889085088: {"reason": "N/a"},
+    1388026848973291591: {"reason": "This server has been blocked due to ongoing internal testing"},
 }
 
 # look at the dumma code in main.py for the rest of the config

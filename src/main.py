@@ -174,8 +174,8 @@ async def cycle_paired_activities():
         await asyncio.sleep(600)  # 10 minutes
 
 async def unmute_task(self):
-    await self.bot.wait_until_ready()
-    while not self.bot.is_closed():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
         now = int(time.time())
         expired_mutes = get_expired_cases(mod_cursor, "mute", now)
         for guild_id, user_id in expired_mutes:
@@ -191,8 +191,8 @@ async def unmute_task(self):
         await asyncio.sleep(60)
 
 async def unban_task(self):
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
+        await bot.wait_until_ready()
+        while not bot.is_closed():
             now = int(time.time())
             expired_bans = get_expired_cases(mod_cursor, "ban", now)
             for guild_id, user_id in expired_bans:

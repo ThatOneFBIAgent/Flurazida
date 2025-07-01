@@ -94,11 +94,10 @@ CREATE TABLE IF NOT EXISTS cases (
     user_id INTEGER NOT NULL,
     username TEXT NOT NULL,
     reason TEXT,
-    timestamp INTEGER NOT NULL
     action_type TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     moderator_id INTEGER NOT NULL,
-    expiry INTEGER DEFAULT 0
+    expiry INTEGER DEFAULT 0,
     PRIMARY KEY (guild_id, case_number)
 );
 """)

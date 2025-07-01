@@ -96,7 +96,7 @@ class ShopView(discord.ui.View):
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Moves to the next page"""
         if interaction.user.id != self.user_id:
-            return await interaction.response.send_message("❌ This isn't your shop session!", ephemeral=True)
+            return await interaction.followup.send("❌ This isn't your shop session!", ephemeral=True)
         if self.page < len(self.pages) - 1:
             self.page += 1
             await interaction.response.edit_message(embed=self.format_shop_page(), view=self)

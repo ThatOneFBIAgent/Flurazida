@@ -13,10 +13,11 @@ class Gambling(commands.Cog):
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
     @cooldown(8)
     async def slots(self, interaction: discord.Interaction, bet: int):
+        await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
-            return await interaction.response.send_message("❌ Invalid bet amount!", ephemeral=False)
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=False)
 
         symbols = ["🍒", "🍋", "🍉", "⭐", "🍌", "🍑", "🥭", "7️⃣", "🗿"]
         empty = "<:empty:1388238752295555162>"  # Replace with your actual :empty: emoji ID
@@ -35,7 +36,7 @@ class Gambling(commands.Cog):
         current = [[random.choice(symbols) for _ in range(3)] for _ in range(3)]  # 3 rows
 
         embed = discord.Embed(title="Slot Machine", color=0xFFD700)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         msg = await interaction.original_response()
 
         while not all(stopped):
@@ -101,10 +102,11 @@ class Gambling(commands.Cog):
     @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
     @cooldown(8)
     async def roulette(self, interaction: discord.Interaction, bet: int, choice: str):
+        await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
-            return await interaction.response.send_message("❌ Invalid bet amount!", ephemeral=False)
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=False)
 
         wheel_numbers = list(range(0, 37))  # 0-36
 
@@ -116,7 +118,7 @@ class Gambling(commands.Cog):
             description="🎡 Spinning the wheel...",
             color=0xFF4500
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         msg = await interaction.original_response()
 
         for i, num in enumerate(fake_spins):
@@ -152,10 +154,11 @@ class Gambling(commands.Cog):
     @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
     @cooldown(20)
     async def blackjack(self, interaction: discord.Interaction, bet: int):
+        await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
-            return await interaction.response.send_message("❌ Invalid bet amount!", ephemeral=True)
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         # Simple deck: 2-10, J, Q, K as 10, Ace as 11
         deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11] * 4
@@ -184,7 +187,7 @@ class Gambling(commands.Cog):
             ),
             color=0x008000
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         message = await interaction.original_response()
 
         # Player turn loop

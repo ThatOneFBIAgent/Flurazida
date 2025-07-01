@@ -4,6 +4,7 @@ from discord import app_commands
 from discord import Interaction
 from database import get_cases_for_guild, get_case, insert_case, remove_case, edit_case_reason, mod_cursor
 
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -22,23 +23,24 @@ class Moderator(commands.Cog):
         reason="The reason for the mute",
         duration="Duration of the mute (default is 1 hour, format: 1h, 30m, etc.)"
     )
-    @app_commands.checks.has_permissions(timeout_members=True, moderate_members=True)
-    @app_commands.checks.bot_has_permissions(timeout_members=True, moderate_members=True, manage_roles=True)
+    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
     async def mute(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
+        await interaction.response.defer(ephemeral=True)
         """Mutes a user for a specified duration."""
         if user == interaction.user:
-            return await interaction.response.send_message("❌ You cannot mute yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot mute yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
-            return await interaction.response.send_message("❌ You cannot mute the bot!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot mute the bot!", ephemeral=True)
         if user.top_role >= interaction.user.top_role:
-            return await interaction.response.send_message("❌ You cannot mute a user with a higher or equal role!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot mute a user with a higher or equal role!", ephemeral=True)
         if user.top_role >= self.bot.user.top_role:
-            return await interaction.response.send_message("❌ I cannot mute a user with a higher or equal role than my own!", ephemeral=True)
+            return await interaction.followup.send("❌ I cannot mute a user with a higher or equal role than my own!", ephemeral=True)
         if user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ You cannot mute an administrator!", ephemeral=True)
-        if manage_roles := interaction.guild.me.guild_permissions.manage_roles or interaction.guild.me.guild_permissions.moderate_members or interaction.guild.me.guild_permissions.timeout_members:
+            return await interaction.followup.send("❌ You cannot mute an administrator!", ephemeral=True)
+        if manage_roles := interaction.guild.me.guild_permissions.manage_roles or interaction.guild.me.guild_permissions.moderate_members or interaction.guild.me.guild_permissions.moderate_members:
             if not manage_roles:
-                return await interaction.response.send_message("❌ I do not have sufficient permissions to mute!", ephemeral=True)
+                return await interaction.followup.send("❌ I do not have sufficient permissions to mute!", ephemeral=True)
         
 
         # Default duration is 1 hour
@@ -79,60 +81,62 @@ class Moderator(commands.Cog):
                 insert_case(
                     mod_cursor, interaction.guild.id, user.id, user.name, reason, "mute", interaction.user.id, int(time.time())
                 )
-            await interaction.response.send_message(f"✅ **{user.mention} has been muted for {duration}**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been muted for {duration}**", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I do not have permission to mute this user!", ephemeral=True)
+            await interaction.followup.send("❌ I do not have permission to mute this user!", ephemeral=True)
         except Exception as e:
             logging.error(f"Error muting user: {e}")
-            await interaction.response.send_message("❌ An error occurred while trying to mute the user.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while trying to mute the user.", ephemeral=True)
 
     @app_commands.command(name="unmute", description="Unmutes a user.")
     @app_commands.describe(user="The user to unmute")
-    @app_commands.checks.has_permissions(timeout_members=True, moderate_members=True)
-    @app_commands.checks.bot_has_permissions(timeout_members=True, moderate_members=True, manage_roles=True)
+    @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
     async def unmute(self, interaction: Interaction, user: discord.Member):
+        await interaction.response.defer(ephemeral=True)
         """Unmutes a user."""
         if user == interaction.user:
-            return await interaction.response.send_message("❌ You cannot unmute yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot unmute yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
-            return await interaction.response.send_message("❌ You cannot unmute the bot!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot unmute the bot!", ephemeral=True)
         if user.top_role >= interaction.user.top_role:
-            return await interaction.response.send_message("❌ You cannot unmute a user with a higher or equal role!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot unmute a user with a higher or equal role!", ephemeral=True)
         if user.top_role >= self.bot.user.top_role:
-            return await interaction.response.send_message("❌ I cannot unmute a user with a higher or equal role than my own!", ephemeral=True)
+            return await interaction.followup.send("❌ I cannot unmute a user with a higher or equal role than my own!", ephemeral=True)
         if user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ You cannot unmute an administrator!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot unmute an administrator!", ephemeral=True)
 
         mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
         if mute_role not in user.roles:
-            return await interaction.response.send_message("❌ This user is not muted!", ephemeral=True)
+            return await interaction.followup.send("❌ This user is not muted!", ephemeral=True)
 
         try:
             await user.remove_roles(mute_role, reason="Unmuted by command")
             # do not remove cases, as they are permanent records.
-            await interaction.response.send_message(f"✅ **{user.mention} has been unmuted**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been unmuted**", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I do not have permission to unmute this user!", ephemeral=True)
+            await interaction.followup.send("❌ I do not have permission to unmute this user!", ephemeral=True)
         except Exception as e:
             logging.error(f"Error unmuting user: {e}")
-            await interaction.response.send_message("❌ An error occurred while trying to unmute the user.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while trying to unmute the user.", ephemeral=True)
 
     @app_commands.command(name="kick", description="Kicks a user from the server.")
     @app_commands.describe(user="The user to kick", reason="The reason for the kick")
     @app_commands.checks.has_permissions(kick_members=True)
     @app_commands.checks.bot_has_permissions(kick_members=True)
     async def kick(self, interaction: Interaction, user: discord.Member, reason: str = None):
+        await interaction.response.defer(ephemeral=True)
         """Kicks a user from the server."""
         if user == interaction.user:
-            return await interaction.response.send_message("❌ You cannot kick yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot kick yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
-            return await interaction.response.send_message("❌ You cannot kick the bot!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot kick the bot!", ephemeral=True)
         if user.top_role >= interaction.user.top_role:
-            return await interaction.response.send_message("❌ You cannot kick a user with a higher or equal role!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot kick a user with a higher or equal role!", ephemeral=True)
         if user.top_role >= self.bot.user.top_role:
-            return await interaction.response.send_message("❌ I cannot kick a user with a higher or equal role than my own!", ephemeral=True)
+            return await interaction.followup.send("❌ I cannot kick a user with a higher or equal role than my own!", ephemeral=True)
         if user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ You cannot kick an administrator!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot kick an administrator!", ephemeral=True)
 
         if reason is None:
             reason = "No reason provided"
@@ -140,12 +144,12 @@ class Moderator(commands.Cog):
         try:
             await user.kick(reason=reason)
             insert_case(mod_cursor, interaction.guild.id, user.id, user.name, reason, "kick", interaction.user.id, int(time.time()))
-            await interaction.response.send_message(f"✅ **{user.mention} has been kicked**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been kicked**", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I do not have permission to kick this user!", ephemeral=True)
+            await interaction.followup.send("❌ I do not have permission to kick this user!", ephemeral=True)
         except Exception as e:
             logging.error(f"Error kicking user: {e}")
-            await interaction.response.send_message("❌ An error occurred while trying to kick the user.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while trying to kick the user.", ephemeral=True)
     
     @app_commands.command(name="ban", description="Bans a user from the server.")
     @app_commands.describe(user="The user to ban", reason="The reason for the ban", duration="Duration of the ban")
@@ -154,15 +158,15 @@ class Moderator(commands.Cog):
     async def ban(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
         """Bans a user from the server."""
         if user == interaction.user:
-            return await interaction.response.send_message("❌ You cannot ban yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot ban yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
-            return await interaction.response.send_message("❌ You cannot ban the bot!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot ban the bot!", ephemeral=True)
         if user.top_role >= interaction.user.top_role:
-            return await interaction.response.send_message("❌ You cannot ban a user with a higher or equal role!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot ban a user with a higher or equal role!", ephemeral=True)
         if user.top_role >= self.bot.user.top_role:
-            return await interaction.response.send_message("❌ I cannot ban a user with a higher or equal role than my own!", ephemeral=True)
+            return await interaction.followup.send("❌ I cannot ban a user with a higher or equal role than my own!", ephemeral=True)
         if user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ You cannot ban an administrator!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot ban an administrator!", ephemeral=True)
 
         # Default duration is 1 hour
         if duration is None:
@@ -185,20 +189,21 @@ class Moderator(commands.Cog):
             insert_case(
                 mod_cursor, interaction.guild.id, user.id, user.name, reason, "ban", interaction.user.id, int(time.time()), expiry=expiry_time
                 )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"✅ **{user.mention} has been banned for {duration if duration_seconds > 0 else 'permanently'}**", ephemeral=True
                 )
         except discord.Forbidden:
-                await interaction.response.send_message("❌ I do not have permission to ban this user!", ephemeral=True)
+                await interaction.followup.send("❌ I do not have permission to ban this user!", ephemeral=True)
         except Exception as e:
                 logging.error(f"Error banning user: {e}")
-                await interaction.response.send_message("❌ An error occurred while trying to ban the user.", ephemeral=True)
+                await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
 
     @app_commands.command(name="unban", description="Unbans a user from the server.")
     @app_commands.describe(user_id="The ID of the user to unban", reason="The reason for the unban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
     async def unban(self, interaction: Interaction, user_id: int, reason: str = None):
+        await interaction.response.defer(ephemeral=True)
         """Unbans a user from the server."""
         if reason is None:
             reason = "No reason provided"
@@ -207,23 +212,24 @@ class Moderator(commands.Cog):
             user = await self.bot.fetch_user(user_id)
             await interaction.guild.unban(user, reason=reason)
             insert_case(mod_cursor, interaction.guild.id, user.id, user.name, reason, "unban", interaction.user.id, int(time.time()))
-            await interaction.response.send_message(f"✅ **{user.mention} has been unbanned**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been unbanned**", ephemeral=True)
         except discord.NotFound:
-            await interaction.response.send_message("❌ User not found or not banned.", ephemeral=True)
+            await interaction.followup.send("❌ User not found or not banned.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("❌ I do not have permission to unban this user!", ephemeral=True)
+            await interaction.followup.send("❌ I do not have permission to unban this user!", ephemeral=True)
         except Exception as e:
             logging.error(f"Error unbanning user: {e}")
-            await interaction.response.send_message("❌ An error occurred while trying to unban the user.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while trying to unban the user.", ephemeral=True)
 
     @app_commands.command(name="cases", description="View all cases for the server.")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
     async def cases(self, interaction: Interaction):
+        await interaction.response.defer(ephemeral=True)
         """View all cases for the server."""
         cases = get_cases_for_guild(mod_cursor, interaction.guild.id)
         if not cases:
-            return await interaction.response.send_message("No cases found for this server.", ephemeral=True)
+            return await interaction.followup.send("No cases found for this server.", ephemeral=True)
 
         embed = discord.Embed(title=f"Cases for {interaction.guild.name}", color=discord.Color.blue())
         # For cases (list of tuples)
@@ -236,17 +242,18 @@ class Moderator(commands.Cog):
                 inline=False
             )
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="case", description="View details of a specific case.")
     @app_commands.describe(case_id="The ID of the case to view")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
     async def case(self, interaction: Interaction, case_id: int):
+        await interaction.response.defer(ephemeral=True)
         """View details of a specific case."""
         case = get_case(mod_cursor, interaction.guild.id, case_id)
         if not case:
-            return await interaction.response.send_message(f"No case found with ID {case_id}.", ephemeral=True)
+            return await interaction.followup.send(f"No case found with ID {case_id}.", ephemeral=True)
 
         embed = discord.Embed(title=f"Case #{case[1]} Details", color=discord.Color.blue())
         embed.add_field(
@@ -258,20 +265,21 @@ class Moderator(commands.Cog):
                   f"Timestamp: <t:{case[7]}>",
             inline=False
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="deletecase", description="Delete a specific case.")
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(administrator=True)
     async def delete_case(self, interaction: Interaction, case_id: int):
+        await interaction.response.defer(ephemeral=True)
         """Delete a specific case."""
         case = get_case(mod_cursor, interaction.guild.id, case_id)
         if not case:
-            return await interaction.response.send_message(f"No case found with ID {case_id}.", ephemeral=True)
+            return await interaction.followup.send(f"No case found with ID {case_id}.", ephemeral=True)
 
         remove_case(mod_cursor, interaction.guild.id, case_id)
-        await interaction.response.send_message(f"✅ Case #{case_id} has been deleted.", ephemeral=True)
+        await interaction.followup.send(f"✅ Case #{case_id} has been deleted.", ephemeral=True)
     
     @app_commands.command(name="editcase", description="Edit the reason of a specific case.")
     @app_commands.describe(case_id="The ID of the case to edit", reason="The new reason for the case")
@@ -281,11 +289,11 @@ class Moderator(commands.Cog):
         """Edit the reason of a specific case."""
         case = get_case(mod_cursor, interaction.guild.id, case_id)
         if not case:
-            return await interaction.response.send_message(f"No case found with ID {case_id}.", ephemeral=True)
+            return await interaction.followup.send(f"No case found with ID {case_id}.", ephemeral=True)
         if not reason:
-            return await interaction.response.send_message("❌ You must provide a new reason for the case.", ephemeral=True)
+            return await interaction.followup.send("❌ You must provide a new reason for the case.", ephemeral=True)
         edit_case_reason(mod_cursor, interaction.guild.id, case_id, reason)
-        await interaction.response.send_message(f"✅ Case #{case_id} has been updated with new reason: {reason}", ephemeral=True)
+        await interaction.followup.send(f"✅ Case #{case_id} has been updated with new reason: {reason}", ephemeral=True)
             
 async def setup(bot):
     await bot.add_cog(Moderator(bot))

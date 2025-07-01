@@ -1,10 +1,9 @@
 import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform
+import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
 from config import cooldown
-import threading
 
 # Constants for dice limits
 MAX_DICE = 100
@@ -18,6 +17,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(10)
     async def ping(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         start_time = time.perf_counter()
         await interaction.response.defer()
         end_time = time.perf_counter()
@@ -33,6 +33,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="roll", description="Roll dice with advanced options (exploding, keep/drop, modifiers).")
     @cooldown(5)
     async def roll(self, interaction: discord.Interaction, dice: str):
+        await interaction.response.defer(ephemeral=True) # Deffer by default, take a WHILE.
         # Regex pattern for dice: Xd!Y, Xd!!Y, Xd!Y+Z, XdYkN, XdYdN, etc.
         pattern = re.compile(
             r"(?P<num>\d+)[dD](?P<explode>!?|!!|!\?)?(?P<sides>\d+)"
@@ -42,7 +43,7 @@ class Fun(commands.Cog):
         match = pattern.fullmatch(dice.replace(" ", ""))
 
         if not match:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ **Invalid format!** Use `XdY`, `Xd!Y`, `Xd!!Y`, `XdYkN`, `XdYdN`, `XdY+Z`, etc. Examples: `2d6`, `3d!10+5`, `4d8k2+3`, `5d6!!d2-1`.",
                 ephemeral=False
             )
@@ -55,7 +56,7 @@ class Fun(commands.Cog):
         modifiers = match.group("modifiers") or ""
 
         if num_dice > MAX_DICE or die_sides > MAX_SIDES:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ **Too many dice!** Limit: `{MAX_DICE}d{MAX_SIDES}`.",
                 ephemeral=False
             )
@@ -171,7 +172,7 @@ class Fun(commands.Cog):
                                 i += 2
                                 continue
                     except ValueError:
-                        await interaction.response.send_message(
+                        await interaction.followup.send(
                             "❌ **Invalid & modifier!** Must be an integer.",
                             ephemeral=False
                         )
@@ -182,7 +183,7 @@ class Fun(commands.Cog):
                         results = [r + flat_mod for r in results]
                         mod_details.append(f"All Rolls: `{flat_mod}`")
                     except ValueError:
-                        await interaction.response.send_message(
+                        await interaction.followup.send(
                             "❌ **Invalid modifier!** Modifiers must be integers.",
                             ephemeral=False
                         )
@@ -232,16 +233,17 @@ class Fun(commands.Cog):
             embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
             embed.add_field(name="🎯 Rolls", value=f"`{rolls_text}`", inline=True)
             embed.add_field(name="⚠️ Error", value="Embed content exceeded Discord's size limit. Ouput is in file", inline=False)
-            await interaction.response.send_message(embed=embed, file=discord.File(file))
+            await interaction.followup.send(embed=embed, file=discord.File(file))
         else:
             # Send the embed normally
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
     @cooldown(5)
     async def eight_ball(self, interaction: discord.Interaction, question: str):
+        await interaction.response.defer(ephemeral=True)
         if not question:
-            return await interaction.response.send_message("❌ **You must ask a question!**", ephemeral=True)
+            return await interaction.followup.send("❌ **I'm not a mind reader! Ask a question!**", ephemeral=True)
         
         # too little responses, blegh!
         # instead we asked chatgpt for a bajillion more!
@@ -290,16 +292,17 @@ class Fun(commands.Cog):
         embed = discord.Embed(title="🎱 Magic 8-Ball", color=0x3498db)
         embed.add_field(name="Question", value=f"`{question}`", inline=False)
         embed.add_field(name="Answer", value=f"`{answer}`", inline=False)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(20)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
+        await interaction.response.defer(ephemeral=True)
         if target == interaction.user:
-            return await interaction.response.send_message("❌ You can't hack yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You can't hack yourself!", ephemeral=True)
 
         # Simulate hacking process with an elaborate "animation" and rising percentage
-        message = await interaction.response.send_message(f"💻 Hacking {target.mention}... Please wait...")
+        message = await interaction.followup.send(f"💻 Hacking {target.mention}... Please wait...")
 
         steps = [
             "Bypassing firewall...",
@@ -327,6 +330,7 @@ class Fun(commands.Cog):
     
     @app_commands.command(name="info", description="Get information about the bot.")
     async def info_of_bot(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         bot = self.bot.user
         embed = discord.Embed(title=f"Bot Info: {bot.name}", color=0x3498db)
         embed.add_field(name="Bot ID", value=bot.id, inline=False)
@@ -335,12 +339,13 @@ class Fun(commands.Cog):
         embed.add_field(name="Commands", value=len(self.bot.commands), inline=True) # this displays 1, becuase well have to fucking hard code it!
         embed.set_thumbnail(url=bot.avatar.url if bot.avatar else None)
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     # stupid dum dum discord reserves bot_ for their own shit, don't do drugs kids!
     
     @app_commands.command(name="serverinfo", description="Get information about current server")
     @cooldown(5)
     async def serverinfo(self, interaction: discord.Interaction, hidden: bool = False):
+        await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         embed = discord.Embed(
             title=f"{guild.name} Info",
@@ -428,53 +433,55 @@ class Fun(commands.Cog):
 
         embed.set_footer(text=f"Requested by {user.name} ({user.id})")
 
-        await interaction.response.send_message(embed=embed, ephemeral=hidden)
+        await interaction.followup.send(embed=embed, ephemeral=hidden)
 
     
     @app_commands.command(name="letter", description="Generate a random letter.")
     @cooldown(5)
     async def letter(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         letter = random.choice("abcdefghijklmnopqrstuvwxyz")
         embed = discord.Embed(title="🔤 Random Letter", color=0x3498db)
         embed.add_field(name="Generated Letter", value=f"`{letter}`", inline=False)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="cat", description="Get a random cat image")
     @cooldown(5)
     async def cat(self, interaction: discord.Interaction):
-
+        await interaction.response.defer(ephemeral=True)
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
                 if resp.status != 200:
-                    await interaction.response.send_message("😿 Failed to fetch a cat image.", ephemeral=True)
+                    await interaction.followup.send("😿 Failed to fetch a cat image.", ephemeral=True)
                     return
                 data = await resp.json()
                 if not data or "url" not in data[0]:
-                    await interaction.response.send_message("😿 No cat image found.", ephemeral=True)
+                    await interaction.followup.send("😿 No cat image found.", ephemeral=True)
                     return
                 cat_url = data[0]["url"]
                 cat_id = data[0].get("id", "unknown")
                 embed = discord.Embed(title="🐱 Random Cat", color=0x3498db)
                 embed.set_image(url=cat_url)
                 embed.set_footer(text=f"Cat ID: {cat_id}")
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(5)
     async def dog(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         async with aiohttp.ClientSession() as session:
             async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
                 if resp.status != 200:
-                    await interaction.response.send_message("🐶 Failed to fetch a dog image.", ephemeral=True)
+                    await interaction.followup.send("🐶 Failed to fetch a dog image.", ephemeral=True)
                     return
                 data = await resp.json()
                 if "message" not in data or not data["message"]:
-                    await interaction.response.send_message("🐶 No dog image found.", ephemeral=True)
+                    await interaction.followup.send("🐶 No dog image found.", ephemeral=True)
                     return
                 dog_url = data["message"]
                 embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
                 embed.set_image(url=dog_url)
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
     
 
 async def setup(bot):
