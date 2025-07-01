@@ -17,8 +17,8 @@ class Fun(commands.Cog):
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(10)
     async def ping(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         start_time = time.perf_counter()
+        await interaction.response.defer(ephemeral=False)
         end_time = time.perf_counter()
         thinking_time = (end_time - start_time) * 1000
         latency = round(self.bot.latency * 1000, 2)
@@ -32,7 +32,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="roll", description="Roll dice with advanced options (exploding, keep/drop, modifiers).")
     @cooldown(5)
     async def roll(self, interaction: discord.Interaction, dice: str):
-        await interaction.response.defer(ephemeral=True) # Deffer by default, take a WHILE.
+        await interaction.response.defer(ephemeral=False) # Deffer by default, take a WHILE.
         # Regex pattern for dice: Xd!Y, Xd!!Y, Xd!Y+Z, XdYkN, XdYdN, etc.
         pattern = re.compile(
             r"(?P<num>\d+)[dD](?P<explode>!?|!!|!\?)?(?P<sides>\d+)"
@@ -240,7 +240,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
     @cooldown(5)
     async def eight_ball(self, interaction: discord.Interaction, question: str):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         if not question:
             return await interaction.followup.send("❌ **I'm not a mind reader! Ask a question!**", ephemeral=True)
         
@@ -296,7 +296,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(20)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         if target == interaction.user:
             return await interaction.followup.send("❌ You can't hack yourself!", ephemeral=True)
 
@@ -329,7 +329,7 @@ class Fun(commands.Cog):
     
     @app_commands.command(name="info", description="Get information about the bot.")
     async def info_of_bot(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         bot = self.bot.user
         embed = discord.Embed(title=f"Bot Info: {bot.name}", color=0x3498db)
         embed.add_field(name="Bot ID", value=bot.id, inline=False)
@@ -344,7 +344,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="serverinfo", description="Get information about current server")
     @cooldown(5)
     async def serverinfo(self, interaction: discord.Interaction, hidden: bool = False):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         guild = interaction.guild
         embed = discord.Embed(
             title=f"{guild.name} Info",
@@ -438,7 +438,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="letter", description="Generate a random letter.")
     @cooldown(5)
     async def letter(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         letter = random.choice("abcdefghijklmnopqrstuvwxyz")
         embed = discord.Embed(title="🔤 Random Letter", color=0x3498db)
         embed.add_field(name="Generated Letter", value=f"`{letter}`", inline=False)
@@ -447,7 +447,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="cat", description="Get a random cat image")
     @cooldown(5)
     async def cat(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
                 if resp.status != 200:
@@ -467,7 +467,7 @@ class Fun(commands.Cog):
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(5)
     async def dog(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         async with aiohttp.ClientSession() as session:
             async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
                 if resp.status != 200:

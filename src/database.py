@@ -87,22 +87,20 @@ CREATE TABLE IF NOT EXISTS user_items (
 # Commit table creations
 econ_conn.commit()
 
-mod_cursor.execute("""
-CREATE TABLE IF NOT EXISTS cases (
-    guild_id INTEGER NOT NULL,
-    case_number INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    username TEXT NOT NULL,
-    reason TEXT,
-    action_type TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    moderator_id INTEGER NOT NULL,
-    expiry INTEGER DEFAULT 0,
-    PRIMARY KEY (guild_id, case_number)
-);
+def ensure_guild_case_table(cur, guild_id):
+    table_name = f"cases_{guild_id}"
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+            case_number INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            reason TEXT,
+            action_type TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            moderator_id INTEGER NOT NULL,
+            expiry INTEGER DEFAULT 0
+    );
 """)
-
-mod_conn.commit()
 
 # continue this dumbassery with the mod tables now. am i going insane?
 # extremely.
@@ -351,70 +349,95 @@ def decrement_gun_use(victim_id):
 # unfortunately the automatic creation of tables per server is not an sql function, so we'll simulate with python code.
 @log_mod_call
 def insert_case(mod_cursor, guild_id, user_id, username, reason, action_type, moderator_id, timestamp=None, expiry=0):
-    cur = mod_cursor
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
     if timestamp is None:
         timestamp = int(time.time())
-    cur.execute(
-        "SELECT COALESCE(MAX(case_number) + 1, 1) FROM cases WHERE guild_id = ?",
-        (guild_id,)
+    mod_cursor.execute(
+        f"""
+        INSERT INTO {table_name} (user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (user_id, username, reason, action_type, timestamp, moderator_id, expiry)
     )
-    next_case = cur.fetchone()[0]
-    cur.execute("""
-        INSERT INTO cases (guild_id, case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (guild_id, next_case, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
     mod_conn.commit()
-    return next_case
+    # Optionally, get the last inserted case_number:
+    mod_cursor.execute(f"SELECT last_insert_rowid()")
+    return mod_cursor.fetchone()[0]
 
 @log_mod_call
 def get_cases_for_guild(mod_cursor, guild_id, limit=50, offset=0):
-    cur = mod_cursor
-    cur.execute("""
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
+    mod_cursor.execute(
+        f"""
         SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id
-        FROM cases WHERE guild_id = ?
+        FROM {table_name}
         ORDER BY case_number DESC
         LIMIT ? OFFSET ?
-    """, (guild_id, limit, offset))
-    return cur.fetchall()
+        """,
+        (limit, offset)
+    )
+    return mod_cursor.fetchall()
 
 @log_mod_call
 def get_cases_for_user(mod_cursor, guild_id, user_id):
-    cur = mod_cursor
-    cur.execute("""
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
+    mod_cursor.execute(
+        f"""
         SELECT case_number, reason, action_type, timestamp, moderator_id
-        FROM cases WHERE guild_id = ? AND user_id = ?
+        FROM {table_name} WHERE user_id = ?
         ORDER BY case_number DESC
-    """, (guild_id, user_id))
-    return cur.fetchall()
+        """,
+        (user_id,)
+    )
+    return mod_cursor.fetchall()
 
 @log_mod_call
 def get_case(mod_cursor, guild_id, case_number):
-    cur = mod_cursor
-    cur.execute("""
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
+    mod_cursor.execute(
+        f"""
         SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id
-        FROM cases WHERE guild_id = ? AND case_number = ?
-    """, (guild_id, case_number))
-    return cur.fetchone()
+        FROM {table_name} WHERE case_number = ?
+        """,
+        (case_number,)
+    )
+    return mod_cursor.fetchone()
 
 @log_mod_call
 def remove_case(mod_cursor, guild_id, case_number):
-    cur = mod_cursor
-    cur.execute("DELETE FROM cases WHERE guild_id = ? AND case_number = ?", (guild_id, case_number))
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
+    mod_cursor.execute(
+        f"DELETE FROM {table_name} WHERE case_number = ?",
+        (case_number,)
+    )
     mod_conn.commit()
 
 @log_mod_call
 def edit_case_reason(mod_cursor, guild_id, case_number, new_reason):
-    cur = mod_cursor
-    cur.execute("UPDATE cases SET reason = ? WHERE guild_id = ? AND case_number = ?", (new_reason, guild_id, case_number))
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
+    mod_cursor.execute(
+        f"UPDATE {table_name} SET reason = ? WHERE case_number = ?",
+        (new_reason, case_number)
+    )
     mod_conn.commit()
 
-@log_mod_call
-def get_expired_cases(mod_cursor, action_type, now=None):
+# Do not log becuase it spams terminal like hell
+def get_expired_cases(mod_cursor, guild_id, action_type, now=None):
+    table_name = f"cases_{guild_id}"
+    ensure_guild_case_table(mod_cursor, guild_id)
     if now is None:
         now = int(time.time())
-    cur = mod_cursor
-    cur.execute("""
-        SELECT guild_id, user_id, case_number FROM cases
+    mod_cursor.execute(
+        f"""
+        SELECT case_number, user_id FROM {table_name}
         WHERE action_type = ? AND expiry > 0 AND expiry <= ?
-    """, (action_type, now))
-    return cur.fetchall()
+        """,
+        (action_type, now)
+    )
+    return mod_cursor.fetchall()

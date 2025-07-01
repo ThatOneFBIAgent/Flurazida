@@ -13,7 +13,7 @@ class Gambling(commands.Cog):
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
     @cooldown(8)
     async def slots(self, interaction: discord.Interaction, bet: int):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
@@ -102,7 +102,7 @@ class Gambling(commands.Cog):
     @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
     @cooldown(8)
     async def roulette(self, interaction: discord.Interaction, bet: int, choice: str):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
@@ -154,7 +154,7 @@ class Gambling(commands.Cog):
     @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
     @cooldown(20)
     async def blackjack(self, interaction: discord.Interaction, bet: int):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:

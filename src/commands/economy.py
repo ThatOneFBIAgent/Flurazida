@@ -13,7 +13,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
     @cooldown(600) # 600s = 10 minutes, stop the stinky rats from draining people.
     async def rob(self, interaction: discord.Interaction, target: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         target_id = target.id
 
@@ -77,7 +77,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="crime", description="Commit a crime for cash. Risky!")
     @cooldown(8)
     async def crime(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
@@ -108,7 +108,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="slut", description="Do some... work for quick cash.")
     @cooldown(10) # Horny bastards.
     async def slut(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
@@ -137,7 +137,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
     @cooldown(4)
     async def work(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
@@ -174,7 +174,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="inventory", description="Check your inventory")
     @cooldown(4)
     async def inventory(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
@@ -192,7 +192,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="transfer", description="Give money to another user")
     @cooldown(6) # Should mitigate some db spam since it makes 6 instances.. for some reason?
     async def transfer(self, interaction: discord.Interaction, target: discord.Member, amount: int):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         target_id = target.id
 
@@ -220,7 +220,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="give", description="Give an item (or items) to another user")
     @cooldown(10)
     async def give(self, interaction: discord.Interaction, target: discord.Member, item_id: int, amount: int):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         target_id = target.id
 

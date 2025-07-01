@@ -177,33 +177,35 @@ async def unmute_task(self):
     await bot.wait_until_ready()
     while not bot.is_closed():
         now = int(time.time())
-        expired_mutes = get_expired_cases(mod_cursor, "mute", now)
-        for guild_id, user_id in expired_mutes:
-            guild = self.bot.get_guild(guild_id)
-            if guild:
-                member = guild.get_member(user_id)
-                mute_role = discord.utils.get(guild.roles, name="Muted")
-                if member and mute_role:
-                    try:
-                        await member.remove_roles(mute_role, reason="Mute duration expired")
-                    except Exception as e:
-                        logging.error(f"Failed to unmute {member}: {e}")
+        for guild in bot.guilds:
+            expired_mutes = get_expired_cases(mod_cursor, guild.id, "mute", now)
+            for case_number, user_id in expired_mutes:
+                guild_obj = bot.get_guild(guild.id)
+                if guild_obj:
+                    member = guild_obj.get_member(user_id)
+                    mute_role = discord.utils.get(guild_obj.roles, name="Muted")
+                    if member and mute_role:
+                        try:
+                            await member.remove_roles(mute_role, reason="Mute duration expired")
+                        except Exception as e:
+                            logging.error(f"Failed to unmute {member}: {e}")
         await asyncio.sleep(60)
 
 async def unban_task(self):
-        await bot.wait_until_ready()
-        while not bot.is_closed():
-            now = int(time.time())
-            expired_bans = get_expired_cases(mod_cursor, "ban", now)
-            for guild_id, user_id in expired_bans:
-                guild = self.bot.get_guild(guild_id)
-                if guild:
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = int(time.time())
+        for guild in bot.guilds:
+            expired_bans = get_expired_cases(mod_cursor, guild.id, "ban", now)
+            for case_number, user_id in expired_bans:
+                guild_obj = bot.get_guild(guild.id)
+                if guild_obj:
                     try:
-                        user = await self.bot.fetch_user(user_id)
-                        await guild.unban(user, reason="Temporary ban expired")
+                        user = await bot.fetch_user(user_id)
+                        await guild_obj.unban(user, reason="Temporary ban expired")
                     except Exception as e:
-                        logging.error(f"Failed to unban {user_id} in {guild_id}: {e}")
-            await asyncio.sleep(60)
+                        logging.error(f"Failed to unban {user_id} in {guild.id}: {e}")
+        await asyncio.sleep(60)
 
 async def main():
     async with bot:
