@@ -17,7 +17,7 @@ class Gambling(commands.Cog):
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=False)
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         symbols = ["🍒", "🍋", "🍉", "⭐", "🍌", "🍑", "🥭", "7️⃣", "🗿"]
         empty = "<:empty:1388238752295555162>"  # Replace with your actual :empty: emoji ID
@@ -29,14 +29,14 @@ class Gambling(commands.Cog):
 
         # Animation setup: all reels start spinning
         spin_time = [2.5, 3.6, 4.5]  # seconds for each reel to stop
-        interval = 0.38 # Less spammy, lower = faster updates
+        interval = 0.38 # Less spammy, lower = faster updates but risks rate limit
         elapsed = 0
         start_time = asyncio.get_event_loop().time()
         stopped = [False, False, False]
         current = [[random.choice(symbols) for _ in range(3)] for _ in range(3)]  # 3 rows
 
         embed = discord.Embed(title="Slot Machine", color=0xFFD700)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         msg = await interaction.original_response()
 
         while not all(stopped):
@@ -106,7 +106,7 @@ class Gambling(commands.Cog):
         user_id = interaction.user.id
         balance = get_balance(user_id)
         if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=False)
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         wheel_numbers = list(range(0, 37))  # 0-36
 
@@ -118,7 +118,7 @@ class Gambling(commands.Cog):
             description="🎡 Spinning the wheel...",
             color=0xFF4500
         )
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         msg = await interaction.original_response()
 
         for i, num in enumerate(fake_spins):
@@ -187,7 +187,7 @@ class Gambling(commands.Cog):
             ),
             color=0x008000
         )
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False)
         message = await interaction.original_response()
 
         # Player turn loop
@@ -227,10 +227,10 @@ class Gambling(commands.Cog):
         if timed_out:
             embed = discord.Embed(
                 title="🃏 Blackjack",
-                description="⏰ **Timed out! Game cancelled.**",
+                description=f"⏰ **Floor! Clock on {interaction.user}.** (Timed out)",
                 color=0xFF0000
             )
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         player_val = hand_value(player)
@@ -263,7 +263,7 @@ class Gambling(commands.Cog):
             ),
             color=0x008000
         )
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
 async def setup(bot):
     await bot.add_cog(Gambling(bot))

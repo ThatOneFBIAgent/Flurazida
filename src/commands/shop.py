@@ -83,7 +83,7 @@ class ShopView(discord.ui.View):
                 success = buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"])
                 if success:
                     await modal_interaction.response.send_message(
-                        f"✅ **You bought {item_data['name']} for {item_data['price']} coins!**", ephemeral=False
+                        f"✅ **@{interaction.user.mention} bought {item_data['name']} for {item_data['price']} coins!**", ephemeral=False
                     )
                 else:
                     await modal_interaction.response.send_message(

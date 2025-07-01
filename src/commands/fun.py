@@ -19,7 +19,6 @@ class Fun(commands.Cog):
     async def ping(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         start_time = time.perf_counter()
-        await interaction.response.defer()
         end_time = time.perf_counter()
         thinking_time = (end_time - start_time) * 1000
         latency = round(self.bot.latency * 1000, 2)
@@ -27,7 +26,7 @@ class Fun(commands.Cog):
         embed = discord.Embed(title="🏓 Pong!", color=0x00FF00)
         embed.add_field(name="📡 API Latency", value=f"`{latency}ms`", inline=True)
         embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f}ms`", inline=True)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     # 🎲 ADVANCED DICE ROLLER 🎲
     @app_commands.command(name="roll", description="Roll dice with advanced options (exploding, keep/drop, modifiers).")
@@ -233,10 +232,10 @@ class Fun(commands.Cog):
             embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
             embed.add_field(name="🎯 Rolls", value=f"`{rolls_text}`", inline=True)
             embed.add_field(name="⚠️ Error", value="Embed content exceeded Discord's size limit. Ouput is in file", inline=False)
-            await interaction.followup.send(embed=embed, file=discord.File(file))
+            await interaction.followup.send(embed=embed, file=discord.File(file), ephemeral=False)
         else:
             # Send the embed normally
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
     @cooldown(5)
@@ -292,7 +291,7 @@ class Fun(commands.Cog):
         embed = discord.Embed(title="🎱 Magic 8-Ball", color=0x3498db)
         embed.add_field(name="Question", value=f"`{question}`", inline=False)
         embed.add_field(name="Answer", value=f"`{answer}`", inline=False)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(20)
@@ -302,7 +301,7 @@ class Fun(commands.Cog):
             return await interaction.followup.send("❌ You can't hack yourself!", ephemeral=True)
 
         # Simulate hacking process with an elaborate "animation" and rising percentage
-        message = await interaction.followup.send(f"💻 Hacking {target.mention}... Please wait...")
+        message = await interaction.followup.send(f"💻 Hacking {target.mention}... Please wait...", ephemeral=False)
 
         steps = [
             "Bypassing firewall...",
@@ -336,11 +335,11 @@ class Fun(commands.Cog):
         embed.add_field(name="Bot ID", value=bot.id, inline=False)
         embed.add_field(name="Created By", value=f"Iza Carlos (_izacarlos)", inline=True)
         embed.add_field(name="Created At", value=bot.created_at.strftime("%Y-%m-%d %H:%M:%S"), inline=False)
-        embed.add_field(name="Commands", value=len(self.bot.commands), inline=True) # this displays 1, becuase well have to fucking hard code it!
+        embed.add_field(name="Commands", value=len(self.bot.tree.get_commands()), inline=True) # shows the correct number of slash commands
         embed.set_thumbnail(url=bot.avatar.url if bot.avatar else None)
 
-        await interaction.followup.send(embed=embed)
-    # stupid dum dum discord reserves bot_ for their own shit, don't do drugs kids!
+        await interaction.followup.send(embed=embed, ephemeral=False)
+    # stupid dum dum discord reserves bot_ for their own shit, i'm angry
     
     @app_commands.command(name="serverinfo", description="Get information about current server")
     @cooldown(5)
@@ -443,7 +442,7 @@ class Fun(commands.Cog):
         letter = random.choice("abcdefghijklmnopqrstuvwxyz")
         embed = discord.Embed(title="🔤 Random Letter", color=0x3498db)
         embed.add_field(name="Generated Letter", value=f"`{letter}`", inline=False)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=False) # What are we letter-gatekeeping now?
 
     @app_commands.command(name="cat", description="Get a random cat image")
     @cooldown(5)
@@ -463,7 +462,7 @@ class Fun(commands.Cog):
                 embed = discord.Embed(title="🐱 Random Cat", color=0x3498db)
                 embed.set_image(url=cat_url)
                 embed.set_footer(text=f"Cat ID: {cat_id}")
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(5)
@@ -481,7 +480,7 @@ class Fun(commands.Cog):
                 dog_url = data["message"]
                 embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
                 embed.set_image(url=dog_url)
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, ephemeral=False)
     
 
 async def setup(bot):

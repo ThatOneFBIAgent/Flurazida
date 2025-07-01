@@ -47,6 +47,7 @@ def cooldown(seconds: int):
             if user_id in _user_cooldowns:
                 elapsed = now - _user_cooldowns[user_id]
                 if elapsed < seconds:
+                    print(f"Cooldown triggered for user {user_id}")
                     await interaction.response.send_message(
                         f"🕒 You're on cooldown! Try again in {round(seconds - elapsed, 1)}s.",
                         ephemeral=True

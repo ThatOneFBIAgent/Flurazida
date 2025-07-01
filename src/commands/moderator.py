@@ -81,7 +81,7 @@ class Moderator(commands.Cog):
                 insert_case(
                     mod_cursor, interaction.guild.id, user.id, user.name, reason, "mute", interaction.user.id, int(time.time())
                 )
-            await interaction.followup.send(f"✅ **{user.mention} has been muted for {duration}**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been muted for {duration}**", ephemeral=False)
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to mute this user!", ephemeral=True)
         except Exception as e:
@@ -113,7 +113,7 @@ class Moderator(commands.Cog):
         try:
             await user.remove_roles(mute_role, reason="Unmuted by command")
             # do not remove cases, as they are permanent records.
-            await interaction.followup.send(f"✅ **{user.mention} has been unmuted**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been unmuted**", ephemeral=False)
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to unmute this user!", ephemeral=True)
         except Exception as e:
@@ -144,7 +144,7 @@ class Moderator(commands.Cog):
         try:
             await user.kick(reason=reason)
             insert_case(mod_cursor, interaction.guild.id, user.id, user.name, reason, "kick", interaction.user.id, int(time.time()))
-            await interaction.followup.send(f"✅ **{user.mention} has been kicked**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been kicked**", ephemeral=False)
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to kick this user!", ephemeral=True)
         except Exception as e:
@@ -190,7 +190,7 @@ class Moderator(commands.Cog):
                 mod_cursor, interaction.guild.id, user.id, user.name, reason, "ban", interaction.user.id, int(time.time()), expiry=expiry_time
                 )
             await interaction.followup.send(
-                f"✅ **{user.mention} has been banned for {duration if duration_seconds > 0 else 'permanently'}**", ephemeral=True
+                f"✅ **{user.mention} has been banned for {duration if duration_seconds > 0 else 'permanently'}**", ephemeral=False
                 )
         except discord.Forbidden:
                 await interaction.followup.send("❌ I do not have permission to ban this user!", ephemeral=True)
@@ -212,7 +212,7 @@ class Moderator(commands.Cog):
             user = await self.bot.fetch_user(user_id)
             await interaction.guild.unban(user, reason=reason)
             insert_case(mod_cursor, interaction.guild.id, user.id, user.name, reason, "unban", interaction.user.id, int(time.time()))
-            await interaction.followup.send(f"✅ **{user.mention} has been unbanned**", ephemeral=True)
+            await interaction.followup.send(f"✅ **{user.mention} has been unbanned**", ephemeral=False)
         except discord.NotFound:
             await interaction.followup.send("❌ User not found or not banned.", ephemeral=True)
         except discord.Forbidden:
@@ -221,28 +221,69 @@ class Moderator(commands.Cog):
             logging.error(f"Error unbanning user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to unban the user.", ephemeral=True)
 
-    @app_commands.command(name="cases", description="View all cases for the server.")
+    @app_commands.command(name="cases", description="View all cases for the server with pagination.")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
     async def cases(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
-        """View all cases for the server."""
+        """View all cases for the server with pagination."""
         cases = get_cases_for_guild(mod_cursor, interaction.guild.id)
         if not cases:
             return await interaction.followup.send("No cases found for this server.", ephemeral=True)
 
-        embed = discord.Embed(title=f"Cases for {interaction.guild.name}", color=discord.Color.blue())
-        # For cases (list of tuples)
-        for case in cases:
-            embed.add_field(
-                name=f"Case #{case[1]}",  # case_number
-                value=f"User: <@{case[2]}>\n"  # user_id
-                      f"Type: {case[5].capitalize()}\n"  # action_type
-                      f"Reason: {case[4]}\n",  # reason
-                inline=False
+        CASES_PER_PAGE = 10
+
+        def get_page(page):
+            embed = discord.Embed(
+                title=f"Cases for {interaction.guild.name} (Page {page+1}/{(len(cases)-1)//CASES_PER_PAGE+1})",
+                color=discord.Color.blue()
             )
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            start = page * CASES_PER_PAGE
+            end = start + CASES_PER_PAGE
+            for case in cases[start:end]:
+                embed.add_field(
+                    name=f"Case #{case[1]}",
+                    value=f"User: <@{case[2]}>\n"
+                          f"Type: {case[5].capitalize()}\n"
+                          f"Reason: {case[4]}\n",
+                    inline=False
+                )
+            return embed
+
+        class CasePaginator(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=120)
+                self.page = 0
+                self.max_page = (len(cases) - 1) // CASES_PER_PAGE
+
+            @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, disabled=True)
+            async def previous(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                self.page -= 1
+                if self.page == 0:
+                    self.previous.disabled = True
+                self.next.disabled = False
+                await interaction_btn.response.edit_message(embed=get_page(self.page), view=self)
+
+            @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, disabled=(len(cases) <= CASES_PER_PAGE))
+            async def next(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                self.page += 1
+                if self.page == self.max_page:
+                    self.next.disabled = True
+                self.previous.disabled = False
+                await interaction_btn.response.edit_message(embed=get_page(self.page), view=self)
+
+            async def on_timeout(self):
+                for item in self.children:
+                    item.disabled = True
+                # Try to edit the message to disable buttons
+                try:
+                    await self.message.edit(view=self)
+                except Exception:
+                    pass
+
+        view = CasePaginator()
+        msg = await interaction.followup.send(embed=get_page(0), view=view, ephemeral=False)
+        view.message = msg
 
     @app_commands.command(name="case", description="View details of a specific case.")
     @app_commands.describe(case_id="The ID of the case to view")
@@ -265,7 +306,7 @@ class Moderator(commands.Cog):
                   f"Timestamp: <t:{case[7]}>",
             inline=False
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="deletecase", description="Delete a specific case.")
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
