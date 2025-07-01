@@ -24,8 +24,8 @@ def get_bot_stats():
     return {
         "Memory (RSS)": f"{mem.rss / (1024 ** 2):.2f} MB",  # Convert to MB
         "CPU Usage": f"{cpu:.2f}%",
-        "Disk Read": f"{disk.read_bytes / (1024 ** 2):.2f} MB",  # Convert to MB
-        "Disk Write": f"{disk.write_bytes / (1024 ** 2):.2f} MB"  # Convert to MB
+        "Disk Read (TOTAL)": f"{disk.read_bytes / (1024 ** 2):.2f} MB",  # Convert to MB
+        "Disk Write (TOTAL)": f"{disk.write_bytes / (1024 ** 2):.2f} MB"  # Convert to MB
     }
 
 
@@ -58,13 +58,17 @@ class Main(commands.Bot):
                 if cog_path in self.extensions:
                     await self.reload_extension(cog_path)
                     await interaction.response.send_message(f"🔁 Reloaded `{cog_name}` successfully.", ephemeral=True)
+                    print(f"Reloaded cog: {cog_name}")
                 else:
                     await self.load_extension(cog_path)
                     await interaction.response.send_message(f"📥 Loaded new cog `{cog_name}` successfully.", ephemeral=True)
+                    print(f"Loaded new cog: {cog_name}")
             except commands.NoEntryPointError:
                 await interaction.response.send_message(f"❌ Cog `{cog_name}` is missing a `setup()` function.", ephemeral=True)
+                print(f"Failed to load cog: {cog_name} - No setup function found. Maybe add `async def setup(bot): await bot.add_cog(CogName(bot))` in the cog file?")
             except commands.ExtensionFailed as e:
                 await interaction.response.send_message(f"❌ Failed to load `{cog_name}`: {e}", ephemeral=True)
+                print(f"Failed to load cog: {cog_name} - {e}")
 
         self.tree.add_command(app_commands.Command(
             name="reload",
@@ -116,6 +120,9 @@ activities = [
     discord.Activity(type=discord.ActivityType.listening, name="to lab goggles fog up"),
     discord.Activity(type=discord.ActivityType.listening, name="to theoretical screams"),
     discord.Activity(type=discord.ActivityType.listening, name="to periodic table diss tracks"),
+    discord.Activity(type=discord.ActivityType.listening, name="to the sound of atoms bonding"),
+    discord.Activity(type=discord.ActivityType.listening, name="to the sound of a lab explosion"),
+    discord.Activity(type=discord.ActivityType.listening, name="to the sound of a chemical spill"),
 
     #  Watching
     discord.Activity(type=discord.ActivityType.watching, name="chemical reactions"),
@@ -131,15 +138,14 @@ activities = [
     discord.Activity(type=discord.ActivityType.watching, name="moles commit tax fraud"),
     discord.Activity(type=discord.ActivityType.watching, name="the periodic table change"),
     discord.Activity(type=discord.ActivityType.watching, name="the lab explode"),
+    discord.Activity(type=discord.ActivityType.watching, name="the universe expand"),
+    discord.Activity(type=discord.ActivityType.watching, name="the chemical bonds break"),
+    discord.Activity(type=discord.ActivityType.watching, name="the lab rats escape"),
+    discord.Activity(type=discord.ActivityType.watching, name="the lab spontaneously combust"),
 ]
 
 @bot.event
 async def on_ready():
-    # Pick a random activity
-    activity = random.choice(activities)
-    # Optionally, set status to mobile (fake it by using 'idle' or 'dnd', true "mobile" is not officially supported)
-    status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-    await bot.change_presence(activity=activity, status=status)
     await bot.tree.sync()
     print("Commands synced!")
 
@@ -153,7 +159,6 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
         raise CheckFailure("Forbidden guild")
     return True
 
-# Run the bot
 async def resource_monitor():
     await bot.wait_until_ready()
     while not bot.is_closed():
@@ -211,6 +216,7 @@ async def unmute_task(self):
                             await member.remove_roles(mute_role, reason="Mute duration expired")
                         except Exception as e:
                             logging.error(f"Failed to unmute {member}: {e}")
+        logging.info(f"Unban task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
         await asyncio.sleep(60)
 
 async def unban_task(self):
@@ -227,15 +233,18 @@ async def unban_task(self):
                         await guild_obj.unban(user, reason="Temporary ban expired")
                     except Exception as e:
                         logging.error(f"Failed to unban {user_id} in {guild.id}: {e}")
+        logging.info(f"Unban task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
         await asyncio.sleep(60)
 
 async def main():
     async with bot:
-        asyncio.create_task(resource_monitor())
-        asyncio.create_task(cycle_paired_activities())
-        asyncio.create_task(unmute_task(bot))
-        asyncio.create_task(unban_task(bot))
-        bot.tree.interaction_check = global_blacklist_check
-        await bot.start(config.BOT_TOKEN)
+        asyncio.create_task(resource_monitor()) # Monitors resources
+        asyncio.create_task(cycle_paired_activities()) # Appens & cycles activities
+        asyncio.create_task(unmute_task(bot)) # Unmutes users after mute duration expires
+        asyncio.create_task(unban_task(bot)) # Unbans users after ban duration expires
+        bot.tree.interaction_check = global_blacklist_check # Global blacklist check for guilds from config.py
+        await bot.start(config.BOT_TOKEN) # Starts the bot with the token from config.py
 
+# Run the bot
 asyncio.run(main())
+# the coconut.png of the bot

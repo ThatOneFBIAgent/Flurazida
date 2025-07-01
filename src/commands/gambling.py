@@ -264,6 +264,35 @@ class Gambling(commands.Cog):
             color=0x008000
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
+    
+    @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
+    @cooldown(5)
+    async def coinflip(self, interaction: discord.Interaction, bet: int, guess: str):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        balance = get_balance(user_id)
+        if bet <= 0 or bet > balance:
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
+
+        if guess.lower() not in ["heads", "tails"]:
+            return await interaction.followup.send("❌ Invalid guess! Choose 'heads' or 'tails'.", ephemeral=True)
+
+        result = random.choice(["heads", "tails"])
+        winnings = bet * 2 if guess.lower() == result else -bet
+        update_balance(user_id, winnings)
+
+        embed = discord.Embed(
+            title="🪙 Coin Flip",
+            description=f"**You guessed:** {guess.capitalize()}\n**Result:** {result.capitalize()}\n",
+            color=0xFFD700
+        )
+        
+        if winnings > 0:
+            embed.description += f"✨ **You won `{winnings}` coins!** ✨"
+        else:
+            embed.description += "💀 **You lost your bet...**"
+
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
 async def setup(bot):
     await bot.add_cog(Gambling(bot))
