@@ -164,14 +164,36 @@ async def resource_monitor():
 async def cycle_paired_activities():
     await bot.wait_until_ready()
     while not bot.is_closed():
-        game = random.choice([a for a in activities if isinstance(a, discord.Game)])
-        listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-        # Combine their names for a fun effect
-        combined_name = f"{game.name} & listening {listening.name}"
-        combined_activity = discord.Game(combined_name)
-        status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-        await bot.change_presence(activity=combined_activity, status=status)
-        await asyncio.sleep(600)  # 10 minutes
+        chance = random.randint(1, 4)
+        if chance == 1:
+            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
+            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
+            combined_name = f"{game.name} & listening {listening.name}"
+            combined_activity = discord.Game(combined_name)
+            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
+            await bot.change_presence(activity=combined_activity, status=status)
+        elif chance == 2:
+            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
+            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
+            combined_name = f"{watching.name} & listening {listening.name}"
+            combined_activity = discord.Watching(combined_name)
+            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
+            await bot.change_presence(activity=combined_activity, status=status)
+        elif chance == 3:
+            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
+            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
+            combined_name = f"{game.name} & watching {watching.name}"
+            combined_activity = discord.Game(combined_name)
+            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
+            await bot.change_presence(activity=combined_activity, status=status)
+        elif chance == 4:
+            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
+            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
+            combined_name = f"listening {listening.name} & watching {watching.name}"
+            combined_activity = discord.Activity(type=discord.ActivityType.listening, name=combined_name)
+            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
+            await bot.change_presence(activity=combined_activity, status=status)
+        await asyncio.sleep(300)  # 5 minutes
 
 async def unmute_task(self):
     await bot.wait_until_ready()
