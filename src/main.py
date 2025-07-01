@@ -167,7 +167,7 @@ async def cycle_paired_activities():
         game = random.choice([a for a in activities if isinstance(a, discord.Game)])
         listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
         # Combine their names for a fun effect
-        combined_name = f"{game.name} & {listening.name}"
+        combined_name = f"{game.name} & listening {listening.name}"
         combined_activity = discord.Game(combined_name)
         status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
         await bot.change_presence(activity=combined_activity, status=status)
