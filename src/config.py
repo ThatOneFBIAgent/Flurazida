@@ -8,8 +8,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_OWNER = 853154444850364417
 FORBIDDEN_GUILDS = {
     1368777209375883405: {"reason": "Have fun with cat bot"},
-    1375886954889085088: {"reason": "N/a"},
-    1388026848973291591: {"reason": "This server has been blocked due to ongoing internal testing"},
+    1375886954889085088: {"reason": "N/a"}
 }
 
 # look at the dumma code in main.py for the rest of the config
