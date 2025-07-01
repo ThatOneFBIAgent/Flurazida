@@ -1,5 +1,5 @@
 import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading
+import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
@@ -13,7 +13,7 @@ class Fun(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # 🏓 PING COMMAND 🏓
+    # table tennis?
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(10)
     async def ping(self, interaction: discord.Interaction):
@@ -28,7 +28,7 @@ class Fun(commands.Cog):
         embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f}ms`", inline=True)
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # 🎲 ADVANCED DICE ROLLER 🎲
+    # the bane of my existance
     @app_commands.command(name="roll", description="Roll dice with advanced options (exploding, keep/drop, modifiers).")
     @cooldown(5)
     async def roll(self, interaction: discord.Interaction, dice: str):
@@ -222,19 +222,28 @@ class Fun(commands.Cog):
         embed.add_field(name="✨ Modifiers", value=f"`{mod_text}`", inline=True)
         embed.add_field(name="🏆 Final Result", value=f"`{final_text}`", inline=False)
 
-        # Validate embed size to ensure it doesn't exceed Discord's limits
-        total_length = sum(len(field.value) for field in embed.fields) + len(embed.title or "") + len(embed.description or "")
-        if total_length > 6000:
+        # Truncate field values if they exceed Discord's per-field limit
+        
+
+        # Check if any field is too long or total embed is too large
+        fields_too_long = any(len(field.value) > 1024 for field in embed.fields)
+        total_embed_length = (
+            len(embed.title or "") +
+            len(embed.description or "") +
+            sum(len(field.name or "") + len(field.value or "") for field in embed.fields) +
+            len(embed.footer.text or "") if embed.footer else 0
+        )
+        too_long = fields_too_long or total_embed_length > 6000
+        
+        if too_long:
             # Output to file instead, but show error for final result
-            embed.clear_fields()
-            file = io.BytesIO(embed.to_dict().encode('utf-8'))
+            file = io.BytesIO(json.dumps(embed.to_dict(), indent=2).encode('utf-8'))
             file.name = "dice_roll_embed.json"
-            embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
-            embed.add_field(name="🎯 Rolls", value=f"`{rolls_text}`", inline=True)
-            embed.add_field(name="⚠️ Error", value="Embed content exceeded Discord's size limit. Ouput is in file", inline=False)
-            await interaction.followup.send(embed=embed, file=discord.File(file), ephemeral=False)
+            error_embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
+            error_embed.add_field(name="⚠️ Error", value="Embed content exceeded Discord's size limit. Output is in file", inline=False)
+            await interaction.followup.send(embed=error_embed, file=discord.File(file, filename="dice_roll_embed.json"), ephemeral=False)
+            file.close()
         else:
-            # Send the embed normally
             await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")

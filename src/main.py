@@ -216,7 +216,7 @@ async def unmute_task(self):
                             await member.remove_roles(mute_role, reason="Mute duration expired")
                         except Exception as e:
                             logging.error(f"Failed to unmute {member}: {e}")
-        logging.info(f"Unban task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
+        logging.info(f"Unmute task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
         await asyncio.sleep(60)
 
 async def unban_task(self):
