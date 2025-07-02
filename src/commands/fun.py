@@ -221,6 +221,7 @@ class Fun(commands.Cog):
         embed.add_field(name="🎯 Rolls", value=f"`{rolls_text}`", inline=True)
         embed.add_field(name="✨ Modifiers", value=f"`{mod_text}`", inline=True)
         embed.add_field(name="🏆 Final Result", value=f"`{final_text}`", inline=False)
+        embed.set_footer(text=f"Dice rolled: {dice}")
 
         # Truncate field values if they exceed Discord's per-field limit
         
@@ -241,6 +242,7 @@ class Fun(commands.Cog):
             file.name = "dice_roll_embed.json"
             error_embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
             error_embed.add_field(name="⚠️ Error", value="Embed content exceeded Discord's size limit. Output is in file", inline=False)
+            error_embed.set_footer(text=f"Dice rolled: {dice}")
             await interaction.followup.send(embed=error_embed, file=discord.File(file, filename="dice_roll_embed.json"), ephemeral=False)
             file.close()
         else:
@@ -490,6 +492,69 @@ class Fun(commands.Cog):
                 embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
                 embed.set_image(url=dog_url)
                 await interaction.followup.send(embed=embed, ephemeral=False)
+
+    @app_commands.command(name="help", description="Get a list of available commands (paginated).")
+    @cooldown(2)
+    async def help_command(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        commands_list = [cmd for cmd in self.bot.tree.get_commands() if cmd.name != "help"]
+        per_page = 12
+        total_pages = (len(commands_list) + per_page - 1) // per_page
+
+        def get_embed(page: int):
+            embed = discord.Embed(title="🆘 Help - Available Commands", color=0x3498db)
+            embed.description = f"Page {page+1}/{total_pages}\nHere are the commands you can use:"
+            start = page * per_page
+            end = start + per_page
+            for command in commands_list[start:end]:
+                embed.add_field(
+                    name=f"/{command.name}",
+                    value=command.description or "No description available",
+                    inline=False
+                )
+            embed.set_footer(text="Use /<command_name> to execute a command.")
+            return embed
+
+        class HelpView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=60)
+                self.page = 0
+
+            @discord.ui.button(label="⏮️", style=discord.ButtonStyle.secondary)
+            async def first(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                self.page = 0
+                await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
+
+            @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary)
+            async def prev(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                if self.page > 0:
+                    self.page -= 1
+                    await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
+                else:
+                    await interaction_btn.response.defer()
+
+            @discord.ui.button(label="❌", style=discord.ButtonStyle.danger)
+            async def close(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                await interaction_btn.response.edit_message(content="Help menu closed.", embed=None, view=None)
+
+            @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary)
+            async def next(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                if self.page < total_pages - 1:
+                    self.page += 1
+                    await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
+                else:
+                    await interaction_btn.response.defer()
+
+            @discord.ui.button(label="⏭️", style=discord.ButtonStyle.secondary)
+            async def last(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+                self.page = total_pages - 1
+                await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
+
+            async def on_timeout(self):
+                for item in self.children:
+                    item.disabled = True
+
+        await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
     
 
 async def setup(bot):

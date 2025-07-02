@@ -167,6 +167,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="balance", description="Check your current balance")
     @cooldown(2)
     async def balance(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         balance = get_balance(user_id)
         await interaction.followup.send(f"💰 Your balance: **{balance}** coins")
