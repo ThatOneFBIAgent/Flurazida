@@ -29,10 +29,34 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     # the bane of my existance
-    @app_commands.command(name="roll", description="Roll dice with advanced options (exploding, keep/drop, modifiers).")
+    @app_commands.command(name="roll", description="Roll dice with keep/drop, modifiers, and explosions. See /roll dice: help for syntax.")
     @cooldown(5)
     async def roll(self, interaction: discord.Interaction, dice: str):
-        await interaction.response.defer(ephemeral=False) # Deffer by default, take a WHILE.
+        await interaction.response.defer(ephemeral=False) # Defer by default, take a WHILE.
+
+        if dice.strip().lower() == "help":
+                help_embed = discord.Embed(
+                title="🎲 Dice Roller Help",
+                description=(
+                    "**Syntax:** `XdY`, `Xd!Y`, `Xd!!Y`, `XdYkN`, `XdYdN`, `XdY+Z`, etc.\n"
+                    "**Examples:**\n"
+                    "• `2d6` — Roll 2 six-sided dice\n"
+                    "• `4d8k2` — Roll 4d8, keep the highest 2\n"
+                    "• `5d10d2` — Roll 5d10, drop the lowest 2\n"
+                    "• `3d6+2` — Roll 3d6, add 2 to each result\n"
+                    "• `2d6!` — Roll 2d6, exploding on max value\n"
+                    "• `4d8!!` — Roll 4d8, compounding explosions\n"
+                    "• `5d6k3+1` — Roll 5d6, keep highest 3, add 1 to each\n"
+                    "\n"
+                    "**Note:**\n"
+                    "- You can use keep/drop (`kN`/`dN`) or explosions (`!`, `!!`), but combining both may not always work as expected.\n"
+                    "- Exploding dice applies before keep/drop.\n"
+                    ),
+                    color=0x3498db
+                )
+                await interaction.followup.send(embed=help_embed, ephemeral=False)
+                return
+
         # Regex pattern for dice: Xd!Y, Xd!!Y, Xd!Y+Z, XdYkN, XdYdN, etc.
         pattern = re.compile(
             r"(?P<num>\d+)[dD](?P<explode>!?|!!|!\?)?(?P<sides>\d+)"
@@ -43,7 +67,7 @@ class Fun(commands.Cog):
 
         if not match:
             await interaction.followup.send(
-                "❌ **Invalid format!** Use `XdY`, `Xd!Y`, `Xd!!Y`, `XdYkN`, `XdYdN`, `XdY+Z`, etc. Examples: `2d6`, `3d!10+5`, `4d8k2+3`, `5d6!!d2-1`.",
+                "❌ **Invalid format!** Do /roll dice: help for syntax and examples",
                 ephemeral=False
             )
             return
@@ -60,6 +84,13 @@ class Fun(commands.Cog):
                 ephemeral=False
             )
             return
+
+        if explode_flag and keepdrop:
+            await interaction.followup.send(
+                "❌ **Combining exploding dice and keep/drop is not supported. Please use only one at a time.",
+                ephemeral=True
+            )
+        return
 
         # Exploding dice logic
         def roll_die(sides):
@@ -167,7 +198,7 @@ class Fun(commands.Cog):
                             if next_mod.startswith("+") or next_mod.startswith("-"):
                                 flat_mod = int(next_mod)
                                 results = [r + flat_mod if idx < count else r for idx, r in enumerate(results)]
-                                mod_details.append(f"First {count} Rolls: `{flat_mod}`")
+                                mod_details.append(f"First **{count}** Rolls: **{flat_mod}**")
                                 i += 2
                                 continue
                     except ValueError:
@@ -180,7 +211,7 @@ class Fun(commands.Cog):
                     try:
                         flat_mod = int(mod)
                         results = [r + flat_mod for r in results]
-                        mod_details.append(f"All Rolls: `{flat_mod}`")
+                        mod_details.append(f"All Rolls: **{flat_mod}**")
                     except ValueError:
                         await interaction.followup.send(
                             "❌ **Invalid modifier!** Modifiers must be integers.",
