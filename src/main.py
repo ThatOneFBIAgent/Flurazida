@@ -7,6 +7,7 @@ from database import get_expired_cases, mod_cursor
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
+activities = config.ACITIVIES
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -83,71 +84,6 @@ class Main(commands.Bot):
 bot = Main()
 
 # Sync commands with Discord
-# Activities list moved to global scope so it can be used in multiple functions
-activities = [
-    #  Games
-    discord.Game("with equations"),
-    discord.Game("with solutions"),
-    discord.Game("with molecules"),
-    discord.Game("acid roulette"),
-    discord.Game("with noble gases"),
-    discord.Game("Finding Avogadro's number: 6.02214076e23"),
-    discord.Game("with unstable isotopes"),
-    discord.Game("hide and seek with electrons"),
-    discord.Game("on the Bunsen burner"),
-    discord.Game("molecular tag"),
-    discord.Game("with questionable solvents"),
-    discord.Game("chemistry but it's in base 16"),
-    discord.Game("with Schrödinger's keyboard"),
-    discord.Game("in the lab... unsupervised"),
-    discord.Game("with forbidden compounds"),
-    discord.Game("with polyatomic sadness"),
-    discord.Game("with toxic bonding"),
-    discord.Game("Minecraft but it's stoichiometric"),
-    discord.Game("Portal 3: Chemical Edition"),
-    discord.Game("Factorio: Meth Lab DLC"),
-    discord.Game("breaking bad (educational edition)"),
-    discord.Game("noble gas party simulator"),
-
-    #  Listening
-    discord.Activity(type=discord.ActivityType.listening, name="the periodic table song"),
-    discord.Activity(type=discord.ActivityType.listening, name="chemistry facts"),
-    discord.Activity(type=discord.ActivityType.listening, name="user hypotheses"),
-    discord.Activity(type=discord.ActivityType.listening, name="about stoichiometry lectures"),
-    discord.Activity(type=discord.ActivityType.listening, name="bubbling beakers"),
-    discord.Activity(type=discord.ActivityType.listening, name="endothermic reactions"),
-    discord.Activity(type=discord.ActivityType.listening, name="uranium humming"),
-    discord.Activity(type=discord.ActivityType.listening, name="complaints about the mole concept"),
-    discord.Activity(type=discord.ActivityType.listening, name="lab goggles fog up"),
-    discord.Activity(type=discord.ActivityType.listening, name="theoretical screams"),
-    discord.Activity(type=discord.ActivityType.listening, name="periodic table diss tracks"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of atoms bonding"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a lab explosion"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a chemical spill"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a Bunsen burner"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a chemical reaction"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a lab accident"),
-
-    #  Watching
-    discord.Activity(type=discord.ActivityType.watching, name="chemical reactions"),
-    discord.Activity(type=discord.ActivityType.watching, name="atoms collide"),
-    discord.Activity(type=discord.ActivityType.watching, name="a lab safety video"),
-    discord.Activity(type=discord.ActivityType.watching, name="crystals grow"),
-    discord.Activity(type=discord.ActivityType.watching, name="the periodic table rearrange itself"),
-    discord.Activity(type=discord.ActivityType.watching, name="the flask boil over"),
-    discord.Activity(type=discord.ActivityType.watching, name="ionic drama unfold"),
-    discord.Activity(type=discord.ActivityType.watching, name="thermodynamics take a nap"),
-    discord.Activity(type=discord.ActivityType.watching, name="carbon date badly"),
-    discord.Activity(type=discord.ActivityType.watching, name="users ignore lab safety"),
-    discord.Activity(type=discord.ActivityType.watching, name="moles commit tax fraud"),
-    discord.Activity(type=discord.ActivityType.watching, name="the periodic table change"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab explode"),
-    discord.Activity(type=discord.ActivityType.watching, name="the universe expand"),
-    discord.Activity(type=discord.ActivityType.watching, name="the chemical bonds break"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab rats escape"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab spontaneously combust"),
-]
-
 @bot.event
 async def on_ready():
     await bot.tree.sync()
@@ -208,7 +144,7 @@ async def cycle_paired_activities():
             elif combo_type == "C":
                 activity = watch()
             elif combo_type == "A+B":
-                combined_activity = discord.Game(f"{game().name} & listening {listen().name}")
+                combined_activity = discord.Game(f"{game().name} & listening to {listen().name}")
             elif combo_type == "A+C":
                 combined_activity = discord.Game(f"{game().name} & watching {watch().name}")
             elif combo_type == "B+A":
@@ -218,7 +154,7 @@ async def cycle_paired_activities():
             elif combo_type == "C+A":
                 combined_activity = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & playing {game().name}")
             elif combo_type == "C+B":
-                combined_activity = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & listening {listen().name}")
+                combined_activity = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & listening to {listen().name}")
             
             act = combined_activity if combined_activity else activity
             activity_signature = (act.name, act.type)
