@@ -6,6 +6,7 @@ import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time
 from database import get_expired_cases, mod_cursor
 
 process = psutil.Process(os.getpid())
+last_activity_signature = None
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -170,65 +171,69 @@ async def resource_monitor():
         await asyncio.sleep(45)
 
 async def cycle_paired_activities():
+    global last_activity_signature
+    global total_unique_combos
+    # Calculate total unique combos based on actual combination logic (single and ordered pairs)
+    num_games = len([a for a in activities if isinstance(a, discord.Game)])
+    num_listen = len([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
+    num_watch = len([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
+    total_unique_combos = (
+        num_games + num_listen + num_watch +  # singles
+        num_games * num_listen +              # A+B, B+A
+        num_games * num_watch +               # A+C, C+A
+        num_listen * num_watch +              # B+C, C+B
+        num_listen * num_games +              # B+A
+        num_watch * num_games +               # C+A
+        num_watch * num_listen                # C+B
+    )
     await bot.wait_until_ready()
     while not bot.is_closed():
-        # A = Playing... B = Listening to... C = Watching...
-        combo_type = random.choice(["A", "B", "C", "A+B", "A+C", "B+C", "B+A", "C+A", "C+B"])
-        if combo_type == "A":
-            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
+        for _ in range(10): # Try up to 10 times to choose a unique activity
+            # A = Playing... B = Listening to... C = Watching...
+            combo_type = random.choice(["A", "B", "C", "A+B", "A+C", "B+C", "B+A", "C+A", "C+B"])
             status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=game, status=status)
-        elif combo_type == "B":
-            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=listening, status=status)
-        elif combo_type == "C":
-            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=watching, status=status)
-        elif combo_type == "A+B":
-            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
-            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-            combined_name = f"{game.name} & listening {listening.name}"
-            combined_activity = discord.Game(combined_name)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=combined_activity, status=status)
-        elif combo_type == "A+C":
-            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
-            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
-            combined_name = f"{game.name} & watching {watching.name}"
-            combined_activity = discord.Game(combined_name)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=combined_activity, status=status)
-        elif combo_type == "B+A":
-            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
-            combined_name = f"{listening.name} & playing {game.name}"
-            combined_activity = discord.Activity(type=discord.ActivityType.listening, name=combined_name)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=combined_activity, status=status)
-        elif combo_type == "B+C":
-            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
-            combined_name = f"{listening.name} & watching {watching.name}"
-            combined_activity = discord.Activity(type=discord.ActivityType.listening, name=combined_name)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=combined_activity, status=status)
-        elif combo_type == "C+A":
-            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
-            game = random.choice([a for a in activities if isinstance(a, discord.Game)])
-            combined_name = f"{watching.name} & playing {game.name}"
-            combined_activity = discord.Activity(type=discord.ActivityType.watching, name=combined_name)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=combined_activity, status=status)
-        elif combo_type == "C+B":
-            watching = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
-            listening = random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-            combined_name = f"{watching.name} & listening {listening.name}"
-            combined_activity = discord.Activity(type=discord.ActivityType.watching, name=combined_name)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            await bot.change_presence(activity=combined_activity, status=status)
-        await asyncio.sleep(300)  # 5 minutes
+            
+            game = lambda: random.choice([a for a in activities if isinstance(a, discord.Game)])
+            listen = lambda: random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
+            watch = lambda: random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
+
+            activity = None
+            Status = None
+            if combo_type == "A":
+                activity = game()
+            elif combo_type == "B":
+                activity = listen()
+            elif combo_type == "C":
+                activity = watch()
+            elif combo_type == "A+B":
+                combined_activity = discord.Game(f"{game().name} & listening {listen().name}")
+            elif combo_type == "A+C":
+                combined_activity = discord.Game(f"{game().name} & watching {watch().name}")
+            elif combo_type == "B+A":
+                combined_activity = discord.Activity(type=discord.ActivityType.listening, name=f"{listen().name} & playing {game().name}")
+            elif combo_type == "B+C":
+                combined_activity = discord.Activity(type=discord.ActivityType.listening, name=f"{listen().name} & watching {watch().name}")
+            elif combo_type == "C+A":
+                combined_activity = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & playing {game().name}")
+            elif combo_type == "C+B":
+                combined_activity = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & listening {listen().name}")
+            
+            act = combined_activity if combined_activity else activity
+            activity_signature = (act.name, act.type)
+
+            if activity_signature != last_activity_signature:
+                last_activity_signature = activity_signature
+                await bot.change_presence(activity=act, status=status)
+                break
+        else:
+            # Fallback if same activity 10x in a row
+            fallback_name = f"One in a {total_unique_combos}"
+            fallback_activity = discord.Game(name=fallback_name)
+            fallback_status = discord.Status.idle
+            last_activity_signature = (fallback_activity.name, fallback_activity.type)
+            await bot.change_presence(activity=fallback_activity, status=fallback_status)
+        
+        await asyncio.sleep(300)  # Wait 5 mins before cycling again
 
 async def unmute_task(self):
     await bot.wait_until_ready()
