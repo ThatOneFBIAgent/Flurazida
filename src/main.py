@@ -135,7 +135,6 @@ async def cycle_paired_activities():
 
             activity = None
             combined_activity = None
-            status = None
 
             if combo_type == "A":
                 activity = game()
