@@ -90,7 +90,7 @@ class Fun(commands.Cog):
                 "❌ **Combining exploding dice and keep/drop is not supported. Please use only one at a time.",
                 ephemeral=True
             )
-        return
+            return
 
         # Exploding dice logic
         def roll_die(sides):
