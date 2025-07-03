@@ -198,7 +198,9 @@ async def cycle_paired_activities():
             watch = lambda: random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
 
             activity = None
-            Status = None
+            combined_activity = None
+            status = None
+
             if combo_type == "A":
                 activity = game()
             elif combo_type == "B":
