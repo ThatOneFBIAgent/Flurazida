@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
-import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time
+import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
 from database import get_expired_cases, mod_cursor
 
 process = psutil.Process(os.getpid())
@@ -209,14 +209,34 @@ async def unban_task(self):
         await asyncio.sleep(60)
 
 async def main():
+    loop = asyncio.get_running_loop()
+
+    # Stops python's runners from screaming in terminal every time bot is shut down
+    shutdown_event = asyncio.Event()
+
+    def handle_shutdown():
+        print(f"Shutdown signal received")
+        shutdown_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_shutdown)
+
     async with bot:
         asyncio.create_task(resource_monitor()) # Monitors resources
         asyncio.create_task(cycle_paired_activities()) # Appens & cycles activities
         asyncio.create_task(unmute_task(bot)) # Unmutes users after mute duration expires
         asyncio.create_task(unban_task(bot)) # Unbans users after ban duration expires
         bot.tree.interaction_check = global_blacklist_check # Global blacklist check for guilds from config.py
-        await bot.start(config.BOT_TOKEN) # Starts the bot with the token from config.py
+
+        await shutdown_event.wait()
+        print(f"🧼 Taking out the trash... see ya.")
+
 
 # Run the bot
-asyncio.run(main())
+try:
+    asyncio.run(main())
+except KeyboardInterrupt:
+    print("Interrupted by user, Exiting.")
+except Exception as e:
+    print(f"Wrong chemicals! Bot crashed with {e}")
 # the coconut.png of the bot

@@ -397,7 +397,7 @@ class Fun(commands.Cog):
         if guild.icon:
             embed.set_thumbnail(url=guild.icon.url)
         else:
-            embed.set_thumbnail(url=discord.Embed.Empty)
+            embed.set_thumbnail(url=None)
 
         # Owner
         owner = guild.owner
