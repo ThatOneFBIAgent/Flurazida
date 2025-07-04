@@ -30,6 +30,16 @@ def get_bot_stats():
         "Disk Write (TOTAL)": f"{disk.write_bytes / (1024 ** 2):.2f} MB"  # Convert to MB
     }
 
+def wait_for_continue():
+    while True:
+        answer = input("Mixer crashed! Turn back on? [Y/N]").strip().lower()
+        if answer == "y":
+            return True
+        elif answer == "n":
+            print("Exiting.")
+            return False
+        else:
+            print("Please type Y or N.")
 
 # Define the Main bot class
 class Main(commands.Bot):
@@ -219,8 +229,23 @@ async def main():
 
 try:
     asyncio.run(main())
+except (
+    aiohttp.ClientConnectionError,
+    aiohttp.ClientConnectorError,
+    aiohttp.ClientOSError,
+    aiohttp.ServerDisconnectedError,
+    discord.ConnectionClosed,
+    discord.GatewayNotFound,
+    socket.gaierror,
+    asyncio.TimeoutError
+) as e:
+    print(f"Bad lab practitioner! Connection error: {e}")
+    if wait_for_continue():
+        os.execv(sys.executable, [sys.executable] + sys.argv) # Restarts the script, aka main.py
+    else:
+        sys.exit(1)
 except KeyboardInterrupt:
-    print("Interrupted by user, Exiting.")
+    print("Bot shutdown requested. Exiting gracefully.")
 except Exception as e:
-    print(f"Wrong chemicals! Bot crashed with {e}")
+    print(f"Unexpected error: Bot crashed with exception: {e}")
 # the coconut.png of the bot
