@@ -14,14 +14,16 @@ class HighLowView(ui.View):
     @ui.button(label="Low (1-49)", style=discord.ButtonStyle.primary)
     async def low(self, interaction: discord.Interaction, button: ui.Button):
         self.choice = "low"
-        self.disable_all_items()
+        for child in self.children:
+            child.disabled = True
         await interaction.response.edit_message(view=self)
         self.stop()
 
     @ui.button(label="High (50-100)", style=discord.ButtonStyle.success)
     async def high(self, interaction: discord.Interaction, button: ui.Button):
         self.choice = "high"
-        self.disable_all_items()
+        for child in self.children:
+            child.disabled = True
         await interaction.response.edit_message(view=self)
         self.stop()
 
@@ -384,7 +386,7 @@ class Gambling(commands.Cog):
             await msg.edit(embed=embed, view=None)
             return
 
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(0.6)
         rolled = random.randint(1, 100)
         if (view.choice == "low" and rolled <= 49) or (view.choice == "high" and rolled >= 50):
             winnings = bet

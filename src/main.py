@@ -114,7 +114,7 @@ async def resource_monitor():
     while not bot.is_closed():
         stats = get_bot_stats()
         print(f"Bot Resource Usage: {stats}")
-        await asyncio.sleep(45)
+        await asyncio.sleep(60)
 
 async def cycle_paired_activities():
     global last_activity_signature
