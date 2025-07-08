@@ -5,7 +5,7 @@ from discord import Interaction
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-BOT_OWNER = 853154444850364417
+BOT_OWNER = 853154444850364417 # Replace with your own user ID
 FORBIDDEN_GUILDS = {
     1368777209375883405: {"reason": "Have fun with cat bot"},
     1375886954889085088: {"reason": "N/a"}
@@ -17,6 +17,7 @@ FORBIDDEN_GUILDS = {
 # and you shouldn't be either.
 
 # Do not host config.py with raw info on your repository, instead use environment variables or a secure vault, or just host it on your pc.
+# This will require dotenv, otherwise you risk sharing your bot token with third parties.
 
 # still doesn't stop me from putting code here.
  

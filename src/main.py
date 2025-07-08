@@ -182,10 +182,11 @@ async def cycle_paired_activities():
         
         await asyncio.sleep(300)  # Wait 5 mins before cycling again
 
-async def unmute_task(self):
+async def moderation_expiry_task():
     await bot.wait_until_ready()
     while not bot.is_closed():
         now = int(time.time())
+        # Unmute expired users
         for guild in bot.guilds:
             expired_mutes = get_expired_cases(mod_cursor, guild.id, "mute", now)
             for case_number, user_id in expired_mutes:
@@ -198,13 +199,7 @@ async def unmute_task(self):
                             await member.remove_roles(mute_role, reason="Mute duration expired")
                         except Exception as e:
                             logging.error(f"Failed to unmute {member}: {e}")
-        logging.info(f"Unmute task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
-        await asyncio.sleep(60)
-
-async def unban_task(self):
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        now = int(time.time())
+        # Unban expired users
         for guild in bot.guilds:
             expired_bans = get_expired_cases(mod_cursor, guild.id, "ban", now)
             for case_number, user_id in expired_bans:
@@ -215,15 +210,14 @@ async def unban_task(self):
                         await guild_obj.unban(user, reason="Temporary ban expired")
                     except Exception as e:
                         logging.error(f"Failed to unban {user_id} in {guild.id}: {e}")
-        logging.info(f"Unban task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
+        logging.info(f"Moderation expiry task run at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}")
         await asyncio.sleep(60)
 
 async def main():
     async with bot:
         asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
-        asyncio.create_task(unmute_task(bot))
-        asyncio.create_task(unban_task(bot))
+        asyncio.create_task(moderation_expiry_task(bot))
         bot.tree.interaction_check = global_blacklist_check
         await bot.start(config.BOT_TOKEN)
 
@@ -245,7 +239,7 @@ except (
     else:
         sys.exit(1)
 except KeyboardInterrupt:
-    print("Bot shutdown requested. Exiting gracefully.")
+    print("Cleaning the lab.. Exiting gracefully.")
 except Exception as e:
-    print(f"Unexpected error: Bot crashed with exception: {e}")
+    print(f"Wrong chemicals! Bot crashed with exception: {e}")
 # the coconut.png of the bot

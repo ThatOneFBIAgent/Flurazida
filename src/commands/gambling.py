@@ -2,9 +2,28 @@ import discord, random, asyncio
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
+from discord import ui
 from database import update_balance, get_balance
 from config import cooldown
 
+class HighLowView(ui.View):
+    def __init__(self, timeout=30):
+        super().__init__(timeout=timeout)
+        self.choice = None
+
+    @ui.button(label="Low (1-49)", style=discord.ButtonStyle.primary)
+    async def low(self, interaction: discord.Interaction, button: ui.Button):
+        self.choice = "low"
+        self.disable_all_items()
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    @ui.button(label="High (50-100)", style=discord.ButtonStyle.success)
+    async def high(self, interaction: discord.Interaction, button: ui.Button):
+        self.choice = "high"
+        self.disable_all_items()
+        await interaction.response.edit_message(view=self)
+        self.stop()
 
 class Gambling(commands.Cog):
     def __init__(self, bot):
@@ -293,6 +312,90 @@ class Gambling(commands.Cog):
             embed.description += "💀 **You lost your bet...**"
 
         await interaction.followup.send(embed=embed, ephemeral=False)
+
+    @app_commands.command(name="war", description="Play War! Higher card wins.")
+    @cooldown(5)
+    async def war(self, interaction: discord.Interaction, bet: int):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        balance = get_balance(user_id)
+        if bet <= 0 or bet > balance:
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
+
+        deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]  # 11=J, 12=Q, 13=K, 14=A
+        player_card = random.choice(deck)
+        dealer_card = random.choice(deck)
+
+        card_names = {11: "J", 12: "Q", 13: "K", 14: "A"}
+        def card_str(val):
+            return card_names.get(val, str(val))
+
+        embed = discord.Embed(
+            title="🃏 War!",
+            description="Drawing cards...",
+            color=0x8B0000
+        )
+        await interaction.followup.send(embed=embed, ephemeral=False)
+        msg = await interaction.original_response()
+
+        await asyncio.sleep(1.5)
+        embed.description = f"**You drew:** {card_str(player_card)}\n**Dealer drew:** ..."
+        await msg.edit(embed=embed)
+        await asyncio.sleep(1.5)
+        embed.description = f"**You drew:** {card_str(player_card)}\n**Dealer drew:** {card_str(dealer_card)}"
+        await msg.edit(embed=embed)
+        await asyncio.sleep(0.8)
+
+        if player_card > dealer_card:
+            winnings = bet
+            result = f"✨ **You win `{bet * 2}` coins!** ✨"
+        elif player_card < dealer_card:
+            winnings = -bet
+            result = "💀 **Dealer wins!**"
+        else:
+            winnings = 0
+            result = "⚖️ **It's a tie! Your bet is returned.**"
+
+        update_balance(user_id, winnings)
+        embed.description += f"\n\n{result}"
+        await msg.edit(embed=embed)
+
+    @app_commands.command(name="highlow", description="Bet on high (50-100) or low (1-49)!")
+    @cooldown(5)
+    async def dice(self, interaction: discord.Interaction, bet: int):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        balance = get_balance(user_id)
+        if bet <= 0 or bet > balance:
+            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
+
+        embed = discord.Embed(
+            title="🎲 High/Low Dice",
+            description="Choose **Low (1-49)** or **High (50-100)**!",
+            color=0x7289DA
+        )
+        view = HighLowView()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+        msg = await interaction.original_response()
+
+        timeout = await view.wait()
+        if view.choice is None:
+            embed.description = "⏰ **Timed out!**"
+            await msg.edit(embed=embed, view=None)
+            return
+
+        await asyncio.sleep(1.2)
+        rolled = random.randint(1, 100)
+        if (view.choice == "low" and rolled <= 49) or (view.choice == "high" and rolled >= 50):
+            winnings = bet
+            result = f"🎲 You rolled **{rolled}**!\n✨ **You win `{bet * 2}` coins!** ✨"
+        else:
+            winnings = -bet
+            result = f"🎲 You rolled **{rolled}**!\n💀 **You lost your bet...**"
+
+        update_balance(user_id, winnings)
+        embed.description = result
+        await msg.edit(embed=embed, view=None)
 
 async def setup(bot):
     await bot.add_cog(Gambling(bot))

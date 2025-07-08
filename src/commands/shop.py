@@ -20,7 +20,7 @@ SHOP_ITEMS = [
 ]
 # absolutely overly redundant id system becuase fuck you that's why (i can't index for shit)
 
-SHOP_PAGE_TIMEOUT = 120
+SHOP_PAGE_TIMEOUT = 180
 
 
 class ShopView(discord.ui.View):
