@@ -189,7 +189,7 @@ async def moderation_expiry_task():
         # Unmute expired users
         for guild in bot.guilds:
             expired_mutes = get_expired_cases(mod_cursor, guild.id, "mute", now)
-            for case_number, user_id in expired_mutes:
+            for _, user_id in expired_mutes:
                 guild_obj = bot.get_guild(guild.id)
                 if guild_obj:
                     member = guild_obj.get_member(user_id)
@@ -202,7 +202,7 @@ async def moderation_expiry_task():
         # Unban expired users
         for guild in bot.guilds:
             expired_bans = get_expired_cases(mod_cursor, guild.id, "ban", now)
-            for case_number, user_id in expired_bans:
+            for _, user_id in expired_bans:
                 guild_obj = bot.get_guild(guild.id)
                 if guild_obj:
                     try:
@@ -217,7 +217,7 @@ async def main():
     async with bot:
         asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
-        asyncio.create_task(moderation_expiry_task(bot))
+        asyncio.create_task(moderation_expiry_task())
         bot.tree.interaction_check = global_blacklist_check
         await bot.start(config.BOT_TOKEN)
 
