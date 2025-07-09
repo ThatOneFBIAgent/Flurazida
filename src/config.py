@@ -2,7 +2,7 @@
 # config.py
 import os, asyncio
 from discord import Interaction
-from dotenv import load_dotenv
+from dotenv import load_dotenv # why is this always missing import?
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_OWNER = 853154444850364417 # Replace with your own user ID
@@ -25,35 +25,37 @@ import time, discord
 from functools import wraps
 from discord import Interaction
 
-# user id: cooldown
-_user_cooldowns = {}
+# Use a dict to store cooldowns: {(user_id, command_name): timestamp}
+_user_command_cooldowns = {}
 
 def cooldown(seconds: int):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # If this is a method, args[0] is self, args[1] is interaction
-            # If this is a function, args[0] is interaction
+            # Detect Interaction object
             if isinstance(args[0], Interaction):
                 interaction = args[0]
-                rest_args = args[1:]
             else:
                 interaction = args[1]
-                rest_args = args[2:]
 
             user_id = interaction.user.id
+            command_name = func.__name__  # You could also use func directly as key if you're insane (i am not yet)
+
+            key = (user_id, command_name)
             now = time.time()
 
-            if user_id in _user_cooldowns:
-                elapsed = now - _user_cooldowns[user_id]
+            if key in _user_command_cooldowns:
+                elapsed = now - _user_command_cooldowns[key]
                 if elapsed < seconds:
-                    print(f"Cooldown triggered for user {user_id}")
+                    print(f"[Cooldown] {user_id} hit cooldown for {command_name}")
                     await interaction.response.send_message(
-                        f"🕒 You're on cooldown! Try again in {round(seconds - elapsed, 1)}s.",
+                        f"🕒 That command’s on cooldown! Try again in {round(seconds - elapsed, 1)}s.",
                         ephemeral=True
                     )
                     return
-            _user_cooldowns[user_id] = now
+
+            # Set the cooldown
+            _user_command_cooldowns[key] = now
             return await func(*args, **kwargs)
         return wrapper
     return decorator

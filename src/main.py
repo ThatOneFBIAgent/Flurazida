@@ -20,7 +20,7 @@ bot_owner = config.BOT_OWNER
 # Bot CPU/DISK/MEMORY usage
 def get_bot_stats():
     mem = process.memory_info()
-    cpu = psutil.cpu_percent(interval=None) # we are not a vps, blocking cpu time = bad
+    cpu = process.cpu_percent(interval=None)
     disk = process.io_counters()
 
     return {
@@ -92,6 +92,7 @@ class Main(commands.Bot):
 
 # Instantiate your bot
 bot = Main()
+bot.help_command = None
 
 # Sync commands with Discord
 @bot.event
