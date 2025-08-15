@@ -321,7 +321,7 @@ class Fun(commands.Cog):
             "Yes but also no", "No but also yes", "42", "Meh",
             "I flipped a coin but lost it", "You get what you get", 
             "You don’t want to know", "Absolutely. Wait, what was the question?",
-            "¯\_(ツ)_/¯", "Hold on, I'm updating my firmware",
+            r"¯\_(ツ)_/¯", "Hold on, I'm updating my firmware",
 
             # Straight up lying
             "Yes, trust me bro", "No, but say yes anyway", 

@@ -224,21 +224,32 @@ async def main():
 
 try:
     asyncio.run(main())
+
+except aiohttp.ClientConnectorError as e:
+    if isinstance(e.os_error, socket.gaierror):
+        print(f"Detected socket.gaierror inside ClientConnectorError: {e.os_error}")
+    else:
+        print(f"Bad chemicals! ClientConnectorError: {e}")
+
+    if wait_for_continue():
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    else:
+        sys.exit(1)
+
 except (
     aiohttp.ClientConnectionError,
-    aiohttp.ClientConnectorError,
     aiohttp.ClientOSError,
     aiohttp.ServerDisconnectedError,
     discord.ConnectionClosed,
     discord.GatewayNotFound,
-    socket.gaierror,
     asyncio.TimeoutError
 ) as e:
     print(f"Bad lab practitioner! Connection error: {e}")
     if wait_for_continue():
-        os.execv(sys.executable, [sys.executable] + sys.argv) # Restarts the script, aka main.py
+        os.execv(sys.executable, [sys.executable] + sys.argv)
     else:
         sys.exit(1)
+
 except KeyboardInterrupt:
     print("Cleaning the lab.. Exiting gracefully.")
 except Exception as e:
