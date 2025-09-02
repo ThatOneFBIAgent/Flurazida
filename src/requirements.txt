@@ -3,3 +3,4 @@ aiohttp
 psutil
 Pynacl
 python-dotenv
+Pydrive2
