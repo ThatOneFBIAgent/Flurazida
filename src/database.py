@@ -1,5 +1,7 @@
 import sqlite3, shutil, os, logging, asyncio, sys, time
 from functools import wraps
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +28,22 @@ def log_mod_call(func):
 logging.info("Economy DB Logging begin")
 logging.info("Moderator DB Logging begin")
 
+def backup_db_to_gdrive(local_path, drive_filename):
+    gauth = GoogleAuth()
+    gauth.ServiceAccountAuth(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])  # Path to your credentials file
+    drive = GoogleDrive(gauth)
+
+    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
+    if file_list:
+        file = file_list[0]
+        file.SetContentFile(local_path)
+        file.Upload()
+        logging.info(f"Updated existing backup on Google Drive: {drive_filename}")
+    else:
+        file = drive.CreateFile({'title': drive_filename})
+        file.SetContentFile(local_path)
+        file.Upload()
+        logging.info(f"Created new backup on Google Drive: {drive_filename}")
 
 # the next lines of code are nasty hacks becuase windows is shit
 # Get the absolute path to the directory where this file is located
@@ -441,3 +459,16 @@ def get_expired_cases(mod_cursor, guild_id, action_type, now=None):
         (action_type, now)
     )
     return mod_cursor.fetchall()
+
+# Periodic backup task
+async def periodic_backup(interval_hours=1):
+    while True:
+        await asyncio.sleep(interval_hours * 3600)  # Sleep for specified hours
+        try:
+            econ_conn.commit()
+            mod_conn.commit() # these two make sure commits are done before backup to prevent corruption
+            backup_db_to_gdrive(ECONOMY_DB_PATH, "economy_backup.db")
+            backup_db_to_gdrive(MODERATOR_DB_PATH, "moderator_backup.db")
+            logging.info("Databases backed up successfully.")
+        except Exception as e:
+            logging.error(f"Error during backup: {e}")

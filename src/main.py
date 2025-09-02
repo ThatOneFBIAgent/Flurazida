@@ -19,7 +19,7 @@ from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
-from database import get_expired_cases, mod_cursor
+from database import get_expired_cases, mod_cursor, periodic_backup
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -117,6 +117,9 @@ async def on_ready():
         bot.start_time = time.time()
     await bot.tree.sync()
     print("Commands synced!")
+    print(f"Bot is online as {bot.user} (ID: {bot.user.id})")
+    print(f"Connected to {len(bot.guilds)} guild(s).")
+    asyncio.create_task(periodic_backup(1))  # Backup every hour
 
 async def global_blacklist_check(interaction: Interaction) -> bool:
     guild_id = interaction.guild.id if interaction.guild else None
