@@ -97,6 +97,8 @@ bot.help_command = None
 # Sync commands with Discord
 @bot.event
 async def on_ready():
+    if not hasattr(bot, "start_time"):
+        bot.start_time = time.time()
     await bot.tree.sync()
     print("Commands synced!")
 

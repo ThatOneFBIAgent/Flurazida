@@ -372,13 +372,73 @@ class Fun(commands.Cog):
     @app_commands.command(name="info", description="Get information about the bot.")
     async def info_of_bot(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
-        bot = self.bot.user
-        embed = discord.Embed(title=f"Bot Info: {bot.name}", color=0x3498db)
-        embed.add_field(name="Bot ID", value=bot.id, inline=False)
-        embed.add_field(name="Created By", value=f"Iza Carlos (_izacarlos)", inline=True)
-        embed.add_field(name="Created At", value=bot.created_at.strftime("%Y-%m-%d %H:%M:%S"), inline=False)
-        embed.add_field(name="Commands", value=len(self.bot.tree.get_commands()), inline=True) # shows the correct number of slash commands
-        embed.set_thumbnail(url=bot.avatar.url if bot.avatar else None)
+        bot_user = self.bot.user
+
+        now = time.time()
+        bot_start_time = getattr(self.bot, "start_time", None)
+        if bot_start_time is None:
+            uptime_seconds = 0
+        else:
+            uptime_seconds = int(now - bot_start_time)
+
+        def format_uptime(seconds):
+            days, seconds = divmod(seconds, 86400)
+            hours, seconds = divmod(seconds, 3600)
+            minutes, seconds = divmod(seconds, 60)
+            parts = []
+            if days: parts.append(f"{days}d")
+            if hours: parts.append(f"{hours}h")
+            if minutes: parts.append(f"{minutes}m")
+            parts.append(f"{seconds}s")
+            return " ".join(parts)
+
+        # Get fun fact
+        fun_fact = "Fetching fun fact..."
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get("https://uselessfacts.jsph.pl/random.json?language=en") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        fun_fact = data.get("text", "No fun fact found.")
+                    else:
+                        fun_fact = "Could not fetch fun fact."
+            except Exception:
+                fun_fact = "Error fetching fun fact."
+
+        embed = discord.Embed(
+            title=f"🤖 Bot Info: {bot_user.name}",
+            description="Here's some info about me, your friendly bot!",
+            color=0x3498db
+        )
+        embed.set_thumbnail(url=bot_user.avatar.url if bot_user.avatar else None)
+        embed.add_field(name="🆔 Bot ID", value=f"`{bot_user.id}`", inline=True)
+        embed.add_field(name="👤 Created By", value="Iza Carlos (`_izacarlos`)", inline=True)
+        embed.add_field(
+            name="📅 Created At",
+            value=f"`{bot_user.created_at.strftime('%Y-%m-%d %H:%M:%S')}`",
+            inline=False
+        )
+        embed.add_field(
+            name="🛠️ Commands",
+            value=f"`{len(self.bot.tree.get_commands())}` slash commands available",
+            inline=True
+        )
+        embed.add_field(
+            name="⏳ Uptime",
+            value=f"`{format_uptime(uptime_seconds)}`",
+            inline=True
+        )
+        embed.add_field(
+            name="💻 Python Version",
+            value=f"`{platform.python_version()}`",
+            inline=True
+        )
+        embed.add_field(
+            name="🖥️ Host OS",
+            value=f"`{platform.system()} {platform.release()}`",
+            inline=True
+        )
+        embed.set_footer(text=f"Fun Fact: {fun_fact}")
 
         await interaction.followup.send(embed=embed, ephemeral=False)
     # stupid dum dum discord reserves bot_ for their own shit, i'm angry
