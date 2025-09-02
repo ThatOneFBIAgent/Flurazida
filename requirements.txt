@@ -1,0 +1,8 @@
+discord.py
+aiohttp
+psutil
+Pynacl
+python-dotenv
+
+# Add any other libraries you'll be using if you expand.
+# This will be for Railway deployment so mileage may vary.
