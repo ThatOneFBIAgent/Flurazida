@@ -47,6 +47,7 @@ SHOP_ITEMS = [
 # Economy DB connection
 econ_conn = mysql.connector.connect(
     host=os.environ.get("ECON_MYSQL_HOST"),
+    port=int(os.environ.get("ECON_MYSQL_PORT")),
     user=os.environ.get("ECON_MYSQL_USER"),
     password=os.environ.get("ECON_MYSQL_PASSWORD"),
     database=os.environ.get("ECON_MYSQL_DB")
@@ -56,6 +57,7 @@ econ_cursor = econ_conn.cursor()
 # Moderator DB connection
 mod_conn = mysql.connector.connect(
     host=os.environ.get("MOD_MYSQL_HOST"),
+    port=int(os.environ.get("MOD_MYSQL_PORT")),
     user=os.environ.get("MOD_MYSQL_USER"),
     password=os.environ.get("MOD_MYSQL_PASSWORD"),
     database=os.environ.get("MOD_MYSQL_DB")
