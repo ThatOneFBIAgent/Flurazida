@@ -19,7 +19,10 @@ from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
-from database import get_expired_cases, mod_cursor, periodic_backup
+from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive
+
+ECONOMY_DB_PATH = os.path.join(DATA_DIR, "economy.db")
+MODERATOR_DB_PATH = os.path.join(DATA_DIR, "moderator.db")
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -119,7 +122,9 @@ async def on_ready():
     print("Commands synced!")
     print(f"Bot is online as {bot.user} (ID: {bot.user.id})")
     print(f"Connected to {len(bot.guilds)} guild(s).")
-    asyncio.create_task(periodic_backup(1))  # Backup every hour
+
+    # restore from backup, if not write to gdrive backup (scary!)
+
 
 async def global_blacklist_check(interaction: Interaction) -> bool:
     guild_id = interaction.guild.id if interaction.guild else None
@@ -236,6 +241,10 @@ async def moderation_expiry_task():
         await asyncio.sleep(60)
 
 async def main():
+
+    restore_db_from_gdrive("economy.db", ECONOMY_DB_PATH)
+    restore_db_from_gdrive("moderator.db", MODERATOR_DB_PATH)
+    
     async with bot:
         asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())

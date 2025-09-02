@@ -45,6 +45,19 @@ def backup_db_to_gdrive(local_path, drive_filename):
         file.Upload()
         logging.info(f"Created new backup on Google Drive: {drive_filename}")
 
+def restore_db_from_gdrive(local_path, drive_filename):
+    gauth = GoogleAuth()
+    gauth.ServiceAccountAuth(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])  # Path to your credentials file
+    drive = GoogleDrive(gauth)
+
+    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
+    if file_list:
+        file = file_list[0]
+        file.GetContentFile(local_path)
+        logging.info(f"Restored database from Google Drive: {drive_filename}")
+    else:
+        logging.warning(f"No backup found on Google Drive with name: {drive_filename}")
+
 # the next lines of code are nasty hacks becuase windows is shit
 # Get the absolute path to the directory where this file is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
