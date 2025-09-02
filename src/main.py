@@ -19,10 +19,7 @@ from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
-from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive
-
-ECONOMY_DB_PATH = os.path.join(DATA_DIR, "economy.db")
-MODERATOR_DB_PATH = os.path.join(DATA_DIR, "moderator.db")
+from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive, ECONOMY_DB_PATH, MODERATOR_DB_PATH
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -244,7 +241,7 @@ async def main():
 
     restore_db_from_gdrive("economy.db", ECONOMY_DB_PATH)
     restore_db_from_gdrive("moderator.db", MODERATOR_DB_PATH)
-    
+
     async with bot:
         asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
