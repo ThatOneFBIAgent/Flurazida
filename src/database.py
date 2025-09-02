@@ -1,4 +1,5 @@
-import sqlite3, shutil, os, logging, asyncio, sys, time
+import shutil, os, logging, asyncio, sys, time
+import mysql.connector
 from functools import wraps
 
 logging.basicConfig(
@@ -27,17 +28,7 @@ logging.info("Economy DB Logging begin")
 logging.info("Moderator DB Logging begin")
 
 
-# the next lines of code are nasty hacks becuase windows is shit
-# Get the absolute path to the directory where this file is located
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Ensure 'data' directory exists relative to this file
-DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# Paths for databases (relative to script location)
-ECONOMY_DB_PATH = os.path.join(DATA_DIR, "economy.db")
-MODERATOR_DB_PATH = os.path.join(DATA_DIR, "moderator.db")
+# the next lines of code are nasty hacks becuase windows is shit, or erm... are we switching to a server%s
 
 SHOP_ITEMS = [
     {"id": 1, "name": "Bragging Rights", "price": 10000, "effect": "Nothing. Just flex.", "uses_left": 1},
@@ -53,19 +44,31 @@ SHOP_ITEMS = [
     {"id": 11, "name": "Watermelon", "price": 500, "effect": "Doctors approve! Does nothing", "uses_left": 500},
 ]
 
-# Connect to economy.db (for user balances and everything)
-econ_conn = sqlite3.connect(ECONOMY_DB_PATH)
+# Economy DB connection
+econ_conn = mysql.connector.connect(
+    host=os.environ.get("ECON_MYSQL_HOST"),
+    user=os.environ.get("ECON_MYSQL_USER"),
+    password=os.environ.get("ECON_MYSQL_PASSWORD"),
+    database=os.environ.get("ECON_MYSQL_DB")
+)
 econ_cursor = econ_conn.cursor()
-mod_conn = sqlite3.connect(MODERATOR_DB_PATH)
+
+# Moderator DB connection
+mod_conn = mysql.connector.connect(
+    host=os.environ.get("MOD_MYSQL_HOST"),
+    user=os.environ.get("MOD_MYSQL_USER"),
+    password=os.environ.get("MOD_MYSQL_PASSWORD"),
+    database=os.environ.get("MOD_MYSQL_DB")
+)
 mod_cursor = mod_conn.cursor()
 
 # Create tables if they don't exist
 
 econ_cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT NOT NULL,
-    balance INTEGER NOT NULL DEFAULT 0
+    user_id BIGINT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    balance INT NOT NULL DEFAULT 0
 )
 """)
 
@@ -75,11 +78,11 @@ CREATE TABLE IF NOT EXISTS users (
 # User items table (tracks owned items & uses)
 econ_cursor.execute("""
 CREATE TABLE IF NOT EXISTS user_items (
-    user_id INTEGER,
-    item_id TEXT,
-    item_name TEXT NOT NULL,
-    uses_left INTEGER DEFAULT 0,
-    effect_modifier INTEGER DEFAULT 0,
+    user_id BIGINT,
+    item_id INT,
+    item_name VARCHAR(100) NOT NULL,
+    uses_left INT DEFAULT 0,
+    effect_modifier INT DEFAULT 0,
     PRIMARY KEY (user_id, item_id)
 )
 """)
@@ -91,18 +94,18 @@ def ensure_guild_case_table(cur, guild_id):
     table_name = f"cases_{guild_id}"
     cur.execute(f"""
     CREATE TABLE IF NOT EXISTS {table_name} (
-            case_number INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            username TEXT NOT NULL,
-            reason TEXT,
-            action_type TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            moderator_id INTEGER NOT NULL,
-            expiry INTEGER DEFAULT 0
+            case_number INT AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            username VARCHAR(255) NOT NULL,
+            reason VARCHAR(255),
+            action_type VARCHAR(255) NOT NULL,
+            timestamp BIGINT NOT NULL,
+            moderator_id BIGINT NOT NULL,
+            expiry BIGINT DEFAULT 0
     );
 """)
 
-# continue this dumbassery with the mod tables now. am i going insane?
+# continue this dumbassery with the mod tables now. am i going insane%s
 # extremely.
 
 @log_db_call
@@ -112,7 +115,7 @@ def modify_robber_multiplier(user_id, change, duration=None):
     new_modifier = max(min(current_modifier + change, 100), -100)  # Cap between -100% and +100%
 
     # Update the database
-    econ_cursor.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
+    econ_cursor.execute("UPDATE user_items SET effect_modifier = %s WHERE user_id = %s",
                         (new_modifier, user_id))
     econ_conn.commit()
 
@@ -125,7 +128,7 @@ def modify_robber_multiplier(user_id, change, duration=None):
 @log_db_call
 def get_robbery_modifier(user_id):
     """Gets the total robbery modifier for a user (from items)"""
-    econ_cursor.execute("SELECT SUM(effect_modifier) FROM user_items WHERE user_id = ?", (user_id,))
+    econ_cursor.execute("SELECT SUM(effect_modifier) FROM user_items WHERE user_id = %s", (user_id,))
     result = econ_cursor.fetchone()
     return result[0] if result and result[0] else 0  # Default to 0 modifier
 
@@ -133,7 +136,7 @@ def get_robbery_modifier(user_id):
 async def schedule_effect_decay(user_id, original_value, duration):
     """Waits for the effect duration to expire and then reverts the modifier"""
     await asyncio.sleep(duration)  # Wait X seconds
-    econ_cursor.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
+    econ_cursor.execute("UPDATE user_items SET effect_modifier = %s WHERE user_id = %s",
                         (original_value, user_id))
     econ_conn.commit()
 
@@ -145,14 +148,14 @@ async def schedule_effect_decay(user_id, original_value, duration):
 def update_balance(user_id, amount):
     """ Updates user balance and syncs to backup """
     logging.info(f"Updating balance for {user_id}: {amount} coins")
-    econ_cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    econ_cursor.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, user_id))
     econ_conn.commit()
 
 @log_db_call
 def get_balance(user_id):
     """ Fetches user balance """
     logging.info(f"Getting balance for {user_id}")
-    econ_cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    econ_cursor.execute("SELECT balance FROM users WHERE user_id = %s", (user_id,))
     result = econ_cursor.fetchone()
     return result[0] if result else 0
 
@@ -160,7 +163,7 @@ def get_balance(user_id):
 def add_user(user_id, username):
     """ Adds a user to the economy database if they don't exist """
     logging.info(f"Adding user {user_id} in economy database, {username}")
-    econ_cursor.execute("INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 0)", (user_id, username))
+    econ_cursor.execute("INSERT IGNORE INTO users (user_id, username, balance) VALUES (%s, %s, 0)", (user_id, username))
     econ_conn.commit()
 
 # ----------- Item Handling Functions -----------
@@ -171,17 +174,15 @@ def add_user_item(user_id, item_id, item_name, uses_left=1, effect_modifier=0):
     logging.info(f"Adding item {item_name} (ID: {item_id}) to {user_id}'s inventory")
     econ_cursor.execute("""
         INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier) 
-        VALUES (?, ?, ?, ?, ?) 
-        ON CONFLICT(user_id, item_id) DO UPDATE 
-        SET uses_left = uses_left + ?""",
-        (user_id, item_id, item_name, uses_left, effect_modifier, uses_left)
-    )
+        VALUES (%s, %s, %s, %s, %s) 
+        ON DUPLICATE KEY UPDATE uses_left = user_items.uses_left + %s
+""", (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
     econ_conn.commit()
 
 @log_db_call
 def get_user_items(user_id):
     """ Fetches all items a user owns """
-    econ_cursor.execute("SELECT item_id, item_name, uses_left FROM user_items WHERE user_id = ?", (user_id,))
+    econ_cursor.execute("SELECT item_id, item_name, uses_left FROM user_items WHERE user_id = %s", (user_id,))
     items = econ_cursor.fetchall()
 
     return [{"item_id": row[0], "item_name": row[1], "uses_left": row[2]} for row in items] if items else []
@@ -190,20 +191,20 @@ def get_user_items(user_id):
 def use_item(user_id, item_id):
     """ Decreases item uses left by 1 if it has remaining uses """
     logging.info(f"User {user_id} is using item {item_id}")
-    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = ? AND uses_left > 0",
+    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = %s AND item_id = %s AND uses_left > 0",
                         (user_id, item_id))
     econ_conn.commit()
 
 @log_db_call
 def remove_item_from_user(user_id, item_id):
         """Removes an item completely from the user's inventory."""
-        econ_cursor.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
+        econ_cursor.execute("DELETE FROM user_items WHERE user_id = %s AND item_id = %s", (user_id, item_id))
         econ_conn.commit()
 
 @log_db_call
 def update_item_uses(user_id, item_id, uses_left):
         """Updates the number of uses left for a user's item."""
-        econ_cursor.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?", (uses_left, user_id, item_id))
+        econ_cursor.execute("UPDATE user_items SET uses_left = %s WHERE user_id = %s AND item_id = %s", (uses_left, user_id, item_id))
         econ_conn.commit()
 
 @log_db_call
@@ -211,8 +212,8 @@ def add_item_to_user(user_id, item_id, item_name, uses_left=1, effect_modifier=0
         """Adds an item to the user's inventory or updates uses if it exists."""
         econ_cursor.execute("""
             INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
+            VALUES %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + %s
         """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
         econ_conn.commit()
 
@@ -224,7 +225,7 @@ def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0)
     logging.info(f"User {user_id} is buying {item_name} for {price} coins")
 
     # Check if user exists
-    econ_cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    econ_cursor.execute("SELECT balance FROM users WHERE user_id = %s", (user_id,))
     user = econ_cursor.fetchone()
     if not user:
         return False  # User does not exist
@@ -234,13 +235,13 @@ def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0)
         return False  # Not enough money
 
     # Deduct balance
-    econ_cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (price, user_id))
+    econ_cursor.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s", (price, user_id))
 
     # Add or update item in inventory
     econ_cursor.execute("""
         INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + %s
     """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
 
     econ_conn.commit()
@@ -253,7 +254,7 @@ def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0)
 def use_item(user_id, item_id):
     """Handles item use and applies effects dynamically."""
     # Fetch user items
-    econ_cursor.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
+    econ_cursor.execute("SELECT uses_left FROM user_items WHERE user_id = %s AND item_id = %s", (user_id, item_id))
     result = econ_cursor.fetchone()
     
     if not result:
@@ -328,20 +329,20 @@ def use_item(user_id, item_id):
             effect_applied = "🔫 **You are armed. Good luck, robber.**"
 
     # Reduce item uses
-    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = ?", (user_id, item_id))
+    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = %s AND item_id = %s", (user_id, item_id))
     econ_conn.commit()
 
     return f"{last_use_warning}✅ **You used {item_data['name']}!** {effect_applied}"
 
 @log_db_call
 def check_gun_defense(victim_id):
-    econ_cursor.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,))
+    econ_cursor.execute("SELECT uses_left FROM user_items WHERE user_id = %s AND item_id = 10", (victim_id,))
     result = econ_cursor.fetchone()
     return result[0] if result and result[0] > 0 else 0
 
 @log_db_call
 def decrement_gun_use(victim_id):
-    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = 10 AND uses_left > 0", (victim_id,))
+    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = %s AND item_id = 10 AND uses_left > 0", (victim_id,))
     econ_conn.commit()
 
 # ----------- Moderator logging functions -----------
@@ -356,14 +357,14 @@ def insert_case(mod_cursor, guild_id, user_id, username, reason, action_type, mo
     mod_cursor.execute(
         f"""
         INSERT INTO {table_name} (user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (user_id, username, reason, action_type, timestamp, moderator_id, expiry)
     )
     mod_conn.commit()
     # Optionally, get the last inserted case_number:
-    mod_cursor.execute(f"SELECT last_insert_rowid()")
-    return mod_cursor.fetchone()[0]
+    case_number = mod_cursor.lastrowid
+    return case_number
 
 @log_mod_call
 def get_cases_for_guild(mod_cursor, guild_id, limit=50, offset=0):
@@ -374,7 +375,7 @@ def get_cases_for_guild(mod_cursor, guild_id, limit=50, offset=0):
         SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id
         FROM {table_name}
         ORDER BY case_number DESC
-        LIMIT ? OFFSET ?
+        LIMIT %s OFFSET %s
         """,
         (limit, offset)
     )
@@ -387,7 +388,7 @@ def get_cases_for_user(mod_cursor, guild_id, user_id):
     mod_cursor.execute(
         f"""
         SELECT case_number, reason, action_type, timestamp, moderator_id
-        FROM {table_name} WHERE user_id = ?
+        FROM {table_name} WHERE user_id = %s
         ORDER BY case_number DESC
         """,
         (user_id,)
@@ -401,7 +402,7 @@ def get_case(mod_cursor, guild_id, case_number):
     mod_cursor.execute(
         f"""
         SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id
-        FROM {table_name} WHERE case_number = ?
+        FROM {table_name} WHERE case_number = %s
         """,
         (case_number,)
     )
@@ -412,7 +413,7 @@ def remove_case(mod_cursor, guild_id, case_number):
     table_name = f"cases_{guild_id}"
     ensure_guild_case_table(mod_cursor, guild_id)
     mod_cursor.execute(
-        f"DELETE FROM {table_name} WHERE case_number = ?",
+        f"DELETE FROM {table_name} WHERE case_number = %s",
         (case_number,)
     )
     mod_conn.commit()
@@ -422,7 +423,7 @@ def edit_case_reason(mod_cursor, guild_id, case_number, new_reason):
     table_name = f"cases_{guild_id}"
     ensure_guild_case_table(mod_cursor, guild_id)
     mod_cursor.execute(
-        f"UPDATE {table_name} SET reason = ? WHERE case_number = ?",
+        f"UPDATE {table_name} SET reason = %s WHERE case_number = %s",
         (new_reason, case_number)
     )
     mod_conn.commit()
@@ -436,7 +437,7 @@ def get_expired_cases(mod_cursor, guild_id, action_type, now=None):
     mod_cursor.execute(
         f"""
         SELECT case_number, user_id FROM {table_name}
-        WHERE action_type = ? AND expiry > 0 AND expiry <= ?
+        WHERE action_type = %s AND expiry > 0 AND expiry <= %s
         """,
         (action_type, now)
     )
