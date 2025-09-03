@@ -1,5 +1,6 @@
 import sqlite3, shutil, os, logging, asyncio, sys, time
 from functools import wraps
+from dotenv import load_dotenv
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 
