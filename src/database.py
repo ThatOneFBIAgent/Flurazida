@@ -57,8 +57,9 @@ def backup_db_to_gdrive(local_path, drive_filename):
                 }
             }
     gauth = GoogleAuth(settings=settings)
+    gauth.ServiceAuth()
     drive = GoogleDrive(gauth)
-    
+
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
     if file_list:
         file = file_list[0]
@@ -79,6 +80,7 @@ def restore_db_from_gdrive(local_path, drive_filename):
                 }
             }
     gauth = GoogleAuth(settings=settings)
+    gauth.ServiceAuth()
     drive = GoogleDrive(gauth)
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
