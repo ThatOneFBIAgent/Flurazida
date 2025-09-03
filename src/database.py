@@ -28,9 +28,13 @@ def log_mod_call(func):
 logging.info("Economy DB Logging begin")
 logging.info("Moderator DB Logging begin")
 
+
+# Google Drive Backup and Restore Functions, will probably make better for server deployment
+# currently shit is broken from the gauth not catching creds, otherwise api is happy.
 def backup_db_to_gdrive(local_path, drive_filename):
     gauth = GoogleAuth()
-    gauth.ServiceAccountAuth(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])  # Path to your credentials file
+    gauth.settings['service_config'] = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+    gauth.ServiceAuth()
     drive = GoogleDrive(gauth)
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
@@ -47,7 +51,8 @@ def backup_db_to_gdrive(local_path, drive_filename):
 
 def restore_db_from_gdrive(local_path, drive_filename):
     gauth = GoogleAuth()
-    gauth.ServiceAccountAuth(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])  # Path to your credentials file
+    gauth.settings['service_config'] = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+    gauth.ServiceAuth()
     drive = GoogleDrive(gauth)
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()

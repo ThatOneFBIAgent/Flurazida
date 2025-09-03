@@ -16,8 +16,8 @@ FORBIDDEN_GUILDS = {
 # it does not mean you'll get my bot's token, i'm not that dumb
 # and you shouldn't be either.
 
-# Do not host config.py with raw info on your repository, instead use environment variables or a secure vault, or just host it on your pc.
-# This will require dotenv, otherwise you risk sharing your bot token with third parties.
+# Do not host config.py with raw bot token on your repository, instead use environment variables or a secure vault, or just host it on your pc.
+# This will require dotenv, otherwise you risk sharing your bot token with third parties and discord ressetting the token.
 
 # still doesn't stop me from putting code here.
  
@@ -66,6 +66,7 @@ def cooldown(seconds: int):
 # (rest of code)...
 # Calculated in seconds. 1m = 60s, 10m = 600s, 1h = 3600s
 
+# Bot activity list, add your own activities here, bot will randomly pick one every 10 minutes (also configurable in main.py)
 ACITIVIES = [
     #  Games
     discord.Game("with equations"),
