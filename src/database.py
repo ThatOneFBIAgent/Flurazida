@@ -1,4 +1,4 @@
-import sqlite3, shutil, os, logging, asyncio, sys, time
+import sqlite3, shutil, os, logging, asyncio, sys, time, json
 from functools import wraps
 from dotenv import load_dotenv
 from pydrive2.auth import GoogleAuth
@@ -31,12 +31,27 @@ logging.info("Moderator DB Logging begin")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 
+service_account_info = {
+    "type": os.environ["GDRIVE_TYPE"],
+    "project_id": os.environ["GDRIVE_PROJECT_ID"],
+    "private_key_id": os.environ["GDRIVE_PRIVATE_KEY_ID"],
+    "private_key": os.environ["GDRIVE_PRIVATE_KEY"].replace("\\n", "\n"),
+    "client_email": os.environ["GDRIVE_CLIENT_EMAIL"],
+    "client_id": os.environ["GDRIVE_CLIENT_ID"],
+    "auth_uri": os.environ["GDRIVE_AUTH_URI"],
+    "token_uri": os.environ["GDRIVE_TOKEN_URI"],
+    "auth_provider_x509_cert_url": os.environ["GDRIVE_AUTH_PROVIDER_X509_CERT_URL"],
+    "client_x509_cert_url": os.environ["GDRIVE_CLIENT_X509_CERT_URL"]
+}
+
+with open("/tmp/service_account.json", "w") as f:
+    json.dump(service_account_info, f)
+
 # Google Drive Backup and Restore Functions, will probably make better for server deployment
 # currently shit is broken from the gauth not catching creds, otherwise api is happy.
 def backup_db_to_gdrive(local_path, drive_filename):
     gauth = GoogleAuth()
-    gauth.settings['service_config'] = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-    gauth.ServiceAuth()
+    gauth.ServiceAuth("/tmp/service_account.json")
     drive = GoogleDrive(gauth)
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
@@ -53,8 +68,7 @@ def backup_db_to_gdrive(local_path, drive_filename):
 
 def restore_db_from_gdrive(local_path, drive_filename):
     gauth = GoogleAuth()
-    gauth.settings['service_config'] = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-    gauth.ServiceAuth()
+    gauth.ServiceAuth("/tmp/service_account.json")
     drive = GoogleDrive(gauth)
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
