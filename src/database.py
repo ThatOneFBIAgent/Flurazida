@@ -51,8 +51,11 @@ with open("/tmp/service_account.json", "w") as f:
 # currently shit is broken from the gauth not catching creds, otherwise api is happy.
 def backup_db_to_gdrive(local_path, drive_filename):
     gauth = GoogleAuth()
-    gauth.LoadServiceConfigFile("/tmp/service_account.json")
-    gauth.ServiceAuth()
+    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+
     drive = GoogleDrive(gauth)
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
@@ -69,9 +72,13 @@ def backup_db_to_gdrive(local_path, drive_filename):
 
 def restore_db_from_gdrive(local_path, drive_filename):
     gauth = GoogleAuth()
-    gauth.LoadServiceConfigFile("/tmp/service_account.json")
-    gauth.ServiceAuth()
+    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+
     drive = GoogleDrive(gauth)
+
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
     if file_list:
