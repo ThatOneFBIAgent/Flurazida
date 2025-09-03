@@ -50,14 +50,15 @@ with open("/tmp/service_account.json", "w") as f:
 # Google Drive Backup and Restore Functions, will probably make better for server deployment
 # currently shit is broken from the gauth not catching creds, otherwise api is happy.
 def backup_db_to_gdrive(local_path, drive_filename):
-    gauth = GoogleAuth()
-    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_dict(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
-
+    settings = {
+                "client_config_backend": "service",
+                "service_config": {
+                    "client_json_file_path": "/tmp/service_account.json",
+                }
+            }
+    gauth = GoogleAuth(settings=settings)
     drive = GoogleDrive(gauth)
-
+    
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
     if file_list:
         file = file_list[0]
@@ -71,14 +72,14 @@ def backup_db_to_gdrive(local_path, drive_filename):
         logging.info(f"Created new backup on Google Drive: {drive_filename}")
 
 def restore_db_from_gdrive(local_path, drive_filename):
-    gauth = GoogleAuth()
-    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_dict(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
-
+    settings = {
+                "client_config_backend": "service",
+                "service_config": {
+                    "client_json_file_path": "/tmp/service_account.json",
+                }
+            }
+    gauth = GoogleAuth(settings=settings)
     drive = GoogleDrive(gauth)
-
 
     file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
     if file_list:
