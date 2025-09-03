@@ -29,6 +29,7 @@ def log_mod_call(func):
 logging.info("Economy DB Logging begin")
 logging.info("Moderator DB Logging begin")
 
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 
 # Google Drive Backup and Restore Functions, will probably make better for server deployment
 # currently shit is broken from the gauth not catching creds, otherwise api is happy.
