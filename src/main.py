@@ -239,8 +239,8 @@ async def moderation_expiry_task():
 
 async def main():
 
-    restore_db_from_gdrive("economy.db", ECONOMY_DB_PATH)
-    restore_db_from_gdrive("moderator.db", MODERATOR_DB_PATH)
+    restore_db_from_gdrive(MODERATOR_DB_PATH, "moderator.db")
+    restore_db_from_gdrive(ECONOMY_DB_PATH, "economy.db")
 
     async with bot:
         asyncio.create_task(resource_monitor())
