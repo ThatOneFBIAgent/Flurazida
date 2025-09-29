@@ -7,12 +7,11 @@ from pydrive2.drive import GoogleDrive
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 
 def log_db_call(func):
+    from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
         logging.info(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
@@ -20,6 +19,7 @@ def log_db_call(func):
     return wrapper
 
 def log_mod_call(func):
+    from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
         logging.info(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
@@ -29,8 +29,10 @@ def log_mod_call(func):
 logging.info("Economy DB Logging begin")
 logging.info("Moderator DB Logging begin")
 
+# Load env
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 
+# Build service account json from env
 service_account_info = {
     "type": os.environ["GDRIVE_TYPE"],
     "project_id": os.environ["GDRIVE_PROJECT_ID"],
@@ -43,53 +45,41 @@ service_account_info = {
     "auth_provider_x509_cert_url": os.environ["GDRIVE_AUTH_PROVIDER_X509_CERT_URL"],
     "client_x509_cert_url": os.environ["GDRIVE_CLIENT_X509_CERT_URL"]
 }
-
 with open("/tmp/service_account.json", "w") as f:
     json.dump(service_account_info, f)
 
-# Google Drive Backup and Restore Functions, will probably make better for server deployment
-# currently shit is broken from the gauth not catching creds, otherwise api is happy.
-def backup_db_to_gdrive(local_path, drive_filename):
+def get_drive():
+    """Authenticate and return a GoogleDrive instance"""
     settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": "/tmp/service_account.json",
-                }
-            }
+        "client_config_backend": "service",
+        "service_config": {"client_json_file_path": "/tmp/service_account.json"}
+    }
     gauth = GoogleAuth(settings=settings)
     gauth.ServiceAuth()
-    drive = GoogleDrive(gauth)
+    return GoogleDrive(gauth)
 
-    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
-    if file_list:
-        file = file_list[0]
-        file.SetContentFile(local_path)
-        file.Upload()
-        logging.info(f"Updated existing backup on Google Drive: {drive_filename}")
-    else:
-        file = drive.CreateFile({'title': drive_filename})
-        file.SetContentFile(local_path)
-        file.Upload()
-        logging.info(f"Created new backup on Google Drive: {drive_filename}")
+def backup_db_to_gdrive(local_path, file_id, label="DB"):
+    """Backup a local DB file to Google Drive by file ID"""
+    drive = get_drive()
+    file = drive.CreateFile({'id': file_id})
+    temp_path = f"/tmp/{label}_backup.sqlite"
+    shutil.copy(local_path, temp_path)  # avoid uploading a locked sqlite file
+    file.SetContentFile(temp_path)
+    # force update with modifiedDate bump
+    file['modifiedDate'] = time.strftime("%Y-%m-%dT%H:%M:%S.%fZ", time.gmtime())
+    file.Upload(param={'convert': False})
+    logging.info(f"Updated backup on Google Drive for {label} (ID {file_id})")
 
-def restore_db_from_gdrive(local_path, drive_filename):
-    settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": "/tmp/service_account.json",
-                }
-            }
-    gauth = GoogleAuth(settings=settings)
-    gauth.ServiceAuth()
-    drive = GoogleDrive(gauth)
+def restore_db_from_gdrive(local_path, file_id, label="DB"):
+    """Restore a DB file from Google Drive by file ID"""
+    drive = get_drive()
+    file = drive.CreateFile({'id': file_id})
+    file.GetContentFile(local_path)
+    logging.info(f"Restored {label} DB from Google Drive (ID {file_id})")
 
-    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
-    if file_list:
-        file = file_list[0]
-        file.GetContentFile(local_path)
-        logging.info(f"Restored database from Google Drive: {drive_filename}")
-    else:
-        logging.warning(f"No backup found on Google Drive with name: {drive_filename}")
+# Example usage (IDs must be set as Railway env vars):
+ECON_DB_ID = os.environ.get("GDRIVE_ECONOMY_DB_ID")
+MOD_DB_ID  = os.environ.get("GDRIVE_MOD_DB_ID")
 
 # the next lines of code are nasty hacks becuase windows is shit
 # Get the absolute path to the directory where this file is located
