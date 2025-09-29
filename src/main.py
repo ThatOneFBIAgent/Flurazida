@@ -143,6 +143,17 @@ async def resource_monitor():
         stats = get_bot_stats()
         print(f"Bot Resource Usage: {stats}")
         await asyncio.sleep(60)
+        
+def backup_all():
+    if ECON_DB_ID:
+        backup_db_to_gdrive("economy.db", ECON_DB_ID, label="Economy")
+    if MOD_DB_ID:
+        backup_db_to_gdrive("moderator.db", MOD_DB_ID, label="Moderator")
+        
+async def backup_loop():
+    while True:
+        backup_all()
+        await asyncio.sleep(3600)
 
 async def cycle_paired_activities():
     global last_activity_signature
