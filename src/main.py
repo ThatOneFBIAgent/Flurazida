@@ -19,7 +19,7 @@ from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
-from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive, ECONOMY_DB_PATH, MODERATOR_DB_PATH
+from database import get_expired_cases, mod_cursor, backup_db_to_gdrive, restore_db_from_gdrive, ECONOMY_DB_PATH, MODERATOR_DB_PATH
 from dotenv import load_dotenv
 
 ECON_DB_ID = os.environ.get("GDRIVE_ECONOMY_DB_ID")
