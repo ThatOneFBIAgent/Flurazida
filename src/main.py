@@ -265,6 +265,8 @@ async def main():
 
         await bot.start(config.BOT_TOKEN)
 
+try:
+    asyncio.run(main())
 except aiohttp.ClientConnectorError as e:
     if isinstance(e.os_error, socket.gaierror):
         print(f"Detected socket.gaierror inside ClientConnectorError: {e.os_error}")
