@@ -20,6 +20,10 @@ from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
 from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive, ECONOMY_DB_PATH, MODERATOR_DB_PATH
+from dotenv import load_dotenv
+
+ECON_DB_ID = os.environ.get("GDRIVE_ECONOMY_DB_ID")
+MOD_DB_ID  = os.environ.get("GDRIVE_MOD_DB_ID")
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -238,19 +242,28 @@ async def moderation_expiry_task():
         await asyncio.sleep(60)
 
 async def main():
+    # Restore both DBs from Drive using file IDs
+    if MOD_DB_ID:
+        restore_db_from_gdrive(MODERATOR_DB_PATH, MOD_DB_ID, label="Moderator")
+    else:
+        logging.warning("No MOD_DB_ID set in environment, skipping moderator DB restore")
 
-    restore_db_from_gdrive(MODERATOR_DB_PATH, "moderator.db")
-    restore_db_from_gdrive(ECONOMY_DB_PATH, "economy.db")
+    if ECON_DB_ID:
+        restore_db_from_gdrive(ECONOMY_DB_PATH, ECON_DB_ID, label="Economy")
+    else:
+        logging.warning("No ECON_DB_ID set in environment, skipping economy DB restore")
 
+    # Start bot + background tasks
     async with bot:
-        asyncio.create_task(resource_monitor())
+#        asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
         asyncio.create_task(moderation_expiry_task())
         bot.tree.interaction_check = global_blacklist_check
-        await bot.start(config.BOT_TOKEN)
 
-try:
-    asyncio.run(main())
+        # Optional: start hourly backup loop
+        asyncio.create_task(backup_loop())
+
+        await bot.start(config.BOT_TOKEN)
 
 except aiohttp.ClientConnectorError as e:
     if isinstance(e.os_error, socket.gaierror):
