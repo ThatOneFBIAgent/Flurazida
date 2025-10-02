@@ -4,3 +4,5 @@ psutil
 Pynacl
 python-dotenv
 Pydrive2
+
+# set any other dependencies for your project below this line, they'll be added by Railway or other methods. Pynacl is optinal unless you plan to use voice features.
