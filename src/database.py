@@ -11,12 +11,11 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload # fuck pyd
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 
 def log_db_call(func):
+    from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
         logging.info(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
@@ -24,6 +23,7 @@ def log_db_call(func):
     return wrapper
 
 def log_mod_call(func):
+    from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
         logging.info(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
@@ -105,26 +105,24 @@ def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
         service.files().create(body=meta, media_body=media, fields="id").execute()
         logging.info("Created new backup.")
 
-def restore_db_from_gdrive_env(local_path, drive_filename, folder_id):
-    logging.info(f"Restoring {drive_filename} from Google Drive...")
-    service = build_drive_service()
+def restore_db_from_gdrive(local_path, drive_filename):
+    settings = {
+                "client_config_backend": "service",
+                "service_config": {
+                    "client_json_file_path": "/tmp/service_account.json",
+                }
+            }
+    gauth = GoogleAuth(settings=settings)
+    gauth.ServiceAuth()
+    drive = GoogleDrive(gauth)
 
-    query = f"'{folder_id}' in parents and name='{drive_filename}' and trashed=false"
-    res = service.files().list(q=query, fields="files(id, name)").execute()
-    files = res.get("files", [])
-    if not files:
-        logging.warning("No backup found.")
-        return
-
-    file_id = files[0]["id"]
-    request = service.files().get_media(fileId=file_id)
-    fh = io.FileIO(local_path, "wb")
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    fh.close()
-    logging.info("Restore finished.")
+    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
+    if file_list:
+        file = file_list[0]
+        file.GetContentFile(local_path)
+        logging.info(f"Restored database from Google Drive: {drive_filename}")
+    else:
+        logging.warning(f"No backup found on Google Drive with name: {drive_filename}")
 
 # the next lines of code are nasty hacks becuase windows is shit
 # Get the absolute path to the directory where this file is located
