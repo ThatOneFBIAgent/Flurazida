@@ -31,244 +31,325 @@ class Fun(commands.Cog):
     # the bane of my existance
     @app_commands.command(name="roll", description="Roll dice with keep/drop, modifiers, and explosions. See /roll dice: help for syntax.")
     @cooldown(5)
-    async def roll(self, interaction: discord.Interaction, dice: str):
-        await interaction.response.defer(ephemeral=False) # Defer by default, take a WHILE.
+    async def roll(self, interaction: discord.Interaction, dice: str, expand: bool = False):
+        await interaction.response.defer(ephemeral=False)
 
+        # Quick help
         if dice.strip().lower() == "help":
-                help_embed = discord.Embed(
-                title="🎲 Dice Roller Help",
-                description=(
-                    "**Syntax:** `XdY`, `Xd!Y`, `Xd!!Y`, `XdYkN`, `XdYdN`, `XdY+Z`, etc.\n"
-                    "**Examples:**\n"
-                    "• `2d6` — Roll 2 six-sided dice\n"
-                    "• `4d8k2` — Roll 4d8, keep the highest 2\n"
-                    "• `5d10d2` — Roll 5d10, drop the lowest 2\n"
-                    "• `3d6+2` — Roll 3d6, add 2 to each result\n"
-                    "• `2d6!` — Roll 2d6, exploding on max value\n"
-                    "• `4d8!!` — Roll 4d8, compounding explosions\n"
-                    "• `5d6k3+1` — Roll 5d6, keep highest 3, add 1 to each\n"
-                    "\n"
-                    "**Note:**\n"
-                    "- You can use keep/drop (`kN`/`dN`) or explosions (`!`, `!!`), but combining both may not always work as expected.\n"
-                    "- Exploding dice applies before keep/drop.\n"
-                    ),
-                    color=0x3498db
-                )
-                await interaction.followup.send(embed=help_embed, ephemeral=False)
+            HELP_TEXT = (
+                "🎲 **Dice Roller Help**\n\n"
+                "Syntax: combine terms with + or -: `1d20 + 1d4 - 2 + 3d6k2`\n\n"
+                "> `XdY` — roll X Y-sided dice\n"
+                "> `XdYkN` / `XdYD N` — keep highest N / drop lowest N (per-group). NOTE: **drop uses uppercase `D`** to avoid ambiguity with the dice `d`.\n\n"
+                "> numeric terms like `+2` or `-1` are constants\n\n"
+                "> `!` / `!!` / `!p` / `!!p` — explode / compound / penetrate / compound+penetrate\n"
+                "Tip: pass the slash option `expand=True` for a full breakdown."
+            )
+            help_embed = discord.Embed(title="🎲 Dice Roller Help", description=HELP_TEXT, color=0x3498db)
+            await interaction.followup.send(embed=help_embed, ephemeral=False)
+            return
+
+        # Tokenize into signed parts: supports +1d20, -2, +3d6k1!!p etc.
+        sanitized = dice.replace(" ", "")
+        sanitized_orig = sanitized  # keep the full original (contains & modifiers) for later parsing of &N+Z
+
+        # Remove &N±Z fragments BEFORE tokenizing so the numeric N inside them is not treated as a standalone constant.
+        # We'll still parse the actual & modifiers later (see ampersand_matches step further down).
+        sanitized_no_amp = re.sub(r'&\d+[+-]\d+', '', sanitized_orig)
+
+        token_pattern = re.compile(r'([+-]?)(\d+[dD](?:!{1,2}(?:p)?)?\d+(?:[kK]\d+|D\d+)?|\d+)')
+        tokens = token_pattern.findall(sanitized_no_amp)
+        if not tokens:
+            await interaction.followup.send("❌ **Invalid format!** Do /roll dice: help for syntax and examples", ephemeral=False)
+            return
+
+        def parse_group(text):
+            if text.isdigit():
+                return {"type": "const", "value": int(text)}
+            m = re.match(r'(?P<num>\d+)[dD](?P<explode>!{1,2}p?|!p?)?(?P<sides>\d+)(?P<kd>(?:[kK]\d+|D\d+))?', text)
+            if not m:
+                return None
+            return {
+                "type": "dice",
+                "num": int(m.group("num")),
+                "sides": int(m.group("sides")),
+                "explode": m.group("explode") or "",
+                "keepdrop": m.group("kd") or ""
+            }
+
+        groups = []
+        total_dice_count = 0
+        for sign, body in tokens:
+            parsed = parse_group(body)
+            if not parsed:
+                await interaction.followup.send(f"❌ **Couldn't parse token:** `{body}`", ephemeral=False)
+                return
+            parsed["sign"] = -1 if sign == "-" else 1
+            groups.append(parsed)
+            if parsed["type"] == "dice":
+                total_dice_count += parsed["num"]
+
+        # Limits
+        try:
+            MAX_DICE
+            MAX_SIDES
+        except NameError:
+            MAX_DICE, MAX_SIDES = 1000, 10000
+
+        if total_dice_count > MAX_DICE:
+            await interaction.followup.send(f"❌ **Too many dice in total!** Limit: `{MAX_DICE}` dice.", ephemeral=False)
+            return
+        for g in groups:
+            if g["type"] == "dice" and g["sides"] > MAX_SIDES:
+                await interaction.followup.send(f"❌ **Die with too many sides!** Limit: `{MAX_SIDES}` sides.", ephemeral=False)
                 return
 
-        # Regex pattern for dice: Xd!Y, Xd!!Y, Xd!Y+Z, XdYkN, XdYdN, etc.
-        pattern = re.compile(
-            r"(?P<num>\d+)[dD](?P<explode>!?|!!|!\?)?(?P<sides>\d+)"
-            r"(?P<keepdrop>[kdKD]\d+)?"
-            r"(?P<modifiers>(?:[&+-]\d+)*)"
-        )
-        match = pattern.fullmatch(dice.replace(" ", ""))
+        rng = random.Random()
 
-        if not match:
-            await interaction.followup.send(
-                "❌ **Invalid format!** Do /roll dice: help for syntax and examples",
-                ephemeral=False
-            )
-            return
-
-        num_dice = int(match.group("num"))
-        die_sides = int(match.group("sides"))
-        explode_flag = match.group("explode") or ""
-        keepdrop = match.group("keepdrop")
-        modifiers = match.group("modifiers") or ""
-
-        if num_dice > MAX_DICE or die_sides > MAX_SIDES:
-            await interaction.followup.send(
-                f"❌ **Too many dice!** Limit: `{MAX_DICE}d{MAX_SIDES}`.",
-                ephemeral=False
-            )
-            return
-
-        if explode_flag and keepdrop:
-            await interaction.followup.send(
-                "❌ **Combining exploding dice and keep/drop is not supported. Please use only one at a time.",
-                ephemeral=True
-            )
-            return
-
-        # Exploding dice logic
         def roll_die(sides):
-            return random.randint(1, sides)
+            return rng.randint(1, sides)
 
-        def explode_once(rolls, sides, compound=False, show_all=False, depth=0, max_depth=10):
-            """Handles single or compounding explosions, returns (final_rolls, all_rolls_for_display)"""
-            if depth >= max_depth:
-                return rolls, rolls if show_all else [sum(rolls)]
-            new_rolls = []
-            all_rolls = []
-            for roll in rolls:
-                if roll == sides:
-                    if compound:
-                        # Compound: keep rolling and sum all
-                        chain = [roll]
-                        while True:
-                            if len(chain) > max_depth:
-                                break
-                            next_roll = roll_die(sides)
-                            chain.append(next_roll)
-                            if next_roll != sides:
-                                break
-                        new_rolls.append(sum(chain))
-                        if show_all:
-                            all_rolls.append(chain)
-                        else:
-                            all_rolls.append([sum(chain)])
-                    else:
-                        # Normal explode: roll again and add to pool
-                        chain = [roll]
-                        for _ in range(max_depth):
-                            next_roll = roll_die(sides)
-                            chain.append(next_roll)
-                            if next_roll != sides:
-                                break
-                        new_rolls.extend(chain)
-                        if show_all:
-                            all_rolls.append(chain)
-                        else:
-                            all_rolls.extend(chain)
+        def resolve_explosions_for_die(first_roll, sides, explode_flag, max_depth=100):
+            """
+            Returns (value_contrib, chain_list, raw_chain)
+            - chain_list: the values that will be shown/added (penetrating subtracts 1 on extras)
+            - raw_chain: raw face values used to test for further explosions (used only internally)
+            """
+            chain_display = [first_roll]
+            raw_chain = [first_roll]
+            if not explode_flag:
+                return first_roll, chain_display, raw_chain
+
+            is_compound = explode_flag.startswith("!!")
+            is_penetrate = "p" in explode_flag
+            depth = 0
+
+            if is_compound:
+                # only chain if first == max
+                if first_roll != sides:
+                    return first_roll, chain_display, raw_chain
+                # roll until we break the chain
+                while depth < max_depth:
+                    depth += 1
+                    nxt_raw = roll_die(sides)
+                    raw_chain.append(nxt_raw)
+                    nxt_display = nxt_raw - 1 if is_penetrate else nxt_raw
+                    chain_display.append(nxt_display)
+                    if nxt_raw != sides:
+                        break
+                return sum(chain_display), chain_display, raw_chain
+            else:
+                # normal explode (possibly penetrating)
+                total = first_roll
+                raw_last = first_roll
+                while depth < max_depth and raw_last == sides:
+                    depth += 1
+                    nxt_raw = roll_die(sides)
+                    raw_chain.append(nxt_raw)
+                    nxt_display = nxt_raw - 1 if is_penetrate else nxt_raw
+                    chain_display.append(nxt_display)
+                    total += nxt_display
+                    raw_last = nxt_raw
+                return total, chain_display, raw_chain
+
+        # Collect per-group and per-die data
+        group_summaries = []
+        flat_kept_entries = []  # flattened list of dicts for kept dice to apply global &-modifiers
+        const_total = 0  # sum of constant numeric tokens (signed)
+        footer_keepdrop = []
+
+        for gi, g in enumerate(groups):
+            if g["type"] == "const":
+                const_total += g["sign"] * g["value"]
+                group_summaries.append({
+                    "kind": "const",
+                    "label": f"{g['sign'] * g['value']}",
+                    "pre_keep_sum": g['sign'] * g['value'],
+                    "post_mod_sum": g['sign'] * g['value'],
+                    "details": None
+                })
+                continue
+
+            per_die = []
+            for _ in range(g["num"]):
+                first = roll_die(g["sides"])
+                contrib, chain_display, raw_chain = resolve_explosions_for_die(first, g["sides"], g["explode"])
+                per_die.append({
+                    "raw_first": first,
+                    "pre_contrib": contrib,       # contribution BEFORE any & modifiers
+                    "chain_display": chain_display,
+                    "raw_chain": raw_chain
+                })
+
+            # apply keep/drop per group (operates on pre_contrib)
+            kd = g["keepdrop"]
+            if kd:
+                # kd now is either like 'k2' / 'K2' or 'D2' (drop must be uppercase D)
+                first_char = kd[0]
+                if first_char in ('k', 'K'):
+                    typ = 'k'
+                elif first_char == 'D':
+                    typ = 'D'
                 else:
-                    new_rolls.append(roll)
-                    if show_all:
-                        all_rolls.append([roll])
+                    # fallback (shouldn't happen with new regex)
+                    typ = first_char.lower()
+                n = int(kd[1:])
+
+                sorted_by = sorted(per_die, key=lambda x: x["pre_contrib"], reverse=True)
+                if typ == "k":
+                    kept = sorted_by[:n]
+                    dropped = sorted_by[n:]
+                    footer_keepdrop.append(f"{g['num']}d{g['sides']}k{n}")
+                else:  # typ == "D"
+                    dropped = sorted_by[:n]
+                    kept = sorted_by[n:]
+                    footer_keepdrop.append(f"{g['num']}d{g['sides']}D{n}")
+            else:
+                kept = per_die
+                dropped = []
+
+            pre_keep_sum = sum(d["pre_contrib"] for d in kept)
+            # Add entries to flat_kept_entries for global &-style modifiers (preserve order groups->dice)
+            for d in kept:
+                flat_kept_entries.append({
+                    "group_index": gi,
+                    "base_value": d["pre_contrib"],  # will be adjusted by &N later
+                    "chain_display": d["chain_display"],
+                    "raw_first": d["raw_first"]
+                })
+
+            group_summaries.append({
+                "kind": "dice",
+                "label": f"{g['sign'] if g['sign']<0 else ''}{g['num']}d{g['sides']}{g['explode']}{g['keepdrop']}",
+                "pre_keep_sum": g['sign'] * pre_keep_sum,  # sign applied here; & modifiers applied globally later
+                "post_mod_sum": None,  # to be filled after global modifiers applied
+                "details": per_die,
+                "sign": g["sign"]
+            })
+
+        # Detect legacy &N+Z modifiers anywhere in the sanitized input
+        ampersand_matches = re.findall(r'&(\d+)([+-]\d+)', sanitized_orig)
+        ampersand_notes = []
+        if ampersand_matches:
+            # apply each match in order found — each modifies the first N kept dice in flat_kept_entries
+            # keep deterministic: we apply them sequentially to the current values
+            for cnt_str, flat_mod_str in ampersand_matches:
+                cnt = int(cnt_str)
+                flat_mod = int(flat_mod_str)
+                applied = 0
+                for e in flat_kept_entries:
+                    if applied >= cnt:
+                        break
+                    e["base_value"] += flat_mod
+                    applied += 1
+                ampersand_notes.append(f"First {cnt} rolls: {flat_mod:+d}")
+
+        # Now compute per-group post-mod sums from flat_kept_entries
+        group_post_sums = {}
+        for idx, gs in enumerate(group_summaries):
+            if gs["kind"] == "const":
+                group_post_sums[idx] = gs["post_mod_sum"]
+                continue
+            group_post_sums[idx] = 0
+
+        for e in flat_kept_entries:
+            gi = e["group_index"]
+            # groups list corresponds to group_summaries in order; note sign must be applied from group_summaries
+            sign = group_summaries[gi]["sign"]
+            group_post_sums[gi] += sign * e["base_value"]
+
+        # fill post_mod_sum into summaries
+        for idx, gs in enumerate(group_summaries):
+            if gs["kind"] == "const":
+                # constants already have post_mod_sum set when appended earlier; ensure it's defined
+                gs["post_mod_sum"] = gs.get("post_mod_sum", gs["pre_keep_sum"])
+                continue
+            # use the computed group_post_sums for dice groups
+            gs["post_mod_sum"] = group_post_sums.get(idx, 0)
+            # pre_keep_sum already had sign applied earlier
+
+        pre_mod_total = sum(gs["pre_keep_sum"] for gs in group_summaries)
+        post_mod_total = sum((gs["post_mod_sum"] if gs["post_mod_sum"] is not None else gs["pre_keep_sum"]) for gs in group_summaries)
+
+        # Build output
+        # CONTRACTED (simple): "@user rolled (dice): (result)"
+        if not expand:
+            compact_parts = []
+            for gs in group_summaries:
+                if gs["kind"] == "const":
+                    # constants shown as their signed value/label
+                    compact_parts.append(f"{gs['label']}")
+                    continue
+
+                per_die = gs["details"]
+                die_texts = []
+                for d in per_die:
+                    # show explosion chains compactly (e.g. (6 + 4)=10) or single face values
+                    if len(d["chain_display"]) > 1:
+                        die_texts.append("(" + " + ".join(map(str, d["chain_display"])) + f")={d['pre_contrib']}")
                     else:
-                        all_rolls.append(roll)
-            if compound or show_all:
-                # Only one pass needed for compound or show_all
-                return new_rolls, all_rolls
-            # For normal explode, check for further explosions recursively
-            if any(r == sides for r in new_rolls):
-                return explode_once(new_rolls, sides, compound, show_all, depth + 1, max_depth)
-            return new_rolls, all_rolls
+                        die_texts.append(str(d["pre_contrib"]))
+                compact_parts.append(f"{gs['label']}: " + ", ".join(die_texts))
 
-        # Roll initial dice
-        rolls = [roll_die(die_sides) for _ in range(num_dice)]
-        all_rolls_for_display = [ [r] for r in rolls ]
-        mod_details = []
-        explosion_type = None
+            simple_text = f"{interaction.user.mention} rolled `{dice}`: " + " | ".join(compact_parts)
+            if footer_keepdrop:
+                simple_text += "  _(keeps/drops applied — use expand for totals)_"
+            await interaction.followup.send(simple_text, ephemeral=False)
+            return
 
-        # Handle explosion flags
-        if explode_flag:
-            if explode_flag == "!":
-                explosion_type = "normal"
-                rolls, all_rolls_for_display = explode_once(rolls, die_sides, compound=False, show_all=False)
-                mod_details.append("Exploding dice: normal (!)")
-            elif explode_flag == "!!":
-                explosion_type = "compound"
-                rolls, all_rolls_for_display = explode_once(rolls, die_sides, compound=True, show_all=False)
-                mod_details.append("Exploding dice: compounding (!!)")
-            elif explode_flag == "!?":
-                explosion_type = "showall"
-                _, all_rolls_for_display = explode_once(rolls, die_sides, compound=False, show_all=True)
-                # Flatten for result, but keep all for display
-                rolls = [sum(chain) for chain in all_rolls_for_display]
-                mod_details.append("Exploding dice: show all rolls (!?)")
-
-        # Handle keep/drop
-        kept = None
-        dropped = None
-        if keepdrop:
-            kd = keepdrop.lower()
-            if kd.startswith("k"):
-                k = int(kd[1:])
-                kept = sorted(rolls, reverse=True)[:k]
-                mod_details.append(f"Keep highest {k} (k{k})")
-            elif kd.startswith("d"):
-                d = int(kd[1:])
-                dropped = sorted(rolls)[:d]
-                mod_details.append(f"Drop lowest {d} (d{d})")
-
-        # Apply modifiers (including & for partial application)
-        results = rolls[:]
-        if modifiers:
-            mods = re.findall(r"([&+-]\d+)", modifiers)
-            i = 0
-            while i < len(mods):
-                mod = mods[i]
-                if mod.startswith("&"):
-                    try:
-                        count = int(mod[1:])
-                        if i + 1 < len(mods):
-                            next_mod = mods[i + 1]
-                            if next_mod.startswith("+") or next_mod.startswith("-"):
-                                flat_mod = int(next_mod)
-                                results = [r + flat_mod if idx < count else r for idx, r in enumerate(results)]
-                                mod_details.append(f"First **{count}** Rolls: **{flat_mod}**")
-                                i += 2
-                                continue
-                    except ValueError:
-                        await interaction.followup.send(
-                            "❌ **Invalid & modifier!** Must be an integer.",
-                            ephemeral=False
-                        )
-                        return
-                elif mod.startswith("+") or mod.startswith("-"):
-                    try:
-                        flat_mod = int(mod)
-                        results = [r + flat_mod for r in results]
-                        mod_details.append(f"All Rolls: **{flat_mod}**")
-                    except ValueError:
-                        await interaction.followup.send(
-                            "❌ **Invalid modifier!** Modifiers must be integers.",
-                            ephemeral=False
-                        )
-                        return
-                i += 1
-
-        # Prepare display text
-        def format_all_rolls(all_rolls):
-            # For showall, display each chain
-            out = []
-            for chain in all_rolls:
-                if isinstance(chain, list) and len(chain) > 1:
-                    out.append(" + ".join(map(str, chain)))
+        # EXPANDED: Build embed with before/after and modifiers
+        embed = discord.Embed(title=f"🎲 Dice Roll — {interaction.user.display_name}", color=0x3498db)
+        # Before modifiers: per-group show each die's chain_display and pre_keep_sum (signed)
+        before_lines = []
+        for gs in group_summaries:
+            if gs["kind"] == "const":
+                before_lines.append(f"`{gs['label']}` → pre-keep sum: `{gs['pre_keep_sum']}`")
+                continue
+            # show each die (chain) before modifiers; indicate dropped dice too
+            per_die = gs["details"]
+            die_texts = []
+            for d in per_die:
+                if len(d["chain_display"]) > 1:
+                    die_texts.append("(" + " + ".join(map(str, d["chain_display"])) + f")={d['pre_contrib']}")
                 else:
-                    out.append(str(chain[0]) if isinstance(chain, list) else str(chain))
-            return ", ".join(out)
+                    die_texts.append(str(d["pre_contrib"]))
+            before_lines.append(f"`{gs['label']}`: " + ", ".join(die_texts) + f" → pre-keep sum: `{gs['pre_keep_sum']}`")
 
-        rolls_text = (
-            format_all_rolls(all_rolls_for_display)
-            if explosion_type == "showall"
-            else ", ".join(map(str, rolls))
-        )
-        final_text = ", ".join(map(str, results))
+        embed.add_field(name="🔍 Before Modifiers", value="\n".join(before_lines), inline=False)
 
-        # Show keep/drop results
-        if kept is not None:
-            kept_text = ", ".join(map(str, kept))
-            mod_details.append(f"Kept: `{kept_text}`")
-        if dropped is not None:
-            dropped_text = ", ".join(map(str, dropped))
-            mod_details.append(f"Dropped: `{dropped_text}`")
+        # Modifiers section
+        mod_lines = []
+        if ampersand_notes:
+            mod_lines.extend(ampersand_notes)
+        if footer_keepdrop:
+            mod_lines.append("Keep/Drop: " + ", ".join(footer_keepdrop))
+        mod_lines.append(f"Constants total: `{const_total}`")
+        if not mod_lines:
+            mod_lines = ["No modifiers applied"]
+        embed.add_field(name="✨ Modifiers Applied", value="\n".join(mod_lines), inline=False)
 
-        mod_text = "\n".join(mod_details) if mod_details else "No modifiers applied"
+        # After modifiers: per-group totals and final totals
+        after_lines = []
+        for idx, gs in enumerate(group_summaries):
+            if gs["kind"] == "const":
+                after_lines.append(f"`{gs['label']}` → `{gs['post_mod_sum']}`")
+                continue
+            after_lines.append(f"`{gs['label']}` → before: `{gs['pre_keep_sum']}` → after: `{gs['post_mod_sum']}`")
 
-        embed = discord.Embed(title="🎲 Dice Roll", color=0x3498db)
-        embed.add_field(name="🎯 Rolls", value=f"`{rolls_text}`", inline=True)
-        embed.add_field(name="✨ Modifiers", value=f"`{mod_text}`", inline=True)
-        embed.add_field(name="🏆 Final Result", value=f"`{final_text}`", inline=False)
+        embed.add_field(name="🏁 After Modifiers", value="\n".join(after_lines), inline=False)
+        embed.add_field(name="📊 Totals", value=f"Pre-mod total: `{pre_mod_total}`\nPost-mod total: `{post_mod_total}`", inline=False)
+
         embed.set_footer(text=f"Dice rolled: {dice}")
-
-        # Truncate field values if they exceed Discord's per-field limit
-        
-
-        # Check if any field is too long or total embed is too large
+        # size-check (like before)
         fields_too_long = any(len(field.value) > 1024 for field in embed.fields)
         total_embed_length = (
             len(embed.title or "") +
             len(embed.description or "") +
-            sum(len(field.name or "") + len(field.value or "") for field in embed.fields) +
-            len(embed.footer.text or "") if embed.footer else 0
+            sum((len(field.name or "") + len(field.value or "")) for field in embed.fields) +
+            (len(embed.footer.text or "") if embed.footer else 0)
         )
         too_long = fields_too_long or total_embed_length > 6000
-        
         if too_long:
-            # Output to file instead, but show error for final result
             file = io.BytesIO(json.dumps(embed.to_dict(), indent=2).encode('utf-8'))
             file.name = "dice_roll_embed.json"
             error_embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
@@ -278,6 +359,8 @@ class Fun(commands.Cog):
             file.close()
         else:
             await interaction.followup.send(embed=embed, ephemeral=False)
+
+
 
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
     @cooldown(5)

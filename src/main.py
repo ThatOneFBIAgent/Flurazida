@@ -18,8 +18,12 @@ import discord
 from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
-import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal
-from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive, ECONOMY_DB_PATH, MODERATOR_DB_PATH
+from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal, io
+from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive_env, ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -122,6 +126,22 @@ async def on_ready():
 
     # restore from backup, if not write to gdrive backup (scary!)
 
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    
+    bot_name = str(bot.user.name).lower()
+    if bot_name in message.content.lower():
+        emojis = ["🧪"]
+
+        for emoji in emojis:
+            try:
+                await message.add_reaction(emoji)
+            except Exception as e:
+                logging.warning(f"Failed to add reaction {emoji}: {e}")
+    
+    await bot.process_commands(message)
 
 async def global_blacklist_check(interaction: Interaction) -> bool:
     guild_id = interaction.guild.id if interaction.guild else None
@@ -204,7 +224,7 @@ async def cycle_paired_activities():
             last_activity_signature = (fallback_activity.name, fallback_activity.type)
             await bot.change_presence(activity=fallback_activity, status=fallback_status)
         
-        await asyncio.sleep(300)  # Wait 5 mins before cycling again
+        await asyncio.sleep(900)  # Wait 15 mins before cycling again
 
 async def moderation_expiry_task():
     await bot.wait_until_ready()
@@ -239,13 +259,14 @@ async def moderation_expiry_task():
 
 async def main():
 
-    restore_db_from_gdrive(MODERATOR_DB_PATH, "moderator.db")
-    restore_db_from_gdrive(ECONOMY_DB_PATH, "economy.db")
+    restore_db_from_gdrive_env(MODERATOR_DB_PATH, "moderator_backup.db", BACKUP_FOLDER_ID)
+    restore_db_from_gdrive_env(ECONOMY_DB_PATH, "economy_backup.db", BACKUP_FOLDER_ID)
 
     async with bot:
-        asyncio.create_task(resource_monitor())
+#       asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
         asyncio.create_task(moderation_expiry_task())
+        asyncio.create_task(periodic_backup(1))  # Backup every 6 hours
         bot.tree.interaction_check = global_blacklist_check
         await bot.start(config.BOT_TOKEN)
 

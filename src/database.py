@@ -1,8 +1,12 @@
-import sqlite3, shutil, os, logging, asyncio, sys, time, json
+import sqlite3, shutil, os, logging, asyncio, sys, time, json, tempfile, io, base64
 from functools import wraps
 from dotenv import load_dotenv
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload # fuck pydrive2
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,67 +33,98 @@ def log_mod_call(func):
 logging.info("Economy DB Logging begin")
 logging.info("Moderator DB Logging begin")
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 
-service_account_info = {
-    "type": os.environ["GDRIVE_TYPE"],
-    "project_id": os.environ["GDRIVE_PROJECT_ID"],
-    "private_key_id": os.environ["GDRIVE_PRIVATE_KEY_ID"],
-    "private_key": os.environ["GDRIVE_PRIVATE_KEY"].replace("\\n", "\n"),
-    "client_email": os.environ["GDRIVE_CLIENT_EMAIL"],
-    "client_id": os.environ["GDRIVE_CLIENT_ID"],
-    "auth_uri": os.environ["GDRIVE_AUTH_URI"],
-    "token_uri": os.environ["GDRIVE_TOKEN_URI"],
-    "auth_provider_x509_cert_url": os.environ["GDRIVE_AUTH_PROVIDER_X509_CERT_URL"],
-    "client_x509_cert_url": os.environ["GDRIVE_CLIENT_X509_CERT_URL"]
-}
+SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+TOKEN_ENV = "DRIVE_TOKEN_B64"
+CREDENTIALS_ENV = "DRIVE_CREDENTIALS_B64"
 
-with open("/tmp/service_account.json", "w") as f:
-    json.dump(service_account_info, f)
+def load_creds_local():
+    with open("token.json", "r") as f:  # same folder as your db.py
+        token_info = json.load(f)
+    return Credentials.from_authorized_user_info(token_info, SCOPES)
 
-# Google Drive Backup and Restore Functions, will probably make better for server deployment
-# currently shit is broken from the gauth not catching creds, otherwise api is happy.
-def backup_db_to_gdrive(local_path, drive_filename):
-    settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": "/tmp/service_account.json",
-                }
-            }
-    gauth = GoogleAuth(settings=settings)
-    gauth.ServiceAuth()
-    drive = GoogleDrive(gauth)
+def load_creds_from_env():
+    # token (base64 -> json)
+    token_b64 = os.environ.get(TOKEN_ENV)
+    if not token_b64:
+        raise RuntimeError(f"{TOKEN_ENV} not set in environment")
 
-    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
-    if file_list:
-        file = file_list[0]
-        file.SetContentFile(local_path)
-        file.Upload()
-        logging.info(f"Updated existing backup on Google Drive: {drive_filename}")
+    token_json = base64.b64decode(token_b64).decode()
+    token_info = json.loads(token_json)
+
+    # If token_info lacks client_id/client_secret, try to get them from credentials env var
+    if ("client_id" not in token_info or "client_secret" not in token_info) and (CREDENTIALS_ENV in os.environ):
+        creds_b64 = os.environ[CREDENTIALS_ENV]
+        creds_json = base64.b64decode(creds_b64).decode()
+        creds_info = json.loads(creds_json)
+        # creds_info structure has "installed" or "web" keys
+        client_block = creds_info.get("installed") or creds_info.get("web") or {}
+        token_info.setdefault("client_id", client_block.get("client_id"))
+        token_info.setdefault("client_secret", client_block.get("client_secret"))
+        token_info.setdefault("token_uri", client_block.get("token_uri") or "https://oauth2.googleapis.com/token")
+
+    # Build a Credentials object from the info
+    creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+
+    # Refresh if expired (uses refresh_token). This does not write back to env — but that's fine.
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            logging.info("Refreshed OAuth access token successfully.")
+            # NOTE: We cannot persist the refreshed token back into Railway env from code.
+            # If you want the updated token saved, you can re-export the new creds.to_json() manually.
+        except Exception as e:
+            logging.warning(f"Failed to refresh token: {e}. Token may be revoked; you'll need to re-run the local helper.")
+    return creds
+
+def build_drive_service():
+    creds = load_creds_local() # change to load_creds_from_env() for env var method
+    return build("drive", "v3", credentials=creds)
+
+# to google:
+#   hey, why the FUCK do you make this so hard
+#   this is like the 6th time i had to rewrite, the entire FUCKING logic
+#   becuase service accounts dont have qouta or some shit. this is python fyi.
+
+def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
+    logging.info(f"Backing up {local_path} -> {drive_filename}")
+    service = build_drive_service()
+
+    query = f"'{folder_id}' in parents and name='{drive_filename}' and trashed=false"
+    res = service.files().list(q=query, fields="files(id, name)").execute()
+    files = res.get("files", [])
+
+    media = MediaFileUpload(local_path, mimetype="application/x-sqlite3", resumable=True)
+
+    if files:
+        file_id = files[0]["id"]
+        service.files().update(fileId=file_id, media_body=media).execute()
+        logging.info("Updated existing backup.")
     else:
-        file = drive.CreateFile({'title': drive_filename})
-        file.SetContentFile(local_path)
-        file.Upload()
-        logging.info(f"Created new backup on Google Drive: {drive_filename}")
+        meta = {"name": drive_filename, "parents": [folder_id]}
+        service.files().create(body=meta, media_body=media, fields="id").execute()
+        logging.info("Created new backup.")
 
-def restore_db_from_gdrive(local_path, drive_filename):
-    settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": "/tmp/service_account.json",
-                }
-            }
-    gauth = GoogleAuth(settings=settings)
-    gauth.ServiceAuth()
-    drive = GoogleDrive(gauth)
+def restore_db_from_gdrive_env(local_path, drive_filename, folder_id):
+    logging.info(f"Restoring {drive_filename} from Google Drive...")
+    service = build_drive_service()
 
-    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
-    if file_list:
-        file = file_list[0]
-        file.GetContentFile(local_path)
-        logging.info(f"Restored database from Google Drive: {drive_filename}")
-    else:
-        logging.warning(f"No backup found on Google Drive with name: {drive_filename}")
+    query = f"'{folder_id}' in parents and name='{drive_filename}' and trashed=false"
+    res = service.files().list(q=query, fields="files(id, name)").execute()
+    files = res.get("files", [])
+    if not files:
+        logging.warning("No backup found.")
+        return
+
+    file_id = files[0]["id"]
+    request = service.files().get_media(fileId=file_id)
+    fh = io.FileIO(local_path, "wb")
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.close()
+    logging.info("Restore finished.")
 
 # the next lines of code are nasty hacks becuase windows is shit
 # Get the absolute path to the directory where this file is located
@@ -251,14 +286,6 @@ def get_user_items(user_id):
     return [{"item_id": row[0], "item_name": row[1], "uses_left": row[2]} for row in items] if items else []
 
 @log_db_call
-def use_item(user_id, item_id):
-    """ Decreases item uses left by 1 if it has remaining uses """
-    logging.info(f"User {user_id} is using item {item_id}")
-    econ_cursor.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = ? AND uses_left > 0",
-                        (user_id, item_id))
-    econ_conn.commit()
-
-@log_db_call
 def remove_item_from_user(user_id, item_id):
         """Removes an item completely from the user's inventory."""
         econ_cursor.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
@@ -381,7 +408,7 @@ def use_item(user_id, item_id):
 
         # Apply temporary effects (like Resin Sample)
         if "temporary_effect" in effect_data:
-            schedule_effect_decay(user_id, effect_data["temporary_effect"])
+            schedule_effect_decay(user_id, effect_data["temporary_effect"], effect_data["duration"])
 
         # Apply defensive effects
         if "taser" in effect_data:
@@ -506,15 +533,34 @@ def get_expired_cases(mod_cursor, guild_id, action_type, now=None):
     )
     return mod_cursor.fetchall()
 
-# Periodic backup task
+BACKUP_FOLDER_ID = "1Frrg3F-RBczRC4yitQT1ehhULZDCUXbN"  # your shared folder ID for backups
+
+
 async def periodic_backup(interval_hours=1):
+    logging.info("Started periodic_backup task")
     while True:
-        await asyncio.sleep(interval_hours * 3600)  # Sleep for specified hours
         try:
+            logging.info("Running backup...")
             econ_conn.commit()
-            mod_conn.commit() # these two make sure commits are done before backup to prevent corruption
-            backup_db_to_gdrive(ECONOMY_DB_PATH, "economy_backup.db")
-            backup_db_to_gdrive(MODERATOR_DB_PATH, "moderator_backup.db")
-            logging.info("Databases backed up successfully.")
+            mod_conn.commit()
+            logging.info("Databases committed.")
+
+            try:
+                backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy_backup.db", BACKUP_FOLDER_ID)
+            except HttpError as e:
+                logging.warning(f"Backup failed for economy.db: {e}")
+            except Exception as e:
+                logging.warning(f"Unexpected error backing up economy.db: {e}")
+            
+            try:
+                backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator_backup.db", BACKUP_FOLDER_ID)
+            except HttpError as e:
+                logging.warning(f"Backup failed for moderator.db: {e}")
+            except Exception as e:
+                logging.warning(f"Unexpected error backing up moderator.db: {e}")
+            
+            logging.info("Backup task completed.")
         except Exception as e:
-            logging.error(f"Error during backup: {e}")
+            logging.error(f"Periodic backup loop encountered an unexpected error: {e}")
+
+        await asyncio.sleep(interval_hours * 3600)
