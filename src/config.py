@@ -6,6 +6,8 @@ from dotenv import load_dotenv # why is this always missing import?
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_OWNER = 853154444850364417 # Replace with your own user ID
+BACKUP_GDRIVE_FOLDER_ID = "1Frrg3F-RBczRC4yitQT1ehhULZDCUXbN" # Google Drive folder ID for backups
+
 FORBIDDEN_GUILDS = {
     1368777209375883405: {"reason": "Have fun with cat bot"},
     1375886954889085088: {"reason": "N/a"}

@@ -159,17 +159,6 @@ async def resource_monitor():
         stats = get_bot_stats()
         print(f"Bot Resource Usage: {stats}")
         await asyncio.sleep(60)
-        
-def backup_all():
-    if ECON_DB_ID:
-        backup_db_to_gdrive("economy.db", ECON_DB_ID, label="Economy")
-    if MOD_DB_ID:
-        backup_db_to_gdrive("moderator.db", MOD_DB_ID, label="Moderator")
-        
-async def backup_loop():
-    while True:
-        backup_all()
-        await asyncio.sleep(3600)
 
 async def cycle_paired_activities():
     global last_activity_signature
@@ -270,19 +259,17 @@ async def moderation_expiry_task():
 
 async def main():
 
-    restore_db_from_gdrive(MODERATOR_DB_PATH, "moderator.db")
-    restore_db_from_gdrive(ECONOMY_DB_PATH, "economy.db")
+    # restore from drive (use the env-version that accepts drive filename)
+    restore_db_from_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
+    restore_db_from_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
 
     # Start bot + background tasks
     async with bot:
-        asyncio.create_task(resource_monitor())
+#       asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
         asyncio.create_task(moderation_expiry_task())
-        asyncio.create_task(periodic_backup(1))  # Backup every 6 hours
+        asyncio.create_task(periodic_backup(1))  # Backup every 1 hour (adjust)
         bot.tree.interaction_check = global_blacklist_check
-
-        # Optional: start hourly backup loop
-        asyncio.create_task(backup_loop())
 
         await bot.start(config.BOT_TOKEN)
 

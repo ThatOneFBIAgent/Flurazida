@@ -1,6 +1,7 @@
 import sqlite3, shutil, os, logging, asyncio, sys, time, json, tempfile, io, base64
 from functools import wraps
 from dotenv import load_dotenv
+from config import BACKUP_GDRIVE_FOLDER_ID
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -78,7 +79,12 @@ def load_creds_from_env():
     return creds
 
 def build_drive_service():
-    creds = load_creds_local() # change to load_creds_from_env() for env var method
+    # Try local token first, then env-based token loader as fallback
+    try:
+        creds = load_creds_local()
+    except FileNotFoundError:
+        logging.info("token.json not found, trying to load credentials from environment")
+        creds = load_creds_from_env()
     return build("drive", "v3", credentials=creds)
 
 # to google:
@@ -105,24 +111,39 @@ def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
         service.files().create(body=meta, media_body=media, fields="id").execute()
         logging.info("Created new backup.")
 
-def restore_db_from_gdrive(local_path, drive_filename):
-    settings = {
-                "client_config_backend": "service",
-                "service_config": {
-                    "client_json_file_path": "/tmp/service_account.json",
-                }
-            }
-    gauth = GoogleAuth(settings=settings)
-    gauth.ServiceAuth()
-    drive = GoogleDrive(gauth)
+def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
+    """
+    Download a file named drive_filename from Drive (optionally inside folder_id)
+    and save it to local_path. Uses googleapiclient (same auth path as backup).
+    """
+    logging.info(f"Restoring {drive_filename} -> {local_path}")
+    service = build_drive_service()
 
-    file_list = drive.ListFile({'q': f"title='{drive_filename}' and trashed=false"}).GetList()
-    if file_list:
-        file = file_list[0]
-        file.GetContentFile(local_path)
-        logging.info(f"Restored database from Google Drive: {drive_filename}")
+    # Build query: if folder_id provided, search in it; otherwise search across Drive
+    if folder_id:
+        q = f"'{folder_id}' in parents and name='{drive_filename}' and trashed=false"
     else:
+        q = f"name='{drive_filename}' and trashed=false"
+
+    res = service.files().list(q=q, fields="files(id, name)").execute()
+    files = res.get("files", [])
+    if not files:
         logging.warning(f"No backup found on Google Drive with name: {drive_filename}")
+        return False
+
+    file_id = files[0]["id"]
+    request = service.files().get_media(fileId=file_id)
+    fh = io.FileIO(local_path, 'wb')
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    try:
+        while not done:
+            status, done = downloader.next_chunk()
+        logging.info(f"Restored database from Google Drive: {drive_filename}")
+        return True
+    except HttpError as e:
+        logging.error(f"Failed to download {drive_filename}: {e}")
+        return False
 
 # the next lines of code are nasty hacks becuase windows is shit
 # Get the absolute path to the directory where this file is located
@@ -531,7 +552,7 @@ def get_expired_cases(mod_cursor, guild_id, action_type, now=None):
     )
     return mod_cursor.fetchall()
 
-BACKUP_FOLDER_ID = "1Frrg3F-RBczRC4yitQT1ehhULZDCUXbN"  # your shared folder ID for backups
+BACKUP_FOLDER_ID = BACKUP_GDRIVE_FOLDER_ID
 
 
 async def periodic_backup(interval_hours=1):
