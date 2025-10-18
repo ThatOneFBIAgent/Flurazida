@@ -260,16 +260,27 @@ async def moderation_expiry_task():
 
 async def main():
 
-    # restore from drive (use the env-version that accepts drive filename)
+    # restore from drive once at startup (env-version that accepts drive filename)
     restore_db_from_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
     restore_db_from_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
 
-    # Start bot + background tasks
+    # how long to wait before starting periodic backups (hours)
+    BACKUP_DELAY_HOURS = 1
+
+    async def delayed_backup_starter(delay_hours: float):
+        await bot.wait_until_ready()
+        # Wait the configured delay period before starting the periodic backup task
+        await asyncio.sleep(delay_hours * 3600)
+        # Now spawn the periodic backup loop as a background task
+        asyncio.create_task(periodic_backup(delay_hours))
+        logging.info(f"Periodic backup started after {delay_hours} hour(s) delay.")
+
+    # Start bot + background tasks, but don't start periodic backups immediately
     async with bot:
-#       asyncio.create_task(resource_monitor())
         asyncio.create_task(cycle_paired_activities())
         asyncio.create_task(moderation_expiry_task())
-        asyncio.create_task(periodic_backup(1))  # Backup every 1 hour (adjust)
+        # Start a delayed task that will begin periodic backups after BACKUP_DELAY_HOURS
+        asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
         bot.tree.interaction_check = global_blacklist_check
 
         await bot.start(config.BOT_TOKEN)
