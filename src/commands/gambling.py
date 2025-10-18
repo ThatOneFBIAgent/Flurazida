@@ -181,29 +181,44 @@ class Gambling(commands.Cog):
         if bet <= 0 or bet > balance:
             return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
-        # Simple deck: 2-10, J, Q, K as 10, Ace as 11
-        deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11] * 4
+        # Deck using ranks so we can display face cards as "10 (J/Q/K)" and Ace as "11 or 1 (A)"
+        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+        deck = ranks * 4
         random.shuffle(deck)
         player = [deck.pop(), deck.pop()]
         dealer = [deck.pop(), deck.pop()]
 
+        def card_value(card):
+            if card in ('J', 'Q', 'K'):
+                return 10
+            if card == 'A':
+                return 11
+            return int(card)
+
         def hand_value(hand):
-            value = sum(hand)
-            aces = hand.count(11)
+            value = sum(card_value(c) for c in hand)
+            aces = sum(1 for c in hand if c == 'A')
             while value > 21 and aces:
                 value -= 10
                 aces -= 1
             return value
 
+        def card_display(card):
+            if card in ('J', 'Q', 'K'):
+                return f"10 ({card})"
+            if card == 'A':
+                return "11/1 (A)"
+            return card
+
         def hand_str(hand):
-            return ', '.join(str(card) for card in hand)
+            return ', '.join(card_display(card) for card in hand)
 
         # Show initial hands
         embed = discord.Embed(
             title="🃏 Blackjack",
             description=(
                 f"**Your hand:** {hand_str(player)} (Total: {hand_value(player)})\n"
-                f"**Dealer's hand:** {dealer[0]}, ?\n\n"
+                f"**Dealer's hand:** {card_display(dealer[0])}, ?\n\n"
                 "Type `hit` to draw another card or `stand` to hold. (3 min timeout)"
             ),
             color=0x008000
@@ -235,7 +250,7 @@ class Gambling(commands.Cog):
                     title="🃏 Blackjack",
                     description=(
                         f"**Your hand:** {hand_str(player)} (Total: {hand_value(player)})\n"
-                        f"**Dealer's hand:** {dealer[0]}, ?\n\n"
+                        f"**Dealer's hand:** {card_display(dealer[0])}, ?\n\n"
                         "Type `hit` to draw another card or `stand` to hold. (3 min timeout)"
                     ),
                     color=0x008000
@@ -285,7 +300,7 @@ class Gambling(commands.Cog):
             color=0x008000
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
-    
+
     @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
     @cooldown(5)
     async def coinflip(self, interaction: discord.Interaction, bet: int, guess: str):

@@ -833,7 +833,7 @@ class Fun(commands.Cog):
         embed = discord.Embed(
             title=f"Urban Dictionary: {definition_data['word']}",
             url=permalink,
-            color=0x3498db
+            color=0xdfdc00
         )
         embed.add_field(name="Definition", value=definition or "No definition provided.", inline=False)
         if example:
