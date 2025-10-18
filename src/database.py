@@ -172,9 +172,9 @@ SHOP_ITEMS = [
 ]
 
 # Connect to economy.db (for user balances and everything)
-econ_conn = sqlite3.connect(ECONOMY_DB_PATH)
+econ_conn = sqlite3.connect(ECONOMY_DB_PATH, check_same_thread=False)
 econ_cursor = econ_conn.cursor()
-mod_conn = sqlite3.connect(MODERATOR_DB_PATH)
+mod_conn = sqlite3.connect(MODERATOR_DB_PATH, check_same_thread=False)
 mod_cursor = mod_conn.cursor()
 
 # Create tables if they don't exist
@@ -565,14 +565,14 @@ async def periodic_backup(interval_hours=1):
             logging.info("Databases committed.")
 
             try:
-                backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy_backup.db", BACKUP_FOLDER_ID)
+                backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
             except HttpError as e:
                 logging.warning(f"Backup failed for economy.db: {e}")
             except Exception as e:
                 logging.warning(f"Unexpected error backing up economy.db: {e}")
             
             try:
-                backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator_backup.db", BACKUP_FOLDER_ID)
+                backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
             except HttpError as e:
                 logging.warning(f"Backup failed for moderator.db: {e}")
             except Exception as e:

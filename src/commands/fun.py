@@ -729,6 +729,8 @@ class Fun(commands.Cog):
                     item.disabled = True
 
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
+
+    
     
 
 async def setup(bot):

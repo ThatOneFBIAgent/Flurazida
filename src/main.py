@@ -68,8 +68,9 @@ class Main(commands.Bot):
         self.user_id = bot_owner
 
     async def setup_hook(self):
-        # Load all cogs
-        for filename in os.listdir("./commands"):
+        # Load all cogs from same folder as this file
+        commands_dir = os.path.join(os.path.dirname(__file__), "commands")
+        for filename in os.listdir(commands_dir):
             if filename.endswith(".py"):
                 await self.load_extension(f"commands.{filename[:-3]}")
 
@@ -122,7 +123,7 @@ async def on_ready():
     await bot.tree.sync()
     print("Commands synced!")
     print(f"Bot is online as {bot.user} (ID: {bot.user.id})")
-    print(f"Connected to {len(bot.guilds)} guild(s).")
+    print(f"Connected to {len(bot.guilds)} guild(s). Serving {sum(g.member_count for g in bot.guilds)} user(s).")
 
     # restore from backup, if not write to gdrive backup (scary!)
 

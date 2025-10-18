@@ -13,7 +13,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 # Scopes: drive.file limits to files created/opened by app in Drive.
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
-# Path to the client secret you downloaded from Cloud Console (OAuth client ID - Desktop app)
+# Path to the client secret you downloaded from Cloud Console (OAuth client ID - Web app with localhost 8080 redirect)
 CLIENT_SECRETS_PATH = "client_secret_547994356259-u4q3pjsjucveg0j70t2lc2c2tcjkb906.apps.googleusercontent.com.json" # replace with the one you got
 
 def main():
