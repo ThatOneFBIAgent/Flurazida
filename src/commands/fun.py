@@ -730,7 +730,120 @@ class Fun(commands.Cog):
 
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
 
-    
+    @app_commands.command(name="pokedex", description="Get information about a Pokémon.")
+    @cooldown(10)
+    async def pokedex(self, interaction: discord.Interaction, pokemon: str):
+        await interaction.response.defer(ephemeral=False)
+        poke_name = pokemon.lower().strip()
+        api_url = f"https://pokeapi.co/api/v2/pokemon/{poke_name}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send(f"❌ Pokémon `{pokemon}` not found.", ephemeral=True)
+                    return
+                data = await resp.json()
+
+        # Build embed
+        embed = discord.Embed(
+            title=f"Pokédex Entry: {data['name'].title()} (#{data['id']})",
+            color=0x3498db
+        )
+        sprite_url = data['sprites']['front_default']
+        if sprite_url:
+            embed.set_thumbnail(url=sprite_url)
+
+        types = ", ".join(t['type']['name'].title() for t in data['types'])
+        abilities = ", ".join(a['ability']['name'].title() for a in data['abilities'])
+        height_m = data['height'] / 10  # decimeters to meters
+        weight_kg = data['weight'] / 10  # hectograms to kilograms
+
+        embed.add_field(name="Type", value=types or "Unknown", inline=True)
+        embed.add_field(name="Abilities", value=abilities or "Unknown", inline=True)
+        embed.add_field(name="Height", value=f"{height_m} m", inline=True)
+        embed.add_field(name="Weight", value=f"{weight_kg} kg", inline=True)
+
+        stats_lines = []
+        for stat in data['stats']:
+            stat_name = stat['stat']['name'].replace('-', ' ').title()
+            stat_value = stat['base_stat']
+            stats_lines.append(f"**{stat_name}:** {stat_value}")
+        embed.add_field(name="Base Stats", value="\n".join(stats_lines), inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=False)
+
+    @app_commands.command(name="xkcd", description="Get a random XKCD comic.")
+    @cooldown(7)
+    async def xkcd(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        # First get the latest comic number
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://xkcd.com/info.0.json") as resp:
+                if resp.status != 200:
+                    await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
+                    return
+                latest_data = await resp.json()
+                latest_num = latest_data['num']
+
+            # Now pick a random comic number
+            rand_num = random.randint(1, latest_num)
+            async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
+                if resp.status != 200:
+                    await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
+                    return
+                comic_data = await resp.json()
+
+        embed = discord.Embed(
+            title=f"XKCD Comic #{comic_data['num']}: {comic_data['title']}",
+            url=f"https://xkcd.com/{comic_data['num']}/",
+            color=0x3498db
+        )
+        embed.set_image(url=comic_data['img'])
+        embed.set_footer(text=comic_data.get('alt', ''))
+
+        await interaction.followup.send(embed=embed, ephemeral=False)
+
+    @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
+    @cooldown(10)
+    async def urban(self, interaction: discord.Interaction, term: str):
+        await interaction.response.defer(ephemeral=False)
+        query = term.strip()
+        api_url = f"https://api.urbandictionary.com/v0/define?term={query}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send(f"❌ Failed to fetch definition for `{term}`.", ephemeral=True)
+                    return
+                data = await resp.json()
+
+        if not data['list']:
+            await interaction.followup.send(f"❌ No definitions found for `{term}`.", ephemeral=True)
+            return
+
+        # Take the top definition
+        definition_data = data['list'][0]
+        definition = definition_data['definition']
+        example = definition_data['example']
+        thumbs_up = definition_data['thumbs_up']
+        thumbs_down = definition_data['thumbs_down']
+        author = definition_data['author']
+        permalink = definition_data['permalink']
+
+        embed = discord.Embed(
+            title=f"Urban Dictionary: {definition_data['word']}",
+            url=permalink,
+            color=0x3498db
+        )
+        embed.add_field(name="Definition", value=definition or "No definition provided.", inline=False)
+        if example:
+            embed.add_field(name="Example", value=example, inline=False)
+        embed.add_field(name="👍 Upvotes", value=str(thumbs_up), inline=True)
+        embed.add_field(name="👎 Downvotes", value=str(thumbs_down), inline=True)
+        embed.set_footer(text=f"Defined by {author}")
+
+        await interaction.followup.send(embed=embed, ephemeral=False)
+
     
 
 async def setup(bot):
