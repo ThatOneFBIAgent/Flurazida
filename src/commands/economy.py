@@ -142,7 +142,7 @@ class Economy(commands.Cog):
         add_user(user_id, interaction.user.name)
 
         success = random.random() > 0.05
-        amount = random.randint(20, 250) if success else -random.randint(400,800)
+        amount = random.randint(20, 250) if success else -random.randint(400, 800)
         update_balance(user_id, amount)
 
         if success:

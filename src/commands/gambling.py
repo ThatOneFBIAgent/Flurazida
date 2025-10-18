@@ -6,6 +6,29 @@ from discord import ui
 from database import update_balance, get_balance
 from config import cooldown
 
+def resolve_bet_input(bet_input, user_id):
+    """
+    Accepts a user-provided bet (string or int).
+    Supports "*", "all", "max", "allin" (case-insensitive) for all-in.
+    Returns an int bet on success, or None on invalid.
+    """
+    bal = get_balance(user_id)
+    if isinstance(bet_input, int):
+        b = bet_input
+    else:
+        s = str(bet_input).strip().lower()
+        if s in ("*", "all", "max", "allin", "all-in"):
+            return bal
+        try:
+            b = int(s)
+        except Exception:
+            return None
+    if b <= 0:
+        return None
+    if b > bal:
+        return None
+    return b
+
 class HighLowView(ui.View):
     def __init__(self, timeout=30):
         super().__init__(timeout=timeout)
@@ -33,12 +56,14 @@ class Gambling(commands.Cog):
 
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
     @cooldown(8)
-    async def slots(self, interaction: discord.Interaction, bet: int):
+    async def slots(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        bet_amount = resolve_bet_input(bet_input, user_id)
+        if bet_amount is None:
+            return await interaction.followup.send("❌ Invalid bet amount (must be positive integer and ≤ your balance, or `*` for all-in).", ephemeral=True)
+        bet = bet_amount
         balance = get_balance(user_id)
-        if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         symbols = ["🍒", "🍋", "🍉", "⭐", "🍌", "🍑", "🥭", "7️⃣", "🗿"]
         empty = "<:empty:1388238752295555162>"  # Replace with your actual :empty: emoji ID
@@ -122,12 +147,14 @@ class Gambling(commands.Cog):
 
     @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
     @cooldown(8)
-    async def roulette(self, interaction: discord.Interaction, bet: int, choice: str):
+    async def roulette(self, interaction: discord.Interaction, bet_input: str, choice: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        bet_amount = resolve_bet_input(bet_input, user_id)
+        if bet_amount is None:
+            return await interaction.followup.send("❌ Invalid bet amount (must be positive integer and ≤ your balance, or `*` for all-in).", ephemeral=True)
+        bet = bet_amount
         balance = get_balance(user_id)
-        if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         wheel_numbers = list(range(0, 37))  # 0-36
 
@@ -174,12 +201,14 @@ class Gambling(commands.Cog):
 
     @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
     @cooldown(20)
-    async def blackjack(self, interaction: discord.Interaction, bet: int):
+    async def blackjack(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        bet_amount = resolve_bet_input(bet_input, user_id)
+        if bet_amount is None:
+            return await interaction.followup.send("❌ Invalid bet amount (must be positive integer and ≤ your balance, or `*` for all-in).", ephemeral=True)
+        bet = bet_amount
         balance = get_balance(user_id)
-        if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         # Deck using ranks so we can display face cards as "10 (J/Q/K)" and Ace as "11 or 1 (A)"
         ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
@@ -249,6 +278,7 @@ class Gambling(commands.Cog):
                 embed = discord.Embed(
                     title="🃏 Blackjack",
                     description=(
+
                         f"**Your hand:** {hand_str(player)} (Total: {hand_value(player)})\n"
                         f"**Dealer's hand:** {card_display(dealer[0])}, ?\n\n"
                         "Type `hit` to draw another card or `stand` to hold. (3 min timeout)"
@@ -293,6 +323,7 @@ class Gambling(commands.Cog):
         embed = discord.Embed(
             title="🃏 Blackjack",
             description=(
+
                 f"**Your hand:** {hand_str(player)} (Total: {player_val})\n"
                 f"**Dealer's hand:** {hand_str(dealer)} (Total: {dealer_val})\n\n"
                 f"{result}"
@@ -303,12 +334,14 @@ class Gambling(commands.Cog):
 
     @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
     @cooldown(5)
-    async def coinflip(self, interaction: discord.Interaction, bet: int, guess: str):
+    async def coinflip(self, interaction: discord.Interaction, bet_input: str, guess: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        bet_amount = resolve_bet_input(bet_input, user_id)
+        if bet_amount is None:
+            return await interaction.followup.send("❌ Invalid bet amount (must be positive integer and ≤ your balance, or `*` for all-in).", ephemeral=True)
+        bet = bet_amount
         balance = get_balance(user_id)
-        if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         if guess.lower() not in ["heads", "tails"]:
             return await interaction.followup.send("❌ Invalid guess! Choose 'heads' or 'tails'.", ephemeral=True)
@@ -332,12 +365,14 @@ class Gambling(commands.Cog):
 
     @app_commands.command(name="war", description="Play War! Higher card wins.")
     @cooldown(5)
-    async def war(self, interaction: discord.Interaction, bet: int):
+    async def war(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        bet_amount = resolve_bet_input(bet_input, user_id)
+        if bet_amount is None:
+            return await interaction.followup.send("❌ Invalid bet amount (must be positive integer and ≤ your balance, or `*` for all-in).", ephemeral=True)
+        bet = bet_amount
         balance = get_balance(user_id)
-        if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]  # 11=J, 12=Q, 13=K, 14=A
         player_card = random.choice(deck)
@@ -357,6 +392,7 @@ class Gambling(commands.Cog):
 
         await asyncio.sleep(1.5)
         embed.description = f"**You drew:** {card_str(player_card)}\n**Dealer drew:** ..."
+
         await msg.edit(embed=embed)
         await asyncio.sleep(1.5)
         embed.description = f"**You drew:** {card_str(player_card)}\n**Dealer drew:** {card_str(dealer_card)}"
@@ -379,12 +415,14 @@ class Gambling(commands.Cog):
 
     @app_commands.command(name="highlow", description="Bet on high (50-100) or low (1-49)!")
     @cooldown(5)
-    async def dice(self, interaction: discord.Interaction, bet: int):
+    async def dice(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        bet_amount = resolve_bet_input(bet_input, user_id)
+        if bet_amount is None:
+            return await interaction.followup.send("❌ Invalid bet amount (must be positive integer and ≤ your balance, or `*` for all-in).", ephemeral=True)
+        bet = bet_amount
         balance = get_balance(user_id)
-        if bet <= 0 or bet > balance:
-            return await interaction.followup.send("❌ Invalid bet amount!", ephemeral=True)
 
         embed = discord.Embed(
             title="🎲 High/Low Dice",

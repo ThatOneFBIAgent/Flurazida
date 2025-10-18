@@ -1,5 +1,6 @@
 import discord
 import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json
+from typing import Optional
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
@@ -419,7 +420,7 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
-    @cooldown(20)
+    @cooldown(60)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
         await interaction.response.defer(ephemeral=False)
         if target == interaction.user:
@@ -805,46 +806,52 @@ class Fun(commands.Cog):
 
     @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
     @cooldown(10)
-    async def urban(self, interaction: discord.Interaction, term: str):
+    async def urban(self, interaction: discord.Interaction, term: Optional[str] = None):
         await interaction.response.defer(ephemeral=False)
-        query = term.strip()
-        api_url = f"https://api.urbandictionary.com/v0/define?term={query}"
+
+        # If no term provided, use the random endpoint
+        if term:
+            api_url = f"https://api.urbandictionary.com/v0/define?term={term.strip()}"
+        else:
+            api_url = "https://api.urbandictionary.com/v0/random"
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as resp:
-                if resp.status != 200:
-                    await interaction.followup.send(f"❌ Failed to fetch definition for `{term}`.", ephemeral=True)
-                    return
-                data = await resp.json()
+            try:
+                async with session.get(api_url) as resp:
+                    if resp.status != 200:
+                        await interaction.followup.send("❌ Failed to fetch definition.", ephemeral=True)
+                        return
+                    data = await resp.json()
+            except Exception:
+                await interaction.followup.send("❌ Error contacting Urban Dictionary.", ephemeral=True)
+                return
 
-        if not data['list']:
-            await interaction.followup.send(f"❌ No definitions found for `{term}`.", ephemeral=True)
+        # For random endpoint or define, pick a random entry from the list if multiple
+        entries = data.get("list", [])
+        if not entries:
+            await interaction.followup.send(f"❌ No definitions found for `{term}`." if term else "❌ No random definitions found.", ephemeral=True)
             return
 
-        # Take the top definition
-        definition_data = data['list'][0]
-        definition = definition_data['definition']
-        example = definition_data['example']
-        thumbs_up = definition_data['thumbs_up']
-        thumbs_down = definition_data['thumbs_down']
-        author = definition_data['author']
-        permalink = definition_data['permalink']
+        entry = random.choice(entries)
+        definition = entry.get("definition", "No definition provided.").strip()
+        example = entry.get("example", "").strip()
+        thumbs_up = entry.get("thumbs_up", 0)
+        thumbs_down = entry.get("thumbs_down", 0)
+        author = entry.get("author", "Unknown")
+        word = entry.get("word", term or "random")
 
         embed = discord.Embed(
-            title=f"Urban Dictionary: {definition_data['word']}",
-            url=permalink,
+            title=f"Urban Dictionary: {word}",
             color=0xdfdc00
         )
-        embed.add_field(name="Definition", value=definition or "No definition provided.", inline=False)
+        embed.add_field(name="Definition", value=(definition[:1000] + "…") if len(definition) > 1000 else definition, inline=False)
         if example:
-            embed.add_field(name="Example", value=example, inline=False)
+            embed.add_field(name="Example", value=(example[:1000] + "…") if len(example) > 1000 else example, inline=False)
         embed.add_field(name="👍 Upvotes", value=str(thumbs_up), inline=True)
         embed.add_field(name="👎 Downvotes", value=str(thumbs_down), inline=True)
         embed.set_footer(text=f"Defined by {author}")
 
         await interaction.followup.send(embed=embed, ephemeral=False)
-
-    
-
+        
 async def setup(bot):
     await bot.add_cog(Fun(bot))
