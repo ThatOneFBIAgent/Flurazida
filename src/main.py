@@ -23,7 +23,7 @@ from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal, io
-from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive_env, ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID
+from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive_env, ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID, backup_db_to_gdrive_env
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -314,6 +314,14 @@ except (
 
 except KeyboardInterrupt:
     print("Cleaning the lab.. Exiting gracefully.")
+    try:
+        # perform immediate synchronous backups (database.py provides these)
+        backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
+        backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
+        print("Quick backup completed.")
+    except Exception as e:
+        print(f"Backup on exit failed: {e}")
+    sys.exit(0)
 except Exception as e:
     print(f"Wrong chemicals! Bot crashed with exception: {e}")
 # the coconut.png of the bot
