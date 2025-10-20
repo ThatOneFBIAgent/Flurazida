@@ -125,8 +125,6 @@ async def on_ready():
     print(f"Bot is online as {bot.user} (ID: {bot.user.id})")
     print(f"Connected to {len(bot.guilds)} guild(s). Serving {sum(g.member_count for g in bot.guilds)} user(s).")
 
-    # restore from backup, if not write to gdrive backup (scary!)
-
 @bot.event
 async def on_message(message):
     if message.author.bot:

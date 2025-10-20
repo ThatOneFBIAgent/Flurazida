@@ -85,7 +85,7 @@ def build_drive_service():
     except FileNotFoundError:
         logging.info("token.json not found, trying to load credentials from environment")
         creds = load_creds_from_env()
-    return build("drive", "v3", credentials=creds)
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 # to google:
 #   hey, why the FUCK do you make this so hard
