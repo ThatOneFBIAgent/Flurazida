@@ -4,4 +4,6 @@
 *.db
 __pycache__/
 .env
+.vscode/*
+.vscode
 token.json
