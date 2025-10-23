@@ -1,10 +1,11 @@
 import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json
+import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime
 from typing import Optional
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
 from config import cooldown
+import CloudflarePing as cf
 
 # Constants for dice limits
 MAX_DICE = 100
@@ -25,12 +26,36 @@ class Fun(commands.Cog):
         latency = round(self.bot.latency * 1000, 2)
 
         embed = discord.Embed(title="🏓 Pong!", color=0x00FF00)
-        embed.add_field(name="📡 API Latency", value=f"`{latency}ms`", inline=True)
-        embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f}ms`", inline=True)
+        embed.add_field(name="📡 API Latency", value=f"`{latency} ms`", inline=True)
+        embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f} ms`", inline=True)
+
+        # Add cached Cloudflare ping info (if available)
+        try:
+            cf_cache = await cf.get_cached_pings()
+            ipv4 = cf_cache.get("ipv4")
+            ipv6 = cf_cache.get("ipv6")
+            ts = cf_cache.get("ts")
+
+            if ipv4 is None:
+                embed.add_field(name="🟠 CF IPv4 RTT", value="N/A", inline=True)
+            else:
+                embed.add_field(name="🟠 CF IPv4 RTT", value=f"`{ipv4:.1f} ms`", inline=True)
+
+            if ipv6 is None:
+                embed.add_field(name="🟠 CF IPv6 RTT", value="N/A", inline=True)
+            else:
+                embed.add_field(name="🟠 CF IPv6 RTT", value=f"`{ipv6:.1f} ms`", inline=True)
+
+            if ts:
+                embed.set_footer(text=f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}")
+        except Exception:
+            embed.add_field(name="🟠 CF RTT", value="Error reading cache", inline=True)
+
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     # the bane of my existance
-    @app_commands.command(name="roll", description="Roll dice with keep/drop, modifiers, and explosions. See /roll dice: help for syntax.")
+    @app_commands.command(name="roll", description="Roll a set of dice!")
+    @app_commands.describe(dice="Dice expression to roll, type 'help' for syntax.", expand="Show detailed breakdown of the roll")
     @cooldown(5)
     async def roll(self, interaction: discord.Interaction, dice: str, expand: bool = False):
         await interaction.response.defer(ephemeral=False)
@@ -738,10 +763,15 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
 
     @app_commands.command(name="pokedex", description="Get information about a Pokémon.")
+    @app_commands.describe(pokemon="The name of the Pokémon to look up, empty for random")
     @cooldown(10)
-    async def pokedex(self, interaction: discord.Interaction, pokemon: str):
+    async def pokedex(self, interaction: discord.Interaction, pokemon: str | None = None):
         await interaction.response.defer(ephemeral=False)
-        poke_name = pokemon.lower().strip()
+        if pokemon is None:
+            # Get a random pokemon by ID (1-1025 as of current gen)
+            poke_name = str(random.randint(1, 1025))
+        else:
+            poke_name = pokemon.lower().strip()
         api_url = f"https://pokeapi.co/api/v2/pokemon/{poke_name}"
 
         async with aiohttp.ClientSession() as session:
@@ -780,8 +810,9 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="xkcd", description="Get a random XKCD comic.")
+    @app_commands.describe(comic="The comic number to fetch (leave empty for random comic)")
     @cooldown(7)
-    async def xkcd(self, interaction: discord.Interaction):
+    async def xkcd(self, interaction: discord.Interaction, comic: int | None = None):
         await interaction.response.defer(ephemeral=False)
         # First get the latest comic number
         async with aiohttp.ClientSession() as session:
@@ -792,27 +823,37 @@ class Fun(commands.Cog):
                 latest_data = await resp.json()
                 latest_num = latest_data['num']
 
-            # Now pick a random comic number
-            rand_num = random.randint(1, latest_num)
-            async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
+            if comic:
+                if comic < 1 or comic > latest_num:
+                    await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
                     return
-                comic_data = await resp.json()
+                async with session.get(f"https://xkcd.com/{comic}/info.0.json") as resp:
+                    if resp.status != 200:
+                        await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
+                        return
+                    comic_data = await resp.json()
+            else:
+                rand_num = random.randint(1, latest_num)
+                async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
+                    if resp.status != 200:
+                        await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
+                        return
+                    comic_data = await resp.json()
 
         embed = discord.Embed(
             title=f"XKCD Comic #{comic_data['num']}: {comic_data['title']}",
             url=f"https://xkcd.com/{comic_data['num']}/",
             color=0x3498db
         )
-        embed.set_image(url=comic_data['img'])
+        embed.set_image(url=comic_data['img'].replace('-small', ''))  # Use full resolution image
         embed.set_footer(text=comic_data.get('alt', ''))
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
+    @app_commands.describe(term="The term to look up (leave empty for random definition)")
     @cooldown(10)
-    async def urban(self, interaction: discord.Interaction, term: Optional[str] = None):
+    async def urban(self, interaction: discord.Interaction, term: str | None = None):
         await interaction.response.defer(ephemeral=False)
 
         # If no term provided, use the random endpoint
@@ -832,32 +873,32 @@ class Fun(commands.Cog):
                 await interaction.followup.send("❌ Error contacting Urban Dictionary.", ephemeral=True)
                 return
 
-        # For random endpoint or define, pick a random entry from the list if multiple
-        entries = data.get("list", [])
-        if not entries:
-            await interaction.followup.send(f"❌ No definitions found for `{term}`." if term else "❌ No random definitions found.", ephemeral=True)
-            return
+            # For random endpoint or define, pick a random entry from the list if multiple
+            entries = data.get("list", [])
+            if not entries:
+                await interaction.followup.send(f"❌ No definitions found for `{term}`." if term else "❌ No random definitions found.", ephemeral=True)
+                return
 
-        entry = random.choice(entries)
-        definition = entry.get("definition", "No definition provided.").strip()
-        example = entry.get("example", "").strip()
-        thumbs_up = entry.get("thumbs_up", 0)
-        thumbs_down = entry.get("thumbs_down", 0)
-        author = entry.get("author", "Unknown")
-        word = entry.get("word", term or "random")
+            entry = random.choice(entries)
+            definition = entry.get("definition", "No definition provided.").strip()
+            example = entry.get("example", "").strip()
+            thumbs_up = entry.get("thumbs_up", 0)
+            thumbs_down = entry.get("thumbs_down", 0)
+            author = entry.get("author", "Unknown")
+            word = entry.get("word", term or "random")
 
-        embed = discord.Embed(
-            title=f"Urban Dictionary: {word}",
-            color=0xdfdc00
-        )
-        embed.add_field(name="Definition", value=(definition[:1000] + "…") if len(definition) > 1000 else definition, inline=False)
-        if example:
-            embed.add_field(name="Example", value=(example[:1000] + "…") if len(example) > 1000 else example, inline=False)
-        embed.add_field(name="👍 Upvotes", value=str(thumbs_up), inline=True)
-        embed.add_field(name="👎 Downvotes", value=str(thumbs_down), inline=True)
-        embed.set_footer(text=f"Defined by {author}")
+            embed = discord.Embed(
+                title=f"Urban Dictionary: {word}",
+                color=0xdfdc00
+            )
+            embed.add_field(name="Definition", value=(definition[:1000] + "…") if len(definition) > 1000 else definition, inline=False)
+            if example:
+                embed.add_field(name="Example", value=(example[:1000] + "…") if len(example) > 1000 else example, inline=False)
+            embed.add_field(name="👍 Upvotes", value=str(thumbs_up), inline=True)
+            embed.add_field(name="👎 Downvotes", value=str(thumbs_down), inline=True)
+            embed.set_footer(text=f"Defined by {author}")
 
-        await interaction.followup.send(embed=embed, ephemeral=False)
+            await interaction.followup.send(embed=embed, ephemeral=False)
 
 async def setup(bot):
     await bot.add_cog(Fun(bot))

@@ -115,10 +115,6 @@ class ShopView(discord.ui.View):
         leet_dict = {"4": "a", "3": "e", "1": "i", "0": "o", "5": "s", "7": "t"}
         return re.sub(r"[431057]", lambda x: leet_dict[x.group()], text)
 
-    def handle_purchase(self, user_id, item_id):
-        """Handles the item purchase (fake function, replace with real balance check)"""
-        return True  # Temporary: Assume user has enough money
-
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot

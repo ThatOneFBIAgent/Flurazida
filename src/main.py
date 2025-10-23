@@ -24,6 +24,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import config, asyncio, random, sys, logging, socket, aiohttp, os, psutil, time, signal, io
 from database import get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive_env, ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID, backup_db_to_gdrive_env
+import CloudflarePing as cf
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
@@ -265,6 +266,7 @@ async def main():
     # how long to wait before starting periodic backups (hours)
     BACKUP_DELAY_HOURS = 1
 
+    cf.ensure_started()
     async def delayed_backup_starter(delay_hours: float):
         await bot.wait_until_ready()
         # Wait the configured delay period before starting the periodic backup task

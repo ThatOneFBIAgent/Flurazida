@@ -93,6 +93,8 @@ ACITIVIES = [
     discord.Game("Factorio: Meth Lab DLC"),
     discord.Game("breaking bad (educational edition)"),
     discord.Game("noble gas party simulator"),
+    discord.Game("with radioactive decay"),
+    discord.Game("with unstable isotopes"),
 
     #  Listening
     discord.Activity(type=discord.ActivityType.listening, name="the periodic table song"),
@@ -106,12 +108,14 @@ ACITIVIES = [
     discord.Activity(type=discord.ActivityType.listening, name="lab goggles fog up"),
     discord.Activity(type=discord.ActivityType.listening, name="theoretical screams"),
     discord.Activity(type=discord.ActivityType.listening, name="periodic table diss tracks"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of atoms bonding"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a lab explosion"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a chemical spill"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a Bunsen burner"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a chemical reaction"),
-    discord.Activity(type=discord.ActivityType.listening, name="the sound of a lab accident"),
+    discord.Activity(type=discord.ActivityType.listening, name="a centrifuge"),
+    discord.Activity(type=discord.ActivityType.listening, name="atoms bonding"),
+    discord.Activity(type=discord.ActivityType.listening, name="a lab explosion"),
+    discord.Activity(type=discord.ActivityType.listening, name="a chemical spill"),
+    discord.Activity(type=discord.ActivityType.listening, name="a Bunsen burner"),
+    discord.Activity(type=discord.ActivityType.listening, name="a chemical reaction"),
+    discord.Activity(type=discord.ActivityType.listening, name="a lab accident"),
+    discord.Activity(type=discord.ActivityType.listening, name="molecules colliding"),
 
     #  Watching
     discord.Activity(type=discord.ActivityType.watching, name="chemical reactions"),
@@ -128,7 +132,9 @@ ACITIVIES = [
     discord.Activity(type=discord.ActivityType.watching, name="the periodic table change"),
     discord.Activity(type=discord.ActivityType.watching, name="the lab explode"),
     discord.Activity(type=discord.ActivityType.watching, name="the universe expand"),
-    discord.Activity(type=discord.ActivityType.watching, name="the chemical bonds break"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab rats escape"),
+    discord.Activity(type=discord.ActivityType.watching, name="chemical bonds break"),
+    discord.Activity(type=discord.ActivityType.watching, name="lab rats escape"),
     discord.Activity(type=discord.ActivityType.watching, name="the lab spontaneously combust"),
+    discord.Activity(type=discord.ActivityType.watching, name="quantum particles behave oddly"),
+    discord.Activity(type=discord.ActivityType.watching, name="the lab safety officer nap"),
 ]

@@ -1,10 +1,21 @@
 discord.py
 aiohttp
 psutil
-Pynacl
+PyNaCl        # optional, required for voice features
 python-dotenv
-Pydrive2
+PyDrive2      # or pydrive2
+ping3
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib   # optional, only if you use user OAuth flows
 
+# If you migrate to MySQL, add one of:
+# mysql-connector-python    # sync client
+# aiomysql                  # async client
 
-# set any other dependencies for your project below this line, they'll be added by Railway or other methods. Pynacl is optinal unless you plan to use voice features.
-# set any other dependencies for your project below this line, they'll be added by Railway or other methods. Pynacl is optinal unless you plan to use voice features.
+# Optional utilities
+# aiosqlite                 # if you want async sqlite usage
+
+# set any other dependencies for your project below this line, 
+# they'll be added by Railway or other methods. Pynacl is optinal unless you plan to use voice features.

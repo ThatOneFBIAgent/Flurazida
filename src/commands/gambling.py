@@ -55,7 +55,7 @@ class Gambling(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
-    @cooldown(8)
+    @cooldown(15)
     async def slots(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -146,7 +146,7 @@ class Gambling(commands.Cog):
         await msg.edit(embed=embed)
 
     @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
-    @cooldown(8)
+    @cooldown(15)
     async def roulette(self, interaction: discord.Interaction, bet_input: str, choice: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
