@@ -763,7 +763,7 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
 
     @app_commands.command(name="pokedex", description="Get information about a Pokémon.")
-    @app_commands.describe(pokemon="The name of the Pokémon to look up, empty for random")
+    @app_commands.describe(pokemon="The name/number of the Pokémon to look up, empty for random")
     @cooldown(10)
     async def pokedex(self, interaction: discord.Interaction, pokemon: str | None = None):
         await interaction.response.defer(ephemeral=False)
@@ -902,3 +902,5 @@ class Fun(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Fun(bot))
+
+# grgrgrgrg so close to 1000 lines in the fun cog alone grgrgrgrgr

@@ -55,7 +55,7 @@ class Gambling(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
-    @cooldown(15)
+    @cooldown(15) # careful, discord rate limits edits to 5 per 5 seconds so we can't be too fast or we get fucked
     async def slots(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -291,6 +291,11 @@ class Gambling(commands.Cog):
 
         # If timed out
         if timed_out:
+            try:
+                update_balance(user_id, bet)
+            except Exception:
+                pass
+
             embed = discord.Embed(
                 title="🃏 Blackjack",
                 description=f"⏰ **Floor! Clock on {interaction.user}.** (Timed out)",
@@ -435,7 +440,12 @@ class Gambling(commands.Cog):
 
         timeout = await view.wait()
         if view.choice is None:
-            embed.description = "⏰ **Timed out!**"
+            try:
+                update_balance(user_id, bet)
+            except Exception:
+                pass
+
+            embed.description = f"⏰ Floor! Clock on {interaction.user} (Timed out) - Your bet returned."
             await msg.edit(embed=embed, view=None)
             return
 

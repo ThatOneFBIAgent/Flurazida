@@ -28,7 +28,13 @@ import CloudflarePing as cf
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
-activities = config.ACITIVIES
+activities = config.ACTIVITIES
+doubles = config.ALLOW_DOUBLE_ACTIVITIES
+
+# Define activity type constants for maintainability
+SINGLE_ACTIVITY_TYPES = ["A", "B", "C"]
+DOUBLE_ACTIVITY_TYPES = ["A+B", "A+C", "B+C", "B+A", "C+A", "C+B"]
+ALL_ACTIVITY_TYPES = SINGLE_ACTIVITY_TYPES + DOUBLE_ACTIVITY_TYPES
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -180,7 +186,10 @@ async def cycle_paired_activities():
     while not bot.is_closed():
         for _ in range(10): # Try up to 10 times to choose a unique activity
             # A = Playing... B = Listening to... C = Watching...
-            combo_type = random.choice(["A", "B", "C", "A+B", "A+C", "B+C", "B+A", "C+A", "C+B"])
+            if doubles == True:
+                combo_type = random.choice(ALL_ACTIVITY_TYPES)
+            else:
+                combo_type = random.choice(SINGLE_ACTIVITY_TYPES)
             status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
             
             game = lambda: random.choice([a for a in activities if isinstance(a, discord.Game)])

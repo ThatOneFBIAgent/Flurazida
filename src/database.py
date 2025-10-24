@@ -1,3 +1,6 @@
+# database.py
+# only mess with this file if you want a headache, trust me it's not fun.
+
 import sqlite3, shutil, os, logging, asyncio, sys, time, json, tempfile, io, base64
 from functools import wraps
 from dotenv import load_dotenv
