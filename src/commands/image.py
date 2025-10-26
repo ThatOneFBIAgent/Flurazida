@@ -1,8 +1,8 @@
 from re import A
-import io, time, math, asyncio, logging, aiohttp, imageio, discord, os
+import io, time, math, asyncio, logging, aiohttp, imageio, discord, os, zipfile
 from typing import Dict, Optional, Tuple, List, Literal
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageFilter
 from discord import app_commands
 from discord.ui import View, Button
 from discord.ext import commands
@@ -22,7 +22,7 @@ class ImageSelectView(View):
         self.selected_url = None
         self.selected_index = None
 
-        for i, att in enumerate(attachments[:5]):  # only show up to 5 buttons to avoid clutter
+        for i, att in enumerate(attachments[:5]):  # only show up to 5 buttons to avoid clutter - 25/10/25 ermm arent there up to 10 attachments? i mean atp just download them all lol
             button = Button(label=f"Image {i+1}", custom_id=f"img_{i}")
             async def button_callback(inter, index=i, att=att):
                 # Only allow the original user to press these buttons
@@ -59,40 +59,105 @@ class ImageSelectView(View):
 # select image stuff
 @app_commands.context_menu(name="Select image")
 async def select_image(interaction: discord.Interaction, message: discord.Message):
-    """Context menu to select an image from a message and store it for 30 minutes."""
+    """Context menu to select an image or gif from a message (attachment, link, or embed) and store it for 30 minutes."""
     await interaction.response.defer(ephemeral=True)
 
-    valid_attachments = [
-        a for a in message.attachments
-        if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp'))
-    ]
+    valid_attachments = []
+
+    # Step 1: Collect from attachments (same as before)
+    for a in message.attachments:
+        if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+            valid_attachments.append((a.url, a.filename))
+
+    # Step 2: Collect from embeds
+    for e in message.embeds:
+        if e.url and e.url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+            valid_attachments.append((e.url, os.path.basename(e.url)))
+
+        if e.image and e.image.url:
+            valid_attachments.append((e.image.url, os.path.basename(e.image.url)))
+
+    # Step 3: Scan text for direct image links or Tenor links
+    import re, aiohttp
+    url_pattern = r"(https?://[^\s]+)"
+    found_links = re.findall(url_pattern, message.content)
+
+    async with aiohttp.ClientSession() as session:
+        for link in found_links:
+            lower = link.lower()
+            if any(lower.endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                valid_attachments.append((link, os.path.basename(link)))
+            elif "tenor.com" in lower:
+                # try to resolve the Tenor link to an actual CDN GIF URL
+                try:
+                    async with session.get(link, allow_redirects=True) as resp:
+                        real_url = str(resp.url)
+                        if any(real_url.lower().endswith(ext) for ext in ('.gif', '.webp')):
+                            valid_attachments.append((real_url, os.path.basename(real_url)))
+                except Exception:
+                    pass
 
     if not valid_attachments:
-        await interaction.followup.send("❌ No valid images found in that message.", ephemeral=True)
+        await interaction.followup.send("❌ No valid images or GIFs found in that message.", ephemeral=True)
         return None, None
 
-    # single attachment -> auto select and store
+    # Step 4: Handle single vs. multiple options
     if len(valid_attachments) == 1:
-        att = valid_attachments[0]
-        USER_SELECTED[interaction.user.id] = (att.url, time.time() + 30 * 60)
-        await interaction.followup.send(
-            f"✅ Image #1 selected automatically ({att.filename})",
-            ephemeral=True
-        )
-        return att.url, att.filename
+        url, fname = valid_attachments[0]
+        USER_SELECTED[interaction.user.id] = (url, time.time() + 30 * 60)
+        await interaction.followup.send(f"✅ Image selected automatically: `{fname}`", ephemeral=True)
+        return url, fname
 
-    # multiple -> show buttons to allow the user to pick which one
+    # Multiple — show the fancy selector
+    class ImageSelectView(discord.ui.View):
+        def __init__(self, interaction: discord.Interaction, attachments: list):
+            super().__init__(timeout=60)
+            self.interaction = interaction
+            self.attachments = attachments
+            self.selected_url = None
+            self.selected_index = None
+
+            for i, (url, fname) in enumerate(attachments[:5], 1):
+                self.add_item(discord.ui.Button(label=f"Select #{i}: {fname[:50]}", style=discord.ButtonStyle.blurple, custom_id=str(i)))
+
+        @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+        async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+            self.selected_url = None
+            await interaction.response.edit_message(content="❌ Selection cancelled.", view=None)
+            self.stop()
+
+        async def interaction_check(self, interaction: discord.Interaction):
+            return interaction.user.id == self.interaction.user.id
+
+        async def on_timeout(self):
+            try:
+                await self.interaction.followup.send("⌛ Selection timed out.", ephemeral=True)
+            except discord.errors.InteractionResponded:
+                pass
+
+        @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green, row=1)
+        async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+            # Not used in this version but kept for safety
+            pass
+
+        async def on_button_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+            idx = int(button.custom_id)
+            self.selected_index = idx
+            self.selected_url, fname = self.attachments[idx - 1]
+            USER_SELECTED[self.interaction.user.id] = (self.selected_url, time.time() + 30 * 60)
+            await interaction.response.edit_message(content=f"✅ Selected image #{idx}: `{fname}`", view=None)
+            self.stop()
+
     view = ImageSelectView(interaction, valid_attachments)
     await interaction.followup.send("🖼️ Multiple images found! Pick one:", view=view, ephemeral=True)
     await view.wait()
 
-    # if user canceled or timed out
     if not view.selected_url:
         await interaction.followup.send("❌ No image selected (timed out or cancelled).", ephemeral=True)
         return None, None
 
-    # selection was stored inside the button callback; return for convenience
-    return view.selected_url, valid_attachments[view.selected_index - 1].filename
+    return view.selected_url, valid_attachments[view.selected_index - 1][1]
+
 
 class ImageCommands(commands.Cog):
     def __init__(self, bot):
@@ -480,6 +545,65 @@ class ImageCommands(commands.Cog):
                 data = await r.read()
         await self._send_image_bytes(interaction, data, f"{target.id}_avatar.png")
 
+    @app_commands.command(name="banner", description="Get a user's banner (or your own by default).")
+    @cooldown(5)
+    async def banner(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member] = None,
+    ):
+        await interaction.response.defer()
+        target = user or interaction.user
+        banner = target.banner
+        if not banner:
+            return await interaction.followup.send("❌ This user has no banner.", ephemeral=True)
+        url = banner.replace(size=1024).url
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url) as r:
+                if r.status != 200:
+                    return await interaction.followup.send("❌ Failed to fetch banner.")
+                data = await r.read()
+        await self._send_image_bytes(interaction, data, f"{target.id}_banner.png")
+
+    @app_commands.command(name="serverbanner", description="Get the server (guild) banner.")
+    @cooldown(5)
+    async def serverbanner(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        if not interaction.guild:
+            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
+        banner = interaction.guild.banner
+        if not banner:
+            return await interaction.followup.send("❌ This server has no banner.", ephemeral=True)
+        url = interaction.guild.banner.replace(size=1024).url
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url) as r:
+                if r.status != 200:
+                    return await interaction.followup.send("❌ Failed to fetch server banner.")
+                data = await r.read()
+        await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_banner.png")
+
+    @app_commands.command(name="emote", description="Gets raw emote image by its name.")
+    @cooldown(5)
+    async def emote(
+        self,
+        interaction: discord.Interaction,
+        emote_name: str,
+    ):
+        await interaction.response.defer()
+        if not interaction.guild:
+            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
+        emote = discord.utils.get(interaction.guild.emojis, name=emote_name)
+        if not emote:
+            return await interaction.followup.send(f"❌ No emote named '{emote_name}' found in this server.", ephemeral=True)
+        url = emote.url.replace(size=1024)
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url) as r:
+                if r.status != 200:
+                    return await interaction.followup.send("❌ Failed to fetch emote image.")
+                data = await r.read()
+        ext = "gif" if emote.animated else "png"
+        await self._send_image_bytes(interaction, data, f"{emote.id}_emote.{ext}")
+
     # @safe_command(timeout=15.0)
     @app_commands.command(name="serveravatar", description="Get the server (guild) icon.")
     @cooldown(5)
@@ -518,9 +642,8 @@ class ImageCommands(commands.Cog):
         gif = self._frames_to_gif_bytes(out, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, f"flipped_{axis}.gif")
 
-    # --------------------
     # Globe effect
-    # --------------------
+
     def _sphere_project_frame(self, src: Image.Image, phase: float, out_size: Tuple[int, int]) -> Image.Image:
         """Map equirectangular src onto a sphere and return RGBA frame for given phase (radians)."""
         # ensure src is equirectangular (width is 2x height ideally). We'll sample using lon/lat mapping.
@@ -589,6 +712,278 @@ class ImageCommands(commands.Cog):
         gif = self._frames_to_gif_bytes(globe_frames, duration_ms=80)
         await self._send_image_bytes(interaction, gif, "globe.gif")
 
+    @app_commands.command(name="blur", description="Apply a blur effect to an image.")
+    @cooldown(10)
+    async def blur(
+        self,
+        interaction: discord.Interaction,
+        radius: float = 5.0,
+        image: Optional[discord.Attachment] = None,
+        image_url: Optional[str] = None,
+    ):
+        await interaction.response.defer()
+        radius = max(0.1, min(50.0, radius))
+
+        data = await self._resolve_image_bytes(interaction, image, image_url)
+        if not data:
+            return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
+
+        frames, duration = self._load_frames_from_bytes(data)
+        frames = self._resize_if_needed(frames, max_dim=1200)
+
+        out_frames = []
+        for f in frames:
+            blurred = f.filter(ImageFilter.GaussianBlur(radius=radius))
+            out_frames.append(blurred)
+
+        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        await self._send_image_bytes(interaction, gif, "blurred.gif")
+
+    @app_commands.command(name="hueshift", description="Shift the hue of an image.")
+    @cooldown(10)
+    async def hueshift(
+        self,
+        interaction: discord.Interaction,
+        shift: float = 0.1,
+        image: Optional[discord.Attachment] = None,
+        image_url: Optional[str] = None,
+    ):
+        await interaction.response.defer()
+        shift = shift % 1.0  # wrap around
+
+        data = await self._resolve_image_bytes(interaction, image, image_url)
+        if not data:
+            return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
+
+        frames, duration = self._load_frames_from_bytes(data)
+        frames = self._resize_if_needed(frames, max_dim=1200)
+
+        out_frames = []
+        for f in frames:
+            hsv = f.convert("HSV")
+            np_hsv = np.array(hsv)
+            np_hsv[..., 0] = (np_hsv[..., 0].astype(np.float32) / 255.0 + shift) % 1.0 * 255.0
+            shifted = Image.fromarray(np_hsv, "HSV").convert("RGBA")
+            out_frames.append(shifted)
+
+        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        await self._send_image_bytes(interaction, gif, "hueshifted.gif")
+    
+    @app_commands.command(name="invert", description="Invert the colors of an image.")
+    @cooldown(10)
+    async def invert(
+        self,
+        interaction: discord.Interaction,
+        image: Optional[discord.Attachment] = None,
+        image_url: Optional[str] = None,
+    ):
+        await interaction.response.defer()
+
+        data = await self._resolve_image_bytes(interaction, image, image_url)
+        if not data:
+            return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
+
+        frames, duration = self._load_frames_from_bytes(data)
+        frames = self._resize_if_needed(frames, max_dim=1200)
+
+        out_frames = []
+        for f in frames:
+            r, g, b, a = f.split()
+            r = r.point(lambda i: 255 - i)
+            g = g.point(lambda i: 255 - i)
+            b = b.point(lambda i: 255 - i)
+            inverted = Image.merge("RGBA", (r, g, b, a))
+            out_frames.append(inverted)
+
+        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        await self._send_image_bytes(interaction, gif, "inverted.gif")
+    
+    @app_commands.commmand(name="speechbubble", description="Add a speech bubble caption to an image.")
+    @cooldown(15)
+    async def speechbubble(
+        self,
+        interaction: discord.Interaction,
+        caption: str,
+        image: Optional[discord.Attachment] = None,
+        image_url: Optional[str] = None,
+    ):
+        await interaction.response.defer()
+        data = await self._resolve_image_bytes(interaction, image, image_url)
+        if not data:
+            return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
+
+        frames, duration = self._load_frames_from_bytes(data)
+        frames = self._resize_if_needed(frames, max_dim=900)
+
+        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "arial.ttf"), 32)
+        out_frames = []
+        for f in frames:
+            tmp = f.copy().convert("RGBA")
+            w, h = tmp.size
+            draw = ImageDraw.Draw(tmp)
+
+            # Simple speech bubble
+            padding = 10
+            lines = self.wrap_text(caption, font, w - 4 * padding)
+            line_height = font.getbbox("Ay")[3]
+            box_height = len(lines) * line_height + 2 * padding
+            box_width = max(font.getlength(line) for line in lines) + 2 * padding
+
+            box_x = padding
+            box_y = h - box_height - padding
+
+            # Draw bubble
+            draw.rectangle([box_x, box_y, box_x + box_width, box_y + box_height], fill=(255,255,255,200), outline=(0,0,0))
+            # Draw tail
+            tail = [(box_x + box_width // 2 - 10, box_y + box_height),
+                    (box_x + box_width // 2 + 10, box_y + box_height),
+                    (box_x + box_width // 2, box_y + box_height + 20)]
+            draw.polygon(tail, fill=(255,255,255,200), outline=(0,0,0))
+
+            # Draw text
+            for i, line in enumerate(lines):
+                text_x = box_x + padding
+                text_y = box_y + padding + i * line_height
+                draw.text((text_x, text_y), line, font=font, fill=(0,0,0))
+
+            out_frames.append(tmp)
+
+        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        await self._send_image_bytes(interaction, gif, "speechbubble.gif")
+
+    @app_commands.command(name="swirl", description="Apply a swirl effect to an image.")
+    @cooldown(15)
+    async def swirl(
+        self,
+        interaction: discord.Interaction,
+        strength: float = 2.0,
+        radius: float = 100.0,
+        image: Optional[discord.Attachment] = None,
+        image_url: Optional[str] = None,
+    ):
+        await interaction.response.defer()
+        strength = max(0.1, min(10.0, strength))
+        radius = max(10.0, min(500.0, radius))
+
+        data = await self._resolve_image_bytes(interaction, image, image_url)
+        if not data:
+            return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
+
+        frames, duration = self._load_frames_from_bytes(data)
+        frames = self._resize_if_needed(frames, max_dim=900)
+
+        out_frames = []
+        for f in frames:
+            np_img = np.array(f.convert("RGBA"))
+            h, w = np_img.shape[:2]
+            cx, cy = w / 2, h / 2
+            dst = np.zeros_like(np_img)
+
+            for y in range(h):
+                for x in range(w):
+                    dx = x - cx
+                    dy = y - cy
+                    dist = math.sqrt(dx * dx + dy * dy)
+                    if dist < radius:
+                        angle = strength * (radius - dist) / radius
+                        s = math.sin(angle)
+                        c = math.cos(angle)
+                        src_x = int(cx + c * dx - s * dy)
+                        src_y = int(cy + s * dx + c * dy)
+                    else:
+                        src_x, src_y = x, y
+                    src_x = max(0, min(w - 1, src_x))
+                    src_y = max(0, min(h - 1, src_y))
+                    dst[y, x] = np_img[src_y, src_x]
+
+            out_frame = Image.fromarray(dst, "RGBA")
+            out_frames.append(out_frame)
+
+        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        await self._send_image_bytes(interaction, gif, "swirled.gif")
+
+    @app_commands.command(name="imagefy", description="Convert last image sent by bot to PNG or JPG.")
+    @cooldown(10)
+    async def imagefy(
+        self,
+        interaction: discord.Interaction,
+        format: Literal["png", "jpg"] = "png",
+    ):
+        await interaction.response.defer(thinking=True)
+
+        channel = interaction.channel
+        if not channel:
+            return await interaction.followup.send("❌ Could not access channel.", ephemeral=True)
+
+        # Find last bot message with attachment
+        last_msg = None
+        async for msg in channel.history(limit=50):
+            if msg.author.id == self.bot.user.id and msg.attachments:
+                last_msg = msg
+                break
+
+        if not last_msg:
+            return await interaction.followup.send(
+                "❌ No recent bot message with an attachment found.",
+                ephemeral=True,
+            )
+
+        attachment = last_msg.attachments[0]
+        data = await self._fetch_bytes(attachment, None)
+        if not data:
+            return await interaction.followup.send(
+                "❌ Failed to fetch the attachment.", ephemeral=True
+            )
+
+        # Load frames
+        frames, duration = self._load_frames_from_bytes(data)
+        frames = self._resize_if_needed(frames, max_dim=1200)
+
+        out_frames = []
+        for f in frames:
+            if format == "png":
+                out_frames.append(f.convert("RGBA"))
+            else:
+                out_frames.append(f.convert("RGB"))
+
+        # --- PNG Output ---
+        if format == "png":
+            bio = io.BytesIO()
+            if len(out_frames) == 1:
+                out_frames[0].save(bio, format="PNG")
+            else:
+                out_frames[0].save(
+                    bio,
+                    format="PNG",
+                    save_all=True,
+                    append_images=out_frames[1:],
+                    loop=0,
+                    duration=duration,
+                )
+            bio.seek(0)
+            await interaction.followup.send(file=discord.File(bio, "converted.png"))
+            return
+
+        # --- JPG Output ---
+        bio = io.BytesIO()
+        if len(out_frames) == 1:
+            out_frames[0].save(bio, format="JPEG", quality=90)
+            bio.seek(0)
+            await interaction.followup.send(file=discord.File(bio, "converted.jpg"))
+        else:
+            # Multi-frame JPG: zip frames individually
+            zip_bio = io.BytesIO()
+            with zipfile.ZipFile(zip_bio, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for i, frame in enumerate(out_frames):
+                    frame_bio = io.BytesIO()
+                    frame.convert("RGB").save(frame_bio, format="JPEG", quality=90)
+                    frame_bio.seek(0)
+                    zipf.writestr(f"frame_{i+1}.jpg", frame_bio.read())
+            zip_bio.seek(0)
+            await interaction.followup.send(
+                "🗜️ Multiple frames detected! Exported as ZIP of JPGs:",
+                file=discord.File(zip_bio, "frames.zip"),
+            )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ImageCommands(bot))

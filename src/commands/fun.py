@@ -38,9 +38,9 @@ class Fun(commands.Cog):
             ts = cf_cache.get("ts")
 
             if ipv4 is None:
-                embed.add_field(name="🟠 CF IPv4 RTT", value="N/A", inline=True)
+                embed.add_field(name="🟠 CF IPv4 RTT", value="N/A", inline=False)
             else:
-                embed.add_field(name="🟠 CF IPv4 RTT", value=f"`{ipv4:.1f} ms`", inline=True)
+                embed.add_field(name="🟠 CF IPv4 RTT", value=f"`{ipv4:.1f} ms`", inline=False)
 
             if ipv6 is None:
                 embed.add_field(name="🟠 CF IPv6 RTT", value="N/A", inline=True)
