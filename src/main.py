@@ -37,17 +37,6 @@ intents.message_content = True
 intents.members = True
 bot_owner = config.BOT_OWNER
 
-def get_bot_stats():
-    mem = process.memory_info()
-    cpu = process.cpu_percent(interval=None)
-    disk = process.io_counters()
-    return {
-        "Memory (RSS)": f"{mem.rss / (1024 ** 2):.2f} MB",
-        "CPU Usage": f"{cpu:.2f}%",
-        "Disk Read (TOTAL)": f"{disk.read_bytes / (1024 ** 2):.2f} MB",
-        "Disk Write (TOTAL)": f"{disk.write_bytes / (1024 ** 2):.2f} MB"
-    }
-
 def wait_for_continue():
     while True:
         answer = input("Mixer crashed! Turn back on? [Y/N]").strip().lower()
@@ -183,13 +172,6 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
         raise CheckFailure("Forbidden guild")
     return True
 
-async def resource_monitor():
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        stats = get_bot_stats()
-        log.info(f"Resource usage: {stats}")
-        await asyncio.sleep(60)
-
 async def cycle_paired_activities():
     global last_activity_signature
     await bot.wait_until_ready()
@@ -245,6 +227,7 @@ async def moderation_expiry_task():
         log.info("Moderation expiry check complete.")
         await asyncio.sleep(60)
 
+
 async def main():
     restore_db_from_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
     restore_db_from_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
@@ -262,18 +245,36 @@ async def main():
         asyncio.create_task(moderation_expiry_task())
         asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
         bot.tree.interaction_check = global_blacklist_check
-        await bot.start(config.BOT_TOKEN)
 
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    log.info("Shutdown requested — performing final backup.")
+        # Create a future that will be set when a shutdown signal is received
+        shutdown_signal = asyncio.get_event_loop().create_future()
+
+        # Signal handler
+        def _signal_handler():
+            if not shutdown_signal.done():
+                shutdown_signal.set_result(True)
+
+        # Register signals
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, _signal_handler)
+
+        # Run the bot, but also wait for shutdown signal
+        bot_task = asyncio.create_task(bot.start(config.BOT_TOKEN))
+        await shutdown_signal  # Wait here until signal received
+
+        # Signal received → shutdown
+        log.info("Shutdown signal received, stopping bot...")
+        await bot.close()  # closes connections cleanly
+        try:
+            backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
+            backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
+            log.info("Final backup complete.")
+        except Exception as e:
+            log.error(f"Backup on exit failed: {e}")
+
+if __name__ == "__main__":
     try:
-        backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
-        backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
-        log.info("Quick backup complete.")
+        asyncio.run(main())
     except Exception as e:
-        log.error(f"Backup on exit failed: {e}")
-    sys.exit(0)
-except Exception as e:
-    log.exception(f"Fatal crash: {e}")
+        log.exception(f"Fatal crash: {e}")
