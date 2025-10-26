@@ -57,192 +57,188 @@ class ImageSelectView(View):
         cancel.callback = cancel_callback
         self.add_item(cancel)
 
-class ContextMenus(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+@app_commands.context_menu(name="Select image")
+async def select_image(interaction: discord.Interaction, message: discord.Message):
+    """Context menu: choose an image/gif/link from a message and store it for 30 minutes."""
+    await interaction.response.defer(ephemeral=True)
 
-    @app_commands.context_menu(name="Select image")
-    async def select_image(interaction: discord.Interaction, message: discord.Message):
-        """Context menu: choose an image/gif/link from a message and store it for 30 minutes."""
-        await interaction.response.defer(ephemeral=True)
+    valid_attachments: List[Tuple[str, str]] = []
 
-        valid_attachments: List[Tuple[str, str]] = []
+    # 1) Direct attachments (Discord-hosted) - highest priority
+    for a in message.attachments:
+        if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
+            valid_attachments.append((a.url, a.filename))
 
-        # 1) Direct attachments (Discord-hosted) - highest priority
-        for a in message.attachments:
-            if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
-                valid_attachments.append((a.url, a.filename))
-
-        # 2) Embeds (images/thumbnails/provider url)
-        for e in message.embeds:
-            # embed.image
-            if getattr(e, "image", None) and getattr(e.image, "url", None):
-                url = e.image.url
+    # 2) Embeds (images/thumbnails/provider url)
+    for e in message.embeds:
+        # embed.image
+        if getattr(e, "image", None) and getattr(e.image, "url", None):
+            url = e.image.url
+            valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
+        # embed.thumbnail
+        if getattr(e, "thumbnail", None) and getattr(e.thumbnail, "url", None):
+            url = e.thumbnail.url
+            valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
+        # embed.url (sometimes direct link to media)
+        if getattr(e, "url", None):
+            url = e.url
+            if url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
                 valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
-            # embed.thumbnail
-            if getattr(e, "thumbnail", None) and getattr(e.thumbnail, "url", None):
-                url = e.thumbnail.url
-                valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
-            # embed.url (sometimes direct link to media)
-            if getattr(e, "url", None):
-                url = e.url
-                if url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
-                    valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
 
-        # 3) URLs in message content
-        url_pattern = r"(https?://[^\s<>]+)"
-        found_links = re.findall(url_pattern, message.content or "")
+    # 3) URLs in message content
+    url_pattern = r"(https?://[^\s<>]+)"
+    found_links = re.findall(url_pattern, message.content or "")
 
-        async def resolve_media_url(session: aiohttp.ClientSession, url: str) -> Optional[str]:
-            """Return a direct media URL (or same URL) if it appears to be image/video by checking headers or Tenor fallback."""
+    async def resolve_media_url(session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        """Return a direct media URL (or same URL) if it appears to be image/video by checking headers or Tenor fallback."""
+        try:
+            # Try HEAD first to pick up Content-Type without downloading content
+            async with session.head(url, allow_redirects=True, timeout=6) as h:
+                ctype = h.headers.get("Content-Type", "").lower()
+                if ctype.startswith("image/") or "gif" in ctype or "webp" in ctype or ctype.startswith("video/"):
+                    return str(h.url)
+                # Some hosts don't return good Content-Type on HEAD (or disallow HEAD), fall through
+        except Exception:
+            # HEAD can fail — fallback to small GET
+            pass
+
+        # GET a tiny range to get headers and small body
+        try:
+            headers = {"Range": "bytes=0-8191"}  # small chunk to avoid full download
+            async with session.get(url, allow_redirects=True, headers=headers, timeout=8) as g:
+                ctype = g.headers.get("Content-Type", "").lower()
+                final = str(g.url)
+                # Accept if server says image or video
+                if ctype.startswith("image/") or "gif" in ctype or "webp" in ctype or ctype.startswith("video/"):
+                    return final
+
+                # If content-type absent or generic, try to sniff URL extension
+                path = urllib.parse.urlparse(final).path.lower()
+                if any(path.endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
+                    return final
+
+                # Tenor special: page HTML sometimes; try to extract JSON blob for main media
+                if "tenor.com" in final:
+                    text = await g.text()
+                    # Try __NEXT_DATA__ JSON first (better)
+                    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', text, re.DOTALL)
+                    if m:
+                        try:
+                            data = json.loads(m.group(1))
+                            # dig for main media URL
+                            media = None
+                            # structure can vary; try common paths
+                            media = (
+                                data.get("props", {})
+                                    .get("pageProps", {})
+                                    .get("post", {})
+                                    .get("media")
+                            )
+                            if media and isinstance(media, list) and media:
+                                # pick the first media item (main gif)
+                                main = media[0]
+                                # many entries have gif/mediumgif/mp4 keys
+                                for key in ("gif", "mediumgif", "mp4", "preview", "tinygif"):
+                                    if isinstance(main.get(key), dict) and main[key].get("url"):
+                                        return main[key]["url"]
+                                # sometimes it's a URL string
+                                for key in ("url",):
+                                    if main.get(key):
+                                        return main.get(key)
+                        except Exception:
+                            pass
+
+                    # fallback: parse og:image meta
+                    m2 = re.search(r'<meta[^>]+property=["\']og:(?:image|video)["\'][^>]+content=["\']([^"\']+)["\']', text)
+                    if m2:
+                        return m2.group(1)
+                # Giphy or other services might have similar embedded media URLs in HTML; we could add more parsers here
+        except Exception:
+            pass
+
+        return None
+
+    # Open a single session and resolve found links
+    async with aiohttp.ClientSession() as session:
+        for link in found_links:
+            # skip obvious non-media shorteners / trackers quickly
             try:
-                # Try HEAD first to pick up Content-Type without downloading content
-                async with session.head(url, allow_redirects=True, timeout=6) as h:
-                    ctype = h.headers.get("Content-Type", "").lower()
-                    if ctype.startswith("image/") or "gif" in ctype or "webp" in ctype or ctype.startswith("video/"):
-                        return str(h.url)
-                    # Some hosts don't return good Content-Type on HEAD (or disallow HEAD), fall through
+                resolved = await resolve_media_url(session, link)
+                if resolved:
+                    fname = os.path.basename(urllib.parse.urlparse(resolved).path) or resolved
+                    valid_attachments.append((resolved, fname))
             except Exception:
-                # HEAD can fail — fallback to small GET
+                # ignore per-url failures
                 pass
 
-            # GET a tiny range to get headers and small body
-            try:
-                headers = {"Range": "bytes=0-8191"}  # small chunk to avoid full download
-                async with session.get(url, allow_redirects=True, headers=headers, timeout=8) as g:
-                    ctype = g.headers.get("Content-Type", "").lower()
-                    final = str(g.url)
-                    # Accept if server says image or video
-                    if ctype.startswith("image/") or "gif" in ctype or "webp" in ctype or ctype.startswith("video/"):
-                        return final
+    # Remove duplicates preserving order
+    seen = set()
+    filtered = []
+    for url, fname in valid_attachments:
+        if url in seen:
+            continue
+        seen.add(url)
+        filtered.append((url, fname))
+    valid_attachments = filtered
 
-                    # If content-type absent or generic, try to sniff URL extension
-                    path = urllib.parse.urlparse(final).path.lower()
-                    if any(path.endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
-                        return final
+    if not valid_attachments:
+        await interaction.followup.send("❌ No valid images or GIFs found in that message.", ephemeral=True)
+        return None, None
 
-                    # Tenor special: page HTML sometimes; try to extract JSON blob for main media
-                    if "tenor.com" in final:
-                        text = await g.text()
-                        # Try __NEXT_DATA__ JSON first (better)
-                        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', text, re.DOTALL)
-                        if m:
-                            try:
-                                data = json.loads(m.group(1))
-                                # dig for main media URL
-                                media = None
-                                # structure can vary; try common paths
-                                media = (
-                                    data.get("props", {})
-                                        .get("pageProps", {})
-                                        .get("post", {})
-                                        .get("media")
-                                )
-                                if media and isinstance(media, list) and media:
-                                    # pick the first media item (main gif)
-                                    main = media[0]
-                                    # many entries have gif/mediumgif/mp4 keys
-                                    for key in ("gif", "mediumgif", "mp4", "preview", "tinygif"):
-                                        if isinstance(main.get(key), dict) and main[key].get("url"):
-                                            return main[key]["url"]
-                                    # sometimes it's a URL string
-                                    for key in ("url",):
-                                        if main.get(key):
-                                            return main.get(key)
-                            except Exception:
-                                pass
+    # If single result, auto-select
+    if len(valid_attachments) == 1:
+        url, fname = valid_attachments[0]
+        USER_SELECTED[interaction.user.id] = (url, time.time() + 30 * 60)
+        await interaction.followup.send(f"✅ Image selected automatically: `{fname}`", ephemeral=True)
+        return url, fname
 
-                        # fallback: parse og:image meta
-                        m2 = re.search(r'<meta[^>]+property=["\']og:(?:image|video)["\'][^>]+content=["\']([^"\']+)["\']', text)
-                        if m2:
-                            return m2.group(1)
-                    # Giphy or other services might have similar embedded media URLs in HTML; we could add more parsers here
-            except Exception:
-                pass
+    # Multiple — create UI for selecting among urls (up to 5)
+    class ImageSelectView(View):
+        def __init__(self, interaction: discord.Interaction, attachments: List[Tuple[str,str]]):
+            super().__init__(timeout=60)
+            self.interaction = interaction
+            self.attachments = attachments
+            self.selected_url = None
+            self.selected_index = None
 
-            return None
-
-        # Open a single session and resolve found links
-        async with aiohttp.ClientSession() as session:
-            for link in found_links:
-                # skip obvious non-media shorteners / trackers quickly
-                try:
-                    resolved = await resolve_media_url(session, link)
-                    if resolved:
-                        fname = os.path.basename(urllib.parse.urlparse(resolved).path) or resolved
-                        valid_attachments.append((resolved, fname))
-                except Exception:
-                    # ignore per-url failures
-                    pass
-
-        # Remove duplicates preserving order
-        seen = set()
-        filtered = []
-        for url, fname in valid_attachments:
-            if url in seen:
-                continue
-            seen.add(url)
-            filtered.append((url, fname))
-        valid_attachments = filtered
-
-        if not valid_attachments:
-            await interaction.followup.send("❌ No valid images or GIFs found in that message.", ephemeral=True)
-            return None, None
-
-        # If single result, auto-select
-        if len(valid_attachments) == 1:
-            url, fname = valid_attachments[0]
-            USER_SELECTED[interaction.user.id] = (url, time.time() + 30 * 60)
-            await interaction.followup.send(f"✅ Image selected automatically: `{fname}`", ephemeral=True)
-            return url, fname
-
-        # Multiple — create UI for selecting among urls (up to 5)
-        class ImageSelectView(View):
-            def __init__(self, interaction: discord.Interaction, attachments: List[Tuple[str,str]]):
-                super().__init__(timeout=60)
-                self.interaction = interaction
-                self.attachments = attachments
-                self.selected_url = None
-                self.selected_index = None
-
-                for idx, (url, fname) in enumerate(attachments[:5], start=1):
-                    btn = Button(label=f"{idx}: {fname[:40]}", custom_id=f"img_{idx}")
-                    async def cb(i, b_url=url, b_idx=idx, b_fname=fname):
-                        def _cb(inter: discord.Interaction):
-                            return None
+            for idx, (url, fname) in enumerate(attachments[:5], start=1):
+                btn = Button(label=f"{idx}: {fname[:40]}", custom_id=f"img_{idx}")
+                async def cb(i, b_url=url, b_idx=idx, b_fname=fname):
+                    def _cb(inter: discord.Interaction):
                         return None
-                    # create proper closure callback
-                    async def make_cb(inter, b_url=url, b_idx=idx, b_fname=fname):
-                        if inter.user.id != self.interaction.user.id:
-                            await inter.response.send_message("🚫 Not your selection!", ephemeral=True)
-                            return
-                        USER_SELECTED[self.interaction.user.id] = (b_url, time.time() + 30 * 60)
-                        self.selected_url = b_url
-                        self.selected_index = b_idx
-                        await inter.response.edit_message(content=f"✅ Image #{b_idx} selected ({b_fname})", view=None)
-                        self.stop()
-                    btn.callback = make_cb
-                    self.add_item(btn)
-
-                cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
-                async def cancel_cb(inter):
+                    return None
+                # create proper closure callback
+                async def make_cb(inter, b_url=url, b_idx=idx, b_fname=fname):
                     if inter.user.id != self.interaction.user.id:
                         await inter.response.send_message("🚫 Not your selection!", ephemeral=True)
                         return
-                    await inter.response.edit_message(content="❌ Selection canceled.", view=None)
+                    USER_SELECTED[self.interaction.user.id] = (b_url, time.time() + 30 * 60)
+                    self.selected_url = b_url
+                    self.selected_index = b_idx
+                    await inter.response.edit_message(content=f"✅ Image #{b_idx} selected ({b_fname})", view=None)
                     self.stop()
-                cancel.callback = cancel_cb
-                self.add_item(cancel)
+                btn.callback = make_cb
+                self.add_item(btn)
 
-        view = ImageSelectView(interaction, valid_attachments)
-        await interaction.followup.send("🖼️ Multiple images found — pick one:", view=view, ephemeral=True)
-        await view.wait()
+            cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+            async def cancel_cb(inter):
+                if inter.user.id != self.interaction.user.id:
+                    await inter.response.send_message("🚫 Not your selection!", ephemeral=True)
+                    return
+                await inter.response.edit_message(content="❌ Selection canceled.", view=None)
+                self.stop()
+            cancel.callback = cancel_cb
+            self.add_item(cancel)
 
-        if not view.selected_url:
-            await interaction.followup.send("❌ No image selected (timed out or cancelled).", ephemeral=True)
-            return None, None
+    view = ImageSelectView(interaction, valid_attachments)
+    await interaction.followup.send("🖼️ Multiple images found — pick one:", view=view, ephemeral=True)
+    await view.wait()
 
-        return view.selected_url, valid_attachments[view.selected_index - 1][1]
+    if not view.selected_url:
+        await interaction.followup.send("❌ No image selected (timed out or cancelled).", ephemeral=True)
+        return None, None
+
+    return view.selected_url, valid_attachments[view.selected_index - 1][1]
 
 
 class ImageCommands(app_commands.Group):
@@ -1127,7 +1123,7 @@ class ImageCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(ImageCog(bot))
-    await bot.add_cog(ContextMenus(bot))
+    await bot.tree.add_command(select_image)
         
 # okay first of all HOW DID I GET 1000 LINES OF CODE HERE?????????
 # secondly wow this is a lot of image commands huh (least obvious Esmbot copycat)
