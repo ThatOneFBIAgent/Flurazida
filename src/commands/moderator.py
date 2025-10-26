@@ -11,6 +11,7 @@ log = get_logger("moderator")
 class ModeratorCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="moderator", description="Moderation related commands")
+        self.bot = bot
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="mute", description="Mutes selected user for a period of time, default is 1 hour.")
@@ -420,7 +421,7 @@ class ModeratorCog(commands.Cog):
         self.bot = bot
     
     async def cog_load(self):
-        self.bot.tree.add_command(ModeratorCommands())
+        self.bot.tree.add_command(ModeratorCommands(self.bot))
 
 async def setup(bot):
     await bot.add_cog(ModeratorCog(bot))

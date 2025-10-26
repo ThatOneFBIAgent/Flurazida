@@ -13,8 +13,9 @@ MAX_DICE = 100
 MAX_SIDES = 1000
 
 class FunCommands(app_commands.Group):
-    def __init__(self):
+    def __init__(self, bot):
         super().__init__(name="fun", description="Fun commands like dice rolling, 8ball, ping, etc.")
+        self.bot = bot
 
     # table tennis?
     # @safe_command(timeout=15.0)
@@ -1018,7 +1019,7 @@ class FunCog(commands.Cog):
         self.bot = bot
     
     async def cog_load(self):
-        self.bot.tree.add_command(FunCommands())
+        self.bot.tree.add_command(FunCommands(self.bot))
 
 async def setup(bot):
     await bot.add_cog(FunCog(bot))
