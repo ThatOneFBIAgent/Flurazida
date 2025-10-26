@@ -4,7 +4,7 @@ from typing import Optional
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
-from config import cooldown
+from config import cooldown, safe_command
 import CloudflarePing as cf
 
 # Constants for dice limits
@@ -16,6 +16,7 @@ class Fun(commands.Cog):
         self.bot = bot
 
     # table tennis?
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(10)
     async def ping(self, interaction: discord.Interaction):
@@ -54,6 +55,7 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     # the bane of my existance
+    # @safe_command(timeout=30.0)
     @app_commands.command(name="roll", description="Roll a set of dice!")
     @app_commands.describe(dice="Dice expression to roll, type 'help' for syntax.", expand="Show detailed breakdown of the roll")
     @cooldown(5)
@@ -387,7 +389,7 @@ class Fun(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=False)
 
 
-
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
     @cooldown(5)
     async def eight_ball(self, interaction: discord.Interaction, question: str):
@@ -450,6 +452,7 @@ class Fun(commands.Cog):
         embed.add_field(name="Answer", value=f"`{answer}`", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(60)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
@@ -483,8 +486,10 @@ class Fun(commands.Cog):
 
         # Finish at 100%
         await msg.edit(content=f"💻 Hacking {target.mention}...\n[██████████] 100%\n✅ Hack complete! All their cookies have been stolen and eaten!🍪")
-    
+
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="info", description="Get information about the bot.")
+    @cooldown(5)
     async def info_of_bot(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         bot_user = self.bot.user
@@ -558,6 +563,7 @@ class Fun(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=False)
     # stupid dum dum discord reserves bot_ for their own shit, i'm angry
     
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="serverinfo", description="Get information about current server")
     @cooldown(5)
     async def serverinfo(self, interaction: discord.Interaction, hidden: bool = False):
@@ -651,7 +657,7 @@ class Fun(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=hidden)
 
-    
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="letter", description="Generate a random letter.")
     @cooldown(5)
     async def letter(self, interaction: discord.Interaction):
@@ -661,6 +667,7 @@ class Fun(commands.Cog):
         embed.add_field(name="Generated Letter", value=f"`{letter}`", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=False) # What are we letter-gatekeeping now?
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="cat", description="Get a random cat image")
     @cooldown(5)
     async def cat(self, interaction: discord.Interaction):
@@ -681,6 +688,7 @@ class Fun(commands.Cog):
                 embed.set_footer(text=f"Cat ID: {cat_id}")
                 await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(5)
     async def dog(self, interaction: discord.Interaction):
@@ -699,6 +707,7 @@ class Fun(commands.Cog):
                 embed.set_image(url=dog_url)
                 await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="help", description="Get a list of available commands (paginated).")
     @cooldown(2)
     async def help_command(self, interaction: discord.Interaction):
@@ -762,6 +771,7 @@ class Fun(commands.Cog):
 
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="pokedex", description="Get information about a Pokémon.")
     @app_commands.describe(pokemon="The name/number of the Pokémon to look up, empty for random")
     @cooldown(10)
@@ -809,6 +819,7 @@ class Fun(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="xkcd", description="Get a random XKCD comic.")
     @app_commands.describe(comic="The comic number to fetch (leave empty for random comic)")
     @cooldown(7)
@@ -850,6 +861,7 @@ class Fun(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
     @app_commands.describe(term="The term to look up (leave empty for random definition)")
     @cooldown(10)
@@ -899,6 +911,22 @@ class Fun(commands.Cog):
             embed.set_footer(text=f"Defined by {author}")
 
             await interaction.followup.send(embed=embed, ephemeral=False)
+
+    # @safe_command(timeout=5.0)
+    # @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
+    # @cooldown(2)
+    # async def explode(self, interaction: discord.Interaction):
+    #    await interaction.response.defer(ephemeral=False)
+    #    toresult = 1 / 0  # This will raise a ZeroDivisionError
+    #    await interaction.followup.send(f"The result is {toresult}- Wait how did you see this?", ephemeral=False)
+
+    # @safe_command(timeout=2.0)
+    # @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
+    # @cooldown(2)
+    # async def slowpoke(self, interaction: discord.Interaction):
+    #    await interaction.response.defer(ephemeral=False)
+    #    await asyncio.sleep(5)  # Intentional delay longer than set timeout
+    #    await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.", ephemeral=False)
 
 async def setup(bot):
     await bot.add_cog(Fun(bot))

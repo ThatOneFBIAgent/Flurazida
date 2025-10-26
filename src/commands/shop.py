@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
 from database import buy_item, modify_robber_multiplier, use_item 
-from config import cooldown
+from config import cooldown, safe_command
 
 SHOP_ITEMS = [
     {"id": 1, "name": "Bragging Rights", "price": 10000, "effect": "Nothing. Just flex.", "uses_left": 1},
@@ -119,7 +119,9 @@ class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="shop", description="View and buy items from the shop.")
+    @cooldown(5)
     async def shop(self, interaction: discord.Interaction):
         """Displays shop items using embeds and buttons"""
         if not SHOP_ITEMS:
@@ -128,7 +130,10 @@ class Shop(commands.Cog):
         view = ShopView(interaction.user.id)
         await interaction.response.send_message(embed=view.format_shop_page(), view=view, ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="use", description="Use an item from your inventory")
+    @app_commands.describe(item_name="The name of the item you want to use")
+    @cooldown(5)
     async def use(self, interaction: discord.Interaction, item_name: str):
         """Handles using an item properly"""
         item_name = item_name.lower()

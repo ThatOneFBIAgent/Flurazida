@@ -4,12 +4,13 @@ from discord.ext import commands
 from discord import app_commands
 from database import get_balance, update_balance, add_user, get_user_items, get_robbery_modifier, check_gun_defense, decrement_gun_use
 from database import remove_item_from_user, update_item_uses, add_item_to_user
-from config import cooldown
+from config import cooldown, safe_command
 
 class Economy(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
     @cooldown(600) # 600s = 10 minutes, stop the stinky rats from draining people.
     async def rob(self, interaction: discord.Interaction, target: discord.Member):
@@ -74,6 +75,7 @@ class Economy(commands.Cog):
             ]
             await interaction.followup.send(random.choice(messages), ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="crime", description="Commit a crime for cash. Risky!")
     @cooldown(8)
     async def crime(self, interaction: discord.Interaction):
@@ -105,6 +107,7 @@ class Economy(commands.Cog):
 
         await interaction.followup.send(random.choice(messages), ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="slut", description="Do some... work for quick cash.")
     @cooldown(10) # Horny bastards.
     async def slut(self, interaction: discord.Interaction):
@@ -134,6 +137,7 @@ class Economy(commands.Cog):
 
         await interaction.followup.send(random.choice(messages), ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
     @cooldown(4)
     async def work(self, interaction: discord.Interaction):
@@ -163,7 +167,8 @@ class Economy(commands.Cog):
             ]
 
         await interaction.followup.send(random.choice(messages), ephemeral=False)
-    
+
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="balance", description="Check your current balance")
     @cooldown(2)
     async def balance(self, interaction: discord.Interaction):
@@ -172,6 +177,7 @@ class Economy(commands.Cog):
         balance = get_balance(user_id)
         await interaction.followup.send(f"💰 Your balance: **{balance}** coins")
 
+    # @safe_command(timeout=20.0)
     @app_commands.command(name="inventory", description="Check your inventory")
     @cooldown(4)
     async def inventory(self, interaction: discord.Interaction):
@@ -190,6 +196,7 @@ class Economy(commands.Cog):
         else:
             await interaction.followup.send("📦 You have no items in your inventory!", ephemeral=True)
     
+    # @safe_command(timeout=20.0)
     @app_commands.command(name="transfer", description="Give money to another user")
     @cooldown(6) # Should mitigate some db spam since it makes 6 instances.. for some reason?
     async def transfer(self, interaction: discord.Interaction, target: discord.Member, amount: int):
@@ -218,6 +225,7 @@ class Economy(commands.Cog):
 
         await interaction.followup.send(f"💸 You transferred {target.mention} 💰 `{amount}` coins!", ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="give", description="Give an item (or items) to another user")
     @cooldown(10)
     async def give(self, interaction: discord.Interaction, target: discord.Member, item_id: int, amount: int):

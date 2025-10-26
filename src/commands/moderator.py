@@ -1,22 +1,18 @@
-import discord, asyncio, logging, time, sys
+import discord, asyncio, time, sys
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
 from database import get_cases_for_guild, get_case, insert_case, remove_case, edit_case_reason, mod_cursor
+from logger import get_logger
+from config import cooldown, safe_command
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+log = get_logger("moderator")
 
 class Moderator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="mute", description="Mutes selected user for a period of time, default is 1 hour.")
     @app_commands.describe(
         user="The user to mute",
@@ -25,6 +21,7 @@ class Moderator(commands.Cog):
     )
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
+    @cooldown(5)
     async def mute(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
         await interaction.response.defer(ephemeral=False)
         """Mutes a user for a specified duration."""
@@ -70,7 +67,7 @@ class Moderator(commands.Cog):
                     try:
                         await channel.set_permissions(mute_role, send_messages=False, speak=False, read_message_history=True, read_messages=True)
                     except discord.Forbidden:
-                        logging.warning(f"Could not set permissions for {mute_role} in {channel.name}.")
+                        log.warning(f"Could not set permissions for {mute_role} in {channel.name}.")
 
             # Log the mute in the database & mute the user
             await user.add_roles(mute_role, reason="Muted by command")
@@ -88,13 +85,15 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to mute this user!", ephemeral=True)
         except Exception as e:
-            logging.error(f"Error muting user: {e}")
+            log.error(f"Error muting user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to mute the user.", ephemeral=True)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="unmute", description="Unmutes a user.")
     @app_commands.describe(user="The user to unmute")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
+    @cooldown(5)
     async def unmute(self, interaction: Interaction, user: discord.Member):
         await interaction.response.defer(ephemeral=False)
         """Unmutes a user."""
@@ -123,13 +122,15 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to unmute this user!", ephemeral=True)
         except Exception as e:
-            logging.error(f"Error unmuting user: {e}")
+            log.error(f"Error unmuting user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to unmute the user.", ephemeral=True)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="kick", description="Kicks a user from the server.")
     @app_commands.describe(user="The user to kick", reason="The reason for the kick")
     @app_commands.checks.has_permissions(kick_members=True)
     @app_commands.checks.bot_has_permissions(kick_members=True)
+    @cooldown(5)
     async def kick(self, interaction: Interaction, user: discord.Member, reason: str = None):
         await interaction.response.defer(ephemeral=False)
         """Kicks a user from the server."""
@@ -157,13 +158,15 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to kick this user!", ephemeral=True)
         except Exception as e:
-            logging.error(f"Error kicking user: {e}")
+            log.error(f"Error kicking user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to kick the user.", ephemeral=True)
     
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="ban", description="Bans a user from the server.")
     @app_commands.describe(user="The user to ban", reason="The reason for the ban", duration="Duration of the ban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
+    @cooldown(5)
     async def ban(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
         """Bans a user from the server."""
         if user == interaction.user:
@@ -207,13 +210,15 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
                 await interaction.followup.send("❌ I do not have permission to ban this user!", ephemeral=True)
         except Exception as e:
-                logging.error(f"Error banning user: {e}")
+                log.error(f"Error banning user: {e}")
                 await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="unban", description="Unbans a user from the server.")
     @app_commands.describe(user_id="The ID of the user to unban", reason="The reason for the unban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
+    @cooldown(5)
     async def unban(self, interaction: Interaction, user_id: int, reason: str = None):
         await interaction.response.defer(ephemeral=False)
         """Unbans a user from the server."""
@@ -231,13 +236,15 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to unban this user!", ephemeral=True)
         except Exception as e:
-            logging.error(f"Error unbanning user: {e}")
+            log.error(f"Error unbanning user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to unban the user.", ephemeral=True)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="warn", description="Warns a user.")
     @app_commands.describe(user="The user to warn", reason="The reason for the warning")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True)
+    @cooldown(5)
     async def warn(self, interaction: Interaction, user: discord.Member, reason: str = None):
         await interaction.response.defer(ephemeral=False)
         """Warns a user."""
@@ -265,12 +272,14 @@ class Moderator(commands.Cog):
             await interaction.followup.send(f"✅ **{user.mention} has been warned**\n**Reason:** {reason}", ephemeral=False)
         
         except Exception as e:
-            logging.error(f"Error warning user: {e}")
+            log.error(f"Error warning user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to warn the user.", ephemeral=True)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="cases", description="View all cases for the server with pagination.")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
+    @cooldown(10)
     async def cases(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=False)
         """View all cases for the server with pagination."""
@@ -332,16 +341,16 @@ class Moderator(commands.Cog):
         try:
             msg = await interaction.followup.send(embed=get_page(0), view=view, ephemeral=False)
         except discord.HTTPException as e:
-            logging.error(f"Failed to send cases message: {e}")
+            log.error(f"Failed to send cases message: {e}")
             return await interaction.followup.send("❌ An error occurred while trying to display cases.", ephemeral=True)
         view.message = msg
 
-
-
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="case", description="View details of a specific case.")
     @app_commands.describe(case_id="The ID of the case to view")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
+    @cooldown(5)
     async def case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=False)
         """View details of a specific case."""
@@ -363,13 +372,15 @@ class Moderator(commands.Cog):
         try:
             await interaction.followup.send(embed=embed, ephemeral=False)
         except discord.HTTPException as e:
-            logging.error(f"Failed to send case details message: {e}")
+            log.error(f"Failed to send case details message: {e}")
             return await interaction.followup.send("❌ An error occurred while trying to display case details.", ephemeral=True)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="deletecase", description="Delete a specific case.")
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(administrator=True)
+    @cooldown(5)
     async def delete_case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=False)
         """Delete a specific case."""
@@ -383,10 +394,12 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to delete this case!", ephemeral=True)
     
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="editcase", description="Edit the reason of a specific case.")
     @app_commands.describe(case_id="The ID of the case to edit", reason="The new reason for the case")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(administrator=True)
+    @cooldown(5)
     async def edit_case(self, interaction: Interaction, case_id: int, reason: str):
         """Edit the reason of a specific case."""
         case = get_case(mod_cursor, interaction.guild.id, case_id)

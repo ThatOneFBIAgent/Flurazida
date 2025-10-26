@@ -23,9 +23,13 @@ FORBIDDEN_GUILDS = {
 
 # still doesn't stop me from putting code here.
  
-import time, discord
+import time, discord, functools, asyncio, inspect, logging
 from functools import wraps
+from typing import Callable, Optional
 from discord import Interaction
+from logger import get_logger
+
+log = logging.getLogger(__name__)
 
 # Use a dict to store cooldowns: {(user_id, command_name): timestamp}
 _user_command_cooldowns = {}
@@ -49,7 +53,7 @@ def cooldown(seconds: int):
             if key in _user_command_cooldowns:
                 elapsed = now - _user_command_cooldowns[key]
                 if elapsed < seconds:
-                    print(f"[Cooldown] {user_id} hit cooldown for {command_name}")
+                    log.info(f"[Cooldown] {user_id} hit cooldown for {command_name}")
                     await interaction.response.send_message(
                         f"🕒 That command’s on cooldown! Try again in {round(seconds - elapsed, 1)}s.",
                         ephemeral=True
@@ -59,6 +63,73 @@ def cooldown(seconds: int):
             # Set the cooldown
             _user_command_cooldowns[key] = now
             return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+# NOTE: non-functional at the moment, needs testing and fixing:
+# - does not properly let discord register commands yet
+# - manages to clear the entire command tree????
+# TODO: fix these issues
+# fucking hate python decorators so much jesus christ
+# that or discord.py being a pain in the ass (as per usual)
+def safe_command(timeout: float = 10.0):
+    """Decorator for Cog/app commands: defers, enforces timeout, catches errors.
+    Works for Cog methods and plain functions.
+    """
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Find the Interaction object in args/kwargs
+            interaction: Optional[discord.Interaction] = None
+            for a in args:
+                if isinstance(a, discord.Interaction):
+                    interaction = a
+                    break
+            if interaction is None:
+                interaction = kwargs.get("interaction")
+            if interaction is None:
+                for v in kwargs.values():
+                    if isinstance(v, discord.Interaction):
+                        interaction = v
+                        break
+
+            # If no interaction found, just call and let exceptions propagate (rare)
+            if interaction is None:
+                log.warning("safe_command: no Interaction found; running raw.")
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+
+            # Defer if not already done
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.defer(thinking=True)
+            except Exception:
+                # swallow any errors about already-responded interactions
+                pass
+
+            try:
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+            except asyncio.TimeoutError:
+                log.warning("safe_command: command timed out", exc_info=False)
+                try:
+                    await interaction.followup.send("⚗️ Chemical reaction took too long! Cleaning...", ephemeral=True)
+                except Exception:
+                    log.exception("safe_command: failed to send timeout followup")
+                return None
+            except Exception as e:
+                log.exception("safe_command: unhandled exception in command")
+                # Avoid leaking the whole traceback to users; log server side and show friendly message.
+                try:
+                    await interaction.followup.send(f"🧪 The experiment exploded unexpectedly. Cleaning up... (`{type(e).__name__}`)", ephemeral=True)
+                except Exception:
+                    log.exception("safe_command: failed to send exception followup")
+                return None
+
+        # Make discord.app_commands see the original signature so registration is correct
+        try:
+            wrapper.__signature__ = inspect.signature(func)
+        except Exception:
+            log.debug("safe_command: couldn't set wrapper __signature__", exc_info=True)
+
         return wrapper
     return decorator
 

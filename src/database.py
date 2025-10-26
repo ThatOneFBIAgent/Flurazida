@@ -1,7 +1,7 @@
 # database.py
 # only mess with this file if you want a headache, trust me it's not fun.
 
-import sqlite3, shutil, os, logging, asyncio, sys, time, json, tempfile, io, base64
+import sqlite3, shutil, os, asyncio, sys, time, json, tempfile, io, base64
 from functools import wraps
 from dotenv import load_dotenv
 from config import BACKUP_GDRIVE_FOLDER_ID
@@ -11,18 +11,14 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload # fuck pydrive2
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+from logger import get_logger
+log = get_logger("database")
 
 def log_db_call(func):
     from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
-        logging.info(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.info(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return func(*args, **kwargs)
     return wrapper
 
@@ -30,12 +26,12 @@ def log_mod_call(func):
     from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
-        logging.info(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.info(f"ECON MOD CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return func(*args, **kwargs)
     return wrapper
 
-logging.info("Economy DB Logging begin")
-logging.info("Moderator DB Logging begin")
+log.info("Economy DB Logging begin")
+log.info("Moderator DB Logging begin")
 
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
@@ -74,11 +70,11 @@ def load_creds_from_env():
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            logging.info("Refreshed OAuth access token successfully.")
+            log.info("Refreshed OAuth access token successfully.")
             # NOTE: We cannot persist the refreshed token back into Railway env from code.
             # If you want the updated token saved, you can re-export the new creds.to_json() manually.
         except Exception as e:
-            logging.warning(f"Failed to refresh token: {e}. Token may be revoked; you'll need to re-run the local helper.")
+            log.warning(f"Failed to refresh token: {e}. Token may be revoked; you'll need to re-run the local helper.")
     return creds
 
 def build_drive_service():
@@ -86,7 +82,7 @@ def build_drive_service():
     try:
         creds = load_creds_local()
     except FileNotFoundError:
-        logging.info("token.json not found, falling back to env-based credentials.")
+        log.info("token.json not found, falling back to env-based credentials.")
         creds = load_creds_from_env()
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
@@ -96,7 +92,7 @@ def build_drive_service():
 #   becuase service accounts dont have qouta or some shit. this is python fyi.
 
 def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
-    logging.info(f"Backing up {local_path} -> {drive_filename}")
+    log.info(f"Backing up {local_path} -> {drive_filename}")
     service = build_drive_service()
 
     query = f"'{folder_id}' in parents and name='{drive_filename}' and trashed=false"
@@ -108,18 +104,18 @@ def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
     if files:
         file_id = files[0]["id"]
         service.files().update(fileId=file_id, media_body=media).execute()
-        logging.info("Updated existing backup.")
+        log.info("Updated existing backup.")
     else:
         meta = {"name": drive_filename, "parents": [folder_id]}
         service.files().create(body=meta, media_body=media, fields="id").execute()
-        logging.info("Created new backup.")
+        log.info("Created new backup.")
 
 def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
     """
     Download a file named drive_filename from Drive (optionally inside folder_id)
     and save it to local_path. Uses googleapiclient (same auth path as backup).
     """
-    logging.info(f"Restoring {drive_filename} -> {local_path}")
+    log.info(f"Restoring {drive_filename} -> {local_path}")
     service = build_drive_service()
 
     # Build query: if folder_id provided, search in it; otherwise search across Drive
@@ -131,7 +127,7 @@ def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
     res = service.files().list(q=q, fields="files(id, name)").execute()
     files = res.get("files", [])
     if not files:
-        logging.warning(f"No backup found on Google Drive with name: {drive_filename}")
+        log.warning(f"No backup found on Google Drive with name: {drive_filename}")
         return False
 
     file_id = files[0]["id"]
@@ -142,10 +138,10 @@ def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
     try:
         while not done:
             status, done = downloader.next_chunk()
-        logging.info(f"Restored database from Google Drive: {drive_filename}")
+        log.info(f"Restored database from Google Drive: {drive_filename}")
         return True
     except HttpError as e:
-        logging.error(f"Failed to download {drive_filename}: {e}")
+        log.error(f"Failed to download {drive_filename}: {e}")
         return False
 
 # the next lines of code are nasty hacks becuase windows is shit
@@ -237,7 +233,7 @@ def modify_robber_multiplier(user_id, change, duration=None):
                         (new_modifier, user_id))
     econ_conn.commit()
 
-    logging.info(f"Updated robbery modifier for {user_id}: {new_modifier}%")
+    log.info(f"Updated robbery modifier for {user_id}: {new_modifier}%")
 
     # If it's temporary (like Resin Sample), schedule decay
     if duration:
@@ -258,21 +254,21 @@ async def schedule_effect_decay(user_id, original_value, duration):
                         (original_value, user_id))
     econ_conn.commit()
 
-    logging.info(f"Restored robbery modifier for {user_id} to {original_value}%")
+    log.info(f"Restored robbery modifier for {user_id} to {original_value}%")
 
 # ----------- Economy Functions -----------
 
 @log_db_call
 def update_balance(user_id, amount):
     """ Updates user balance and syncs to backup """
-    logging.info(f"Updating balance for {user_id}: {amount} coins")
+    log.info(f"Updating balance for {user_id}: {amount} coins")
     econ_cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
     econ_conn.commit()
 
 @log_db_call
 def get_balance(user_id):
     """ Fetches user balance """
-    logging.info(f"Getting balance for {user_id}")
+    log.info(f"Getting balance for {user_id}")
     econ_cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
     result = econ_cursor.fetchone()
     return result[0] if result else 0
@@ -280,7 +276,7 @@ def get_balance(user_id):
 @log_db_call
 def add_user(user_id, username):
     """ Adds a user to the economy database if they don't exist """
-    logging.info(f"Adding user {user_id} in economy database, {username}")
+    log.info(f"Adding user {user_id} in economy database, {username}")
     econ_cursor.execute("INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 0)", (user_id, username))
     econ_conn.commit()
 
@@ -289,7 +285,7 @@ def add_user(user_id, username):
 @log_db_call
 def add_user_item(user_id, item_id, item_name, uses_left=1, effect_modifier=0):
     """ Adds an item to the user's inventory """
-    logging.info(f"Adding item {item_name} (ID: {item_id}) to {user_id}'s inventory")
+    log.info(f"Adding item {item_name} (ID: {item_id}) to {user_id}'s inventory")
     econ_cursor.execute("""
         INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier) 
         VALUES (?, ?, ?, ?, ?) 
@@ -334,7 +330,7 @@ def add_item_to_user(user_id, item_id, item_name, uses_left=1, effect_modifier=0
 @log_db_call
 def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0):
     """Buys an item from the shop and deducts balance, using sqlite3 for all operations."""
-    logging.info(f"User {user_id} is buying {item_name} for {price} coins")
+    log.info(f"User {user_id} is buying {item_name} for {price} coins")
 
     # Check if user exists
     econ_cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
@@ -559,30 +555,30 @@ BACKUP_FOLDER_ID = BACKUP_GDRIVE_FOLDER_ID
 
 
 async def periodic_backup(interval_hours=1):
-    logging.info("Started periodic_backup task")
+    log.info("Started periodic_backup task")
     while True:
         try:
-            logging.info("Running backup...")
+            log.info("Running backup...")
             econ_conn.commit()
             mod_conn.commit()
-            logging.info("Databases committed.")
+            log.info("Databases committed.")
 
             try:
                 backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
             except HttpError as e:
-                logging.warning(f"Backup failed for economy.db: {e}")
+                log.warning(f"Backup failed for economy.db: {e}")
             except Exception as e:
-                logging.warning(f"Unexpected error backing up economy.db: {e}")
+                log.warning(f"Unexpected error backing up economy.db: {e}")
             
             try:
                 backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
             except HttpError as e:
-                logging.warning(f"Backup failed for moderator.db: {e}")
+                log.warning(f"Backup failed for moderator.db: {e}")
             except Exception as e:
-                logging.warning(f"Unexpected error backing up moderator.db: {e}")
+                log.warning(f"Unexpected error backing up moderator.db: {e}")
             
-            logging.info("Backup task completed.")
+            log.info("Backup task completed.")
         except Exception as e:
-            logging.error(f"Periodic backup loop encountered an unexpected error: {e}")
+            log.error(f"Periodic backup loop encountered an unexpected error: {e}")
 
         await asyncio.sleep(interval_hours * 3600)

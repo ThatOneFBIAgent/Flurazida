@@ -1,10 +1,8 @@
 import discord, random, asyncio
 from discord.ext import commands
-from discord import app_commands
-from discord import Interaction
-from discord import ui
+from discord import app_commands, Interaction, ui
 from database import update_balance, get_balance
-from config import cooldown
+from config import cooldown, safe_command
 
 def resolve_bet_input(bet_input, user_id):
     """
@@ -54,6 +52,7 @@ class Gambling(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
     @cooldown(15) # careful, discord rate limits edits to 5 per 5 seconds so we can't be too fast or we get fucked
     async def slots(self, interaction: discord.Interaction, bet_input: str):
@@ -145,6 +144,7 @@ class Gambling(commands.Cog):
         embed.description = result
         await msg.edit(embed=embed)
 
+    # @safe_command(timeout=10.0)
     @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
     @cooldown(15)
     async def roulette(self, interaction: discord.Interaction, bet_input: str, choice: str):
@@ -199,6 +199,7 @@ class Gambling(commands.Cog):
         embed.description = result
         await msg.edit(embed=embed)
 
+    # @safe_command(timeout=20.0)
     @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
     @cooldown(20)
     async def blackjack(self, interaction: discord.Interaction, bet_input: str):
@@ -337,6 +338,7 @@ class Gambling(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
     @cooldown(5)
     async def coinflip(self, interaction: discord.Interaction, bet_input: str, guess: str):
@@ -368,6 +370,7 @@ class Gambling(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="war", description="Play War! Higher card wins.")
     @cooldown(5)
     async def war(self, interaction: discord.Interaction, bet_input: str):
@@ -418,6 +421,7 @@ class Gambling(commands.Cog):
         embed.description += f"\n\n{result}"
         await msg.edit(embed=embed)
 
+    # @safe_command(timeout=15.0)
     @app_commands.command(name="highlow", description="Bet on high (50-100) or low (1-49)!")
     @cooldown(5)
     async def dice(self, interaction: discord.Interaction, bet_input: str):

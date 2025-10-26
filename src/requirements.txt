@@ -9,6 +9,7 @@ google-api-python-client
 google-auth
 google-auth-httplib2
 google-auth-oauthlib   # optional, only if you use user OAuth flows
+pillow
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
