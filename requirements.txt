@@ -10,8 +10,6 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib   # optional, only if you use user OAuth flows
 pillow
-typing
-zipfile
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
@@ -19,6 +17,3 @@ zipfile
 
 # Optional utilities
 # aiosqlite                 # if you want async sqlite usage
-
-# set any other dependencies for your project below this line, 
-# they'll be added by Railway or other methods. Pynacl is optinal unless you plan to use voice features.
