@@ -1,4 +1,4 @@
-from re import A
+from re import A, S
 import io, time, math, asyncio, logging, aiohttp, imageio, discord, os, zipfile, json, urllib.parse, re, qrcode
 from typing import Dict, Optional, Tuple, List, Literal
 import numpy as np
@@ -246,17 +246,6 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
 class ImageCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="image", description="Image manipulation commands")
-        # Start cleanup loop
-        self.bot.loop.create_task(self._periodic_cleanup())
-
-    async def _periodic_cleanup(self):
-        """Periodically clean up expired selections."""
-        while True:
-            now = time.time()
-            expired = [uid for uid, (_, exp) in USER_SELECTED.items() if exp < now]
-            for uid in expired:
-                del USER_SELECTED[uid]
-            await asyncio.sleep(300)
 
     # Selection / helpers
     def _get_user_selection(self, user_id: int) -> Optional[str]:
@@ -1121,7 +1110,16 @@ class ImageCommands(app_commands.Group):
 class ImageCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-    
+        self.bot.loop.create_task(self._periodic_cleanup())
+
+    async def _periodic_cleanup(self):
+        while True:
+            now = time.time()
+            expired = [uid for uid, (_, exp) in USER_SELECTED.items() if exp < now]
+            for uid in expired:
+                del USER_SELECTED[uid]
+            await asyncio.sleep(300)
+
     async def cog_load(self):
         self.bot.tree.add_command(ImageCommands())
 

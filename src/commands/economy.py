@@ -7,7 +7,7 @@ from database import remove_item_from_user, update_item_uses, add_item_to_user
 from config import cooldown, safe_command
 
 class EconomyCommands(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self):
         super().__init__(name="economy", desciption="Economy related commands")
 
     # @safe_command(timeout=15.0)
