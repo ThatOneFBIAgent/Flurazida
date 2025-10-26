@@ -1120,10 +1120,10 @@ class ImageCog(commands.Cog):
 
     async def cog_load(self):
         self.bot.tree.add_command(ImageCommands())
+        self.bot.tree.add_command(select_image)
 
 async def setup(bot):
     await bot.add_cog(ImageCog(bot))
-    await bot.tree.add_command(select_image)
         
 # okay first of all HOW DID I GET 1000 LINES OF CODE HERE?????????
 # secondly wow this is a lot of image commands huh (least obvious Esmbot copycat)
