@@ -1,5 +1,5 @@
 import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime, psutil, os
+import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime, psutil, os, base64
 from typing import Optional
 from discord.ext import commands
 from discord import app_commands
