@@ -1,5 +1,6 @@
 #    "Flurazide" - A more than basic Discord bot with database functions
-#    © 2025  Iza Carlos (Aka Carlos E.)
+#    (okay "basic" is an understatement becuase of my autism)
+#    © 2024-2025  Iza Carlos (Aka Carlos E.)
 #    Licensed under the GNU Affero General Public License v3.0
 
 import discord
@@ -58,10 +59,13 @@ def wait_for_continue():
         else:
             print("Please type Y or N.")
 
-class Main(commands.Bot):
+class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
         super().__init__(command_prefix="!", intents=intents, *args, **kwargs)
         self.user_id = bot_owner
+        self._ready_once = asyncio.Event()
+        self._activity_sync_lock = asyncio.Lock()
+        self.start_time = time.time()
 
     async def setup_hook(self):
         commands_dir = os.path.join(os.path.dirname(__file__), "commands")
@@ -75,12 +79,11 @@ class Main(commands.Bot):
                 await self.load_extension(cog_path)
                 log.info(f"Loaded cog: {cog_name}")
             except Exception as e:
-                # Non-fatal: log and continue loading other cogs
                 failed.append((cog_name, e))
                 log.exception(f"Failed to load cog `{cog_name}`; continuing without it.")
 
         if failed:
-            log.warning(f"{len(failed)} cog(s) failed to load at startup: {[n for n, _ in failed]}")
+            log.warning(f"{len(failed)} cog(s) failed to load: {[n for n, _ in failed]}")
 
         async def reload(interaction: discord.Interaction, cog_name: str):
             if interaction.user.id != self.user_id:
@@ -100,24 +103,13 @@ class Main(commands.Bot):
                     log.info(msg)
                     await interaction.response.send_message(msg, ephemeral=True)
                 else:
-                    try:
-                        await self.load_extension(cog_path)
-                        msg = f"📥 Loaded new cog `{cog_name}` successfully."
-                        log.info(msg)
-                        await interaction.response.send_message(msg, ephemeral=True)
-                    except Exception as e:
-                        # Non-fatal: report error to invoker but don't crash the bot
-                        log.exception(f"Failed to load cog `{cog_name}` on reload.")
-                        await interaction.response.send_message(f"❌ Failed to load `{cog_name}`: {e}", ephemeral=True)
-            except commands.NoEntryPointError:
-                log.warning(f"Failed to load cog `{cog_name}`: Missing setup()")
-                await interaction.response.send_message(f"❌ Missing `setup()` in `{cog_name}`.", ephemeral=True)
-            except commands.ExtensionFailed as e:
-                log.error(f"Extension `{cog_name}` failed to load: {e}")
-                await interaction.response.send_message(f"❌ Failed: {e}", ephemeral=True)
+                    await self.load_extension(cog_path)
+                    msg = f"📥 Loaded new cog `{cog_name}` successfully."
+                    log.info(msg)
+                    await interaction.response.send_message(msg, ephemeral=True)
             except Exception as e:
-                log.exception(f"Unexpected error while reloading `{cog_name}`")
-                await interaction.response.send_message(f"❌ Unexpected error: {e}", ephemeral=True)
+                log.exception(f"Failed to load or reload `{cog_name}`")
+                await interaction.response.send_message(f"❌ Failed to load `{cog_name}`: {e}", ephemeral=True)
 
         self.tree.add_command(app_commands.Command(
             name="reload",
@@ -126,18 +118,49 @@ class Main(commands.Bot):
         ))
 
         await self.tree.sync()
-        await self.tree.sync(guild=discord.Object(id=1240438418388029460))  # For testing in a specific guild
+        await self.tree.sync(guild=discord.Object(id=1240438418388029460))
+
+    async def change_activity_all(self, activity, status):
+        """Force sync activities across all shards safely."""
+        async with self._activity_sync_lock:
+            for shard_id, ws in self.shards.items():
+                try:
+                    await self.change_presence(activity=activity, status=status, shard_id=shard_id)
+                    log.info(f"[Shard {shard_id}] Synced activity: {activity.name} ({activity.type.name})")
+                except Exception as e:
+                    log.warning(f"[Shard {shard_id}] Failed to sync activity: {e}")
 
 bot = Main()
 bot.help_command = None
 
 @bot.event
 async def on_ready():
-    if not hasattr(bot, "start_time"):
-        bot.start_time = time.time()
-    await bot.tree.sync()
-    log.info(f"Bot is online as {bot.user} (ID: {bot.user.id})")
-    log.info(f"Connected to {len(bot.guilds)} guilds, serving {sum(g.member_count for g in bot.guilds)} users with {len(bot.tree.get_commands())} commands.")
+    # Only run once, even though each shard calls on_ready
+    if not bot._ready_once.is_set():
+        total_shards = bot.shard_count or 1
+        log.info(f"🚀 Bot is online as {bot.user} (ID: {bot.user.id})")
+        log.info(f"Connected to {len(bot.guilds)} guilds across {total_shards} shard(s).")
+        log.info(f"Serving approximately {sum(g.member_count for g in bot.guilds)} users.")
+        bot._ready_once.set()
+    else:
+        # Shard resumed event — bot reconnected
+        log.info(f"🔁 [Shard {bot.shard_id or '?'}] resumed session.")
+
+@bot.event
+async def on_shard_connect(shard_id):
+    log.info(f"✅ [Shard {shard_id}] connected successfully.")
+
+@bot.event
+async def on_shard_ready(shard_id):
+    log.info(f"🌐 [Shard {shard_id}] is ready and receiving events.")
+
+@bot.event
+async def on_shard_disconnect(shard_id):
+    log.warning(f"⚠️ [Shard {shard_id}] disconnected — waiting for resume.")
+
+@bot.event
+async def on_shard_resumed(shard_id):
+    log.info(f"🔄 [Shard {shard_id}] resumed connection cleanly.")
 
 @bot.event
 async def on_message(message):
@@ -193,7 +216,7 @@ async def cycle_paired_activities():
             sig = (act.name, act.type)
             if sig != last_activity_signature:
                 last_activity_signature = sig
-                await bot.change_presence(activity=act, status=status)
+                await bot.change_activity_all(activity=act, status=status)
                 log.info(f"Changed presence to: {act.name} ({act.type})")
                 break
         await asyncio.sleep(900)

@@ -1,10 +1,11 @@
 import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime
+import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime, psutil, os
 from typing import Optional
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
 from config import cooldown, safe_command
+from datetime import timezone, timedelta, datetime
 import CloudflarePing as cf
 
 # Constants for dice limits
@@ -495,11 +496,18 @@ class Fun(commands.Cog):
         bot_user = self.bot.user
 
         now = time.time()
-        bot_start_time = getattr(self.bot, "start_time", None)
+        bot_start_time = getattr(self.bot, "start_time", time.time())
         if bot_start_time is None:
             uptime_seconds = 0
         else:
             uptime_seconds = int(now - bot_start_time)
+
+        if platform.system() == "Windows" and platform.release() == "11":
+            System = "Loc. Machine Testing"
+        elif platform.system() == "Linux":
+            System = "VPS/Railway Hosting"
+        else:
+            System = "Other"
 
         def format_uptime(seconds):
             days, seconds = divmod(seconds, 86400)
@@ -555,7 +563,12 @@ class Fun(commands.Cog):
         )
         embed.add_field(
             name="🖥️ Host OS",
-            value=f"`{platform.system()} {platform.release()}`",
+            value=f"`{platform.system()} {platform.release()}` ",
+            inline=True
+        )
+        embed.add_field(
+            name="💾 Hosting Env.",
+            value=f"`{System}`",
             inline=True
         )
         embed.set_footer(text=f"Fun Fact: {fun_fact}")
@@ -912,6 +925,78 @@ class Fun(commands.Cog):
 
             await interaction.followup.send(embed=embed, ephemeral=False)
 
+    @app_commands.command(name="debug", description="Stats for nerds, and other bot info.")
+    @cooldown(10)
+    async def debug(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        cpu_percent = process.cpu_percent(interval=0.1)
+
+        # Get number of guilds and users
+        guild_count = len(self.bot.guilds)
+        user_count = len(self.bot.users)
+
+        # Uptime
+        now = time.time()
+        bot_start_time = getattr(self.bot, "start_time", time.time())
+        if bot_start_time is None:
+            uptime_seconds = 0
+        else:
+            uptime_seconds = int(now - bot_start_time)
+
+        def format_uptime(seconds):
+            days, seconds = divmod(seconds, 86400)
+            hours, seconds = divmod(seconds, 3600)
+            minutes, seconds = divmod(seconds, 60)
+            parts = []
+            if days: parts.append(f"{days}d")
+            if hours: parts.append(f"{hours}h")
+            if minutes: parts.append(f"{minutes}m")
+            parts.append(f"{seconds}s")
+            return " ".join(parts)
+
+        embed = discord.Embed(title="🛠️ Debug Info", color=0x3498db)
+        embed.add_field(name="Guilds", value=str(guild_count), inline=True)
+        embed.add_field(name="Users", value=str(user_count), inline=True)
+        embed.add_field(name="Memory Usage", value=f"{mem_info.rss / (1024 * 1024):.2f} MB", inline=True)
+        embed.add_field(name="CPU Usage", value=f"{cpu_percent:.2f}%", inline=True)
+        embed.add_field(name="Uptime", value=format_uptime(uptime_seconds), inline=True)
+        embed.add_field(name="Python Version", value=platform.python_version(), inline=True)
+        embed.add_field(name="Discord.py Version", value=discord.__version__, inline=True)
+        embed.add_field(name="Shard", value=str(interaction.guild.shard_id) if interaction.guild else "N/A", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="base64", description="Encode or decode a message in Base64.")
+    @app_commands.describe(action="Choose to encode or decode", message="The message to encode/decode")
+    @cooldown(10)
+    async def base64_command(self, interaction: discord.Interaction, action: str, message: str):
+        await interaction.response.defer(ephemeral=False)
+        action = action.lower()
+        if action not in ["encode", "decode"]:
+            await interaction.followup.send("❌ Action must be either 'encode' or 'decode'.", ephemeral=True)
+            return
+
+        if action == "encode":
+            encoded_bytes = base64.b64encode(message.encode('utf-8'))
+            encoded_str = encoded_bytes.decode('utf-8')
+            embed = discord.Embed(title="🔐 Base64 Encode", color=0x3498db)
+            embed.add_field(name="Original Message", value=f"`{message}`", inline=False)
+            embed.add_field(name="Encoded Message", value=f"`{encoded_str}`", inline=False)
+        else:  # decode
+            try:
+                decoded_bytes = base64.b64decode(message.encode('utf-8'))
+                decoded_str = decoded_bytes.decode('utf-8')
+                embed = discord.Embed(title="🔓 Base64 Decode", color=0x3498db)
+                embed.add_field(name="Encoded Message", value=f"`{message}`", inline=False)
+                embed.add_field(name="Decoded Message", value=f"`{decoded_str}`", inline=False)
+            except Exception:
+                await interaction.followup.send("❌ Failed to decode the provided Base64 message. Ensure it is valid Base64.", ephemeral=True)
+                return
+
+        await interaction.followup.send(embed=embed, ephemeral=False)
+
     # @safe_command(timeout=5.0)
     # @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
     # @cooldown(2)
@@ -931,4 +1016,4 @@ class Fun(commands.Cog):
 async def setup(bot):
     await bot.add_cog(Fun(bot))
 
-# grgrgrgrg so close to 1000 lines in the fun cog alone grgrgrgrgr
+# YAY
