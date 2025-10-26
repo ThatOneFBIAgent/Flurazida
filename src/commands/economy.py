@@ -8,7 +8,7 @@ from config import cooldown, safe_command
 
 class EconomyCommands(app_commands.Group):
     def __init__(self):
-        super().__init__(name="economy", desciption="Economy related commands")
+        super().__init__(name="economy", description="Economy related commands")
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
