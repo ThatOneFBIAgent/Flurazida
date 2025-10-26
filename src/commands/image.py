@@ -25,11 +25,17 @@ class ImageSelectView(View):
         for i, att in enumerate(attachments[:5]):  # only show up to 5 buttons to avoid clutter
             button = Button(label=f"Image {i+1}", custom_id=f"img_{i}")
             async def button_callback(inter, index=i, att=att):
+                # Only allow the original user to press these buttons
                 if inter.user.id != self.interaction.user.id:
                     await inter.response.send_message("🚫 Not your selection!", ephemeral=True)
                     return
+
+                # store selection for 30 minutes
+                USER_SELECTED[self.interaction.user.id] = (att.url, time.time() + 30 * 60)
+
                 self.selected_url = att.url
                 self.selected_index = index + 1
+                # Update the ephemeral message to confirm and remove buttons
                 await inter.response.edit_message(
                     content=f"✅ Image #{index+1} selected ({att.filename})",
                     view=None
@@ -49,33 +55,43 @@ class ImageSelectView(View):
         cancel.callback = cancel_callback
         self.add_item(cancel)
 
+
 # select image stuff
+@app_commands.context_menu(name="Select image")
 async def select_image(interaction: discord.Interaction, message: discord.Message):
+    """Context menu to select an image from a message and store it for 30 minutes."""
+    await interaction.response.defer(ephemeral=True)
+
     valid_attachments = [
         a for a in message.attachments
-        if a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp'))
+        if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp'))
     ]
 
     if not valid_attachments:
         await interaction.followup.send("❌ No valid images found in that message.", ephemeral=True)
         return None, None
 
+    # single attachment -> auto select and store
     if len(valid_attachments) == 1:
         att = valid_attachments[0]
+        USER_SELECTED[interaction.user.id] = (att.url, time.time() + 30 * 60)
         await interaction.followup.send(
             f"✅ Image #1 selected automatically ({att.filename})",
             ephemeral=True
         )
         return att.url, att.filename
 
-    # Multiple attachments — show buttons
+    # multiple -> show buttons to allow the user to pick which one
     view = ImageSelectView(interaction, valid_attachments)
     await interaction.followup.send("🖼️ Multiple images found! Pick one:", view=view, ephemeral=True)
     await view.wait()
 
+    # if user canceled or timed out
     if not view.selected_url:
-        return None, None  # canceled or timed out
+        await interaction.followup.send("❌ No image selected (timed out or cancelled).", ephemeral=True)
+        return None, None
 
+    # selection was stored inside the button callback; return for convenience
     return view.selected_url, valid_attachments[view.selected_index - 1].filename
 
 class ImageCommands(commands.Cog):
@@ -576,3 +592,9 @@ class ImageCommands(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ImageCommands(bot))
+    try:
+        bot.tree.add_command(select_image)
+    except Exception as e:
+        log.exception("Failed to add context menu command: %s", e)
+        
+# holy fuck lois

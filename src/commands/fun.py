@@ -706,7 +706,7 @@ class Fun(commands.Cog):
                 embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
                 embed.set_image(url=dog_url)
                 await interaction.followup.send(embed=embed, ephemeral=False)
-
+    
     # @safe_command(timeout=10.0)
     @app_commands.command(name="help", description="Get a list of available commands (paginated).")
     @cooldown(2)
