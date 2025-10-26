@@ -6,9 +6,9 @@ from database import get_balance, update_balance, add_user, get_user_items, get_
 from database import remove_item_from_user, update_item_uses, add_item_to_user
 from config import cooldown, safe_command
 
-class Economy(commands.Cog):
+class EconomyCommands(commands.Cog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(name="economy", desciption="Economy related commands")
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
@@ -268,5 +268,12 @@ class Economy(commands.Cog):
         await interaction.followup.send(f"🎁 You gave {target.mention} {amount} of item ID `{item_id}`!", ephemeral=False)
 
 
+class EconomyCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+    
+    async def cog_load(self):
+        self.bot.tree.add_command(EconomyCommands())
+
 async def setup(bot):
-    await bot.add_cog(Economy(bot))
+    await bot.add_cog(EconomyCog(bot))

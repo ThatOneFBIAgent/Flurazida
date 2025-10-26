@@ -12,9 +12,9 @@ import CloudflarePing as cf
 MAX_DICE = 100
 MAX_SIDES = 1000
 
-class Fun(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+class FunCommands(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="fun", description="Fun commands like dice rolling, 8ball, ping, etc.")
 
     # table tennis?
     # @safe_command(timeout=15.0)
@@ -1013,7 +1013,14 @@ class Fun(commands.Cog):
     #    await asyncio.sleep(5)  # Intentional delay longer than set timeout
     #    await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.", ephemeral=False)
 
+class FunCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+    
+    async def cog_load(self):
+        self.bot.tree.add_command(FunCommands())
+
 async def setup(bot):
-    await bot.add_cog(Fun(bot))
+    await bot.add_cog(FunCog(bot))
 
 # YAY

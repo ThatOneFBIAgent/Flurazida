@@ -115,9 +115,9 @@ class ShopView(discord.ui.View):
         leet_dict = {"4": "a", "3": "e", "1": "i", "0": "o", "5": "s", "7": "t"}
         return re.sub(r"[431057]", lambda x: leet_dict[x.group()], text)
 
-class Shop(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+class ShopCommands(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="shop", description="Shop related commands")
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="shop", description="View and buy items from the shop.")
@@ -146,5 +146,12 @@ class Shop(commands.Cog):
         result_message = use_item(interaction.user.id, item_data["id"])
         await interaction.response.send_message(result_message, ephemeral=True)
 
+class ShopCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+    
+    async def cog_load(self):
+        self.bot.tree.add_command(ShopCommands())
+
 async def setup(bot):
-    await bot.add_cog(Shop(bot))
+    await bot.add_cog(ShopCog(bot))

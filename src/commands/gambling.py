@@ -48,9 +48,9 @@ class HighLowView(ui.View):
         await interaction.response.edit_message(view=self)
         self.stop()
 
-class Gambling(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+class GamblingCommands(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="gambling", description="Gambling related commands")
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
@@ -466,5 +466,12 @@ class Gambling(commands.Cog):
         embed.description = result
         await msg.edit(embed=embed, view=None)
 
+class GamblingCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+    
+    async def cog_load(self):
+        self.bot.tree.add_command(GamblingCommands())
+
 async def setup(bot):
-    await bot.add_cog(Gambling(bot))
+    await bot.add_cog(GamblingCog(bot))

@@ -8,9 +8,9 @@ from config import cooldown, safe_command
 
 log = get_logger("moderator")
 
-class Moderator(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+class ModeratorCommands(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="moderator", description="Moderation related commands")
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="mute", description="Mutes selected user for a period of time, default is 1 hour.")
@@ -414,5 +414,13 @@ class Moderator(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to edit this case!", ephemeral=True)
 
+
+class ModeratorCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+    
+    async def cog_load(self):
+        self.bot.tree.add_command(ModeratorCommands())
+
 async def setup(bot):
-    await bot.add_cog(Moderator(bot))
+    await bot.add_cog(ModeratorCog(bot))

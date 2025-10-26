@@ -243,9 +243,9 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
     return view.selected_url, valid_attachments[view.selected_index - 1][1]
 
 
-class ImageCommands(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+class ImageCommands(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="image", description="Image manipulation commands")
         # Start cleanup loop
         self.bot.loop.create_task(self._periodic_cleanup())
 
@@ -1118,12 +1118,15 @@ class ImageCommands(commands.Cog):
 
         await interaction.followup.send("\n".join(messages))
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(ImageCommands(bot))
-    try:
-        bot.tree.add_command(select_image)
-    except Exception as e:
-        log.exception("Failed to add context menu command: %s", e)
+class ImageCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+    
+    async def cog_load(self):
+        self.bot.tree.add_command(ImageCommands())
+
+async def setup(bot):
+    await bot.add_cog(ImageCog(bot))
         
 # okay first of all HOW DID I GET 1000 LINES OF CODE HERE?????????
 # secondly wow this is a lot of image commands huh (least obvious Esmbot copycat)
