@@ -9,7 +9,7 @@ from config import cooldown, safe_command
 log = get_logger("moderator")
 
 class ModeratorCommands(app_commands.Group):
-    def __init__(self):
+    def __init__(self, bot):
         super().__init__(name="moderator", description="Moderation related commands")
         self.bot = bot
 

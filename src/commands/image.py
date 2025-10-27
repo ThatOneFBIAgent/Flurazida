@@ -670,12 +670,14 @@ class ImageCommands(app_commands.Group):
         emote = discord.utils.get(interaction.guild.emojis, name=emote_name)
         if not emote:
             return await interaction.followup.send(f"❌ No emote named '{emote_name}' found in this server.", ephemeral=True)
-        url = emote.url.replace(size=1024)
+
+        url = emote.url.with_size(1024)  # ← fixed
         async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
+            async with s.get(str(url)) as r:  # convert Asset to string for aiohttp
                 if r.status != 200:
                     return await interaction.followup.send("❌ Failed to fetch emote image.")
                 data = await r.read()
+
         ext = "gif" if emote.animated else "png"
         await self._send_image_bytes(interaction, data, f"{emote.id}_emote.{ext}")
 
@@ -836,13 +838,15 @@ class ImageCommands(app_commands.Group):
         out_frames = []
         for f in frames:
             hsv = f.convert("HSV")
-            np_hsv = np.array(hsv)
-            np_hsv[..., 0] = (np_hsv[..., 0].astype(np.float32) / 255.0 + shift) % 1.0 * 255.0
+            np_hsv = np.array(hsv, dtype=np.float32)  # work in float
+            # Shift hue
+            np_hsv[..., 0] = (np_hsv[..., 0] + shift * 255) % 255
+            np_hsv = np_hsv.astype(np.uint8)
             shifted = Image.fromarray(np_hsv, "HSV").convert("RGBA")
             out_frames.append(shifted)
 
-        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        await self._send_image_bytes(interaction, gif, "hueshifted.gif")
+            gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+            await self._send_image_bytes(interaction, gif, "hueshifted.gif")
     
     @app_commands.command(name="invert", description="Invert the colors of an image.")
     @cooldown(10)

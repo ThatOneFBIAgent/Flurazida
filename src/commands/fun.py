@@ -510,6 +510,17 @@ class FunCommands(app_commands.Group):
         else:
             System = "Other"
 
+        def count_all_slash_commands(commands_list):
+            total = 0
+            for cmd in commands_list:
+                if isinstance(cmd, discord.app_commands.ContextMenu):
+                    continue
+                elif isinstance(cmd, discord.app_commands.Group):
+                    total += len(cmd._children)
+                else:
+                    total += 1
+            return total
+
         def format_uptime(seconds):
             days, seconds = divmod(seconds, 86400)
             hours, seconds = divmod(seconds, 3600)
@@ -549,7 +560,7 @@ class FunCommands(app_commands.Group):
         )
         embed.add_field(
             name="🛠️ Commands",
-            value=f"`{len(self.bot.tree.get_commands())}` slash commands available",
+            value=f"`{count_all_slash_commands(self.bot.tree.get_commands())}` slash commands available",
             inline=True
         )
         embed.add_field(
@@ -726,21 +737,34 @@ class FunCommands(app_commands.Group):
     @cooldown(2)
     async def help_command(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
-        commands_list = [cmd for cmd in self.bot.tree.get_commands() if cmd.name != "help"]
+
+        def walk_commands(commands_list):
+            """Flatten commands recursively into (full_name, description) tuples."""
+            result = []
+            for cmd in commands_list:
+                # Skip context menu commands
+                if isinstance(cmd, discord.app_commands.ContextMenu):
+                    continue
+                if isinstance(cmd, discord.app_commands.Group):
+                    # recurse into children
+                    for child_name, child_cmd in cmd._children.items():
+                        full_name = f"{cmd.name} {child_name}"
+                        result.append((full_name, child_cmd.description or "No description available"))
+                else:
+                    result.append((cmd.name, cmd.description or "No description available"))
+            return result
+
+        all_cmds = walk_commands(self.bot.tree.get_commands())
         per_page = 12
-        total_pages = (len(commands_list) + per_page - 1) // per_page
+        total_pages = (len(all_cmds) + per_page - 1) // per_page
 
         def get_embed(page: int):
             embed = discord.Embed(title="🆘 Help - Available Commands", color=0x3498db)
             embed.description = f"Page {page+1}/{total_pages}\nHere are the commands you can use:"
             start = page * per_page
             end = start + per_page
-            for command in commands_list[start:end]:
-                embed.add_field(
-                    name=f"/{command.name}",
-                    value=command.description or "No description available",
-                    inline=False
-                )
+            for name, desc in all_cmds[start:end]:
+                embed.add_field(name=f"/{name}", value=desc, inline=False)
             embed.set_footer(text="Use /<command_name> to execute a command.")
             return embed
 
@@ -750,38 +774,21 @@ class FunCommands(app_commands.Group):
                 self.page = 0
 
             @discord.ui.button(label="⏮️", style=discord.ButtonStyle.secondary)
-            async def first(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
-                self.page = 0
-                await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
-
+            async def first(self, i, b): self.page = 0; await i.response.edit_message(embed=get_embed(self.page), view=self)
             @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary)
-            async def prev(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
-                if self.page > 0:
-                    self.page -= 1
-                    await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
-                else:
-                    await interaction_btn.response.defer()
-
+            async def prev(self, i, b):
+                if self.page > 0: self.page -= 1; await i.response.edit_message(embed=get_embed(self.page), view=self)
+                else: await i.response.defer()
             @discord.ui.button(label="❌", style=discord.ButtonStyle.danger)
-            async def close(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
-                await interaction_btn.response.edit_message(content="Help menu closed.", embed=None, view=None)
-
+            async def close(self, i, b): await i.response.edit_message(content="Help menu closed.", embed=None, view=None)
             @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary)
-            async def next(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
-                if self.page < total_pages - 1:
-                    self.page += 1
-                    await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
-                else:
-                    await interaction_btn.response.defer()
-
+            async def next(self, i, b):
+                if self.page < total_pages-1: self.page += 1; await i.response.edit_message(embed=get_embed(self.page), view=self)
+                else: await i.response.defer()
             @discord.ui.button(label="⏭️", style=discord.ButtonStyle.secondary)
-            async def last(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
-                self.page = total_pages - 1
-                await interaction_btn.response.edit_message(embed=get_embed(self.page), view=self)
-
+            async def last(self, i, b): self.page = total_pages-1; await i.response.edit_message(embed=get_embed(self.page), view=self)
             async def on_timeout(self):
-                for item in self.children:
-                    item.disabled = True
+                for item in self.children: item.disabled = True
 
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
 
