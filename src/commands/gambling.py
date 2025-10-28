@@ -2,7 +2,7 @@ import discord, random, asyncio
 from discord.ext import commands
 from discord import app_commands, Interaction, ui
 from database import update_balance, get_balance
-from config import cooldown, safe_command
+from config import cooldown
 
 def resolve_bet_input(bet_input, user_id):
     """

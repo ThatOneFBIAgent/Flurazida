@@ -4,7 +4,7 @@ from discord.ext import commands
 from discord import app_commands
 from database import get_balance, update_balance, add_user, get_user_items, get_robbery_modifier, check_gun_defense, decrement_gun_use
 from database import remove_item_from_user, update_item_uses, add_item_to_user
-from config import cooldown, safe_command
+from config import cooldown
 
 class EconomyCommands(app_commands.Group):
     def __init__(self):

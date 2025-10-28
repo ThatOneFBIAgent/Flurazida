@@ -4,7 +4,7 @@ from typing import Optional
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
-from config import cooldown, safe_command
+from config import cooldown
 from datetime import timezone, timedelta, datetime
 import CloudflarePing as cf
 

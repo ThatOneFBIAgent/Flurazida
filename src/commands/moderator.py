@@ -4,7 +4,7 @@ from discord import app_commands
 from discord import Interaction
 from database import get_cases_for_guild, get_case, insert_case, remove_case, edit_case_reason, mod_cursor
 from logger import get_logger
-from config import cooldown, safe_command
+from config import cooldown
 
 log = get_logger("moderator")
 

@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageF
 from discord import app_commands
 from discord.ui import View, Button
 from discord.ext import commands
-from config import cooldown, safe_command
+from config import cooldown
 
 log = logging.getLogger(__name__)
 
