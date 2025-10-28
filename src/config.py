@@ -31,6 +31,20 @@ from discord import Interaction
 from logger import get_logger
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+
+# Console handler
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+ch.setFormatter(formatter)
+log.addHandler(ch)
+
+# File handler for errors
+fh = logging.FileHandler("errors.log", encoding="utf-8")
+fh.setLevel(logging.INFO)
+fh.setFormatter(formatter)
+log.addHandler(fh)
 
 # Use a dict to store cooldowns: {(user_id, command_name): timestamp}
 _user_command_cooldowns = {}
@@ -137,88 +151,19 @@ async def _alert_owner(interaction: Interaction, command_name: str, exc: Excepti
             text += f"Latest exception: `{exc}`\n"
 
         # attach latest log file (only last 100 lines to avoid huge file)
-        with open("errors.log", "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        recent = "".join(lines[-100:])
-        with open("errors_excerpt.log", "w", encoding="utf-8") as f:
-            f.write(recent)
+        if os.path.exists("errors.log"):
+            with open("errors.log", "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            recent = "".join(lines[-100:])  # last 100 lines
+            with open("errors_excerpt.log", "w", encoding="utf-8") as f:
+                f.write(recent)
+            await owner.send(content=text, file=File("errors_excerpt.log"))
+        else:
+            await owner.send(content=text + "\n⚠️ No log file found to attach.")
 
-        await owner.send(content=text, file=File("errors_excerpt.log"))
     except Exception as e:
         log.error(f"[OwnerAlertFail] Could not DM owner: {e}")
 
-# NOTE: non-functional at the moment, needs testing and fixing:
-# - does not properly let discord register commands yet
-# - manages to clear the entire command tree????
-# TODO: fix these issues
-# fucking hate python decorators so much jesus christ
-# that or discord.py being a pain in the ass (as per usual)
-def safe_command(timeout: float = 10.0):
-    """Decorator for Cog/app commands: defers, enforces timeout, catches errors.
-    Works for Cog methods and plain functions.
-    """
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            # Find the Interaction object in args/kwargs
-            interaction: Optional[discord.Interaction] = None
-            for a in args:
-                if isinstance(a, discord.Interaction):
-                    interaction = a
-                    break
-            if interaction is None:
-                interaction = kwargs.get("interaction")
-            if interaction is None:
-                for v in kwargs.values():
-                    if isinstance(v, discord.Interaction):
-                        interaction = v
-                        break
-
-            # If no interaction found, just call and let exceptions propagate (rare)
-            if interaction is None:
-                log.warning("safe_command: no Interaction found; running raw.")
-                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
-
-            # Defer if not already done
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.defer(thinking=True)
-            except Exception:
-                # swallow any errors about already-responded interactions
-                pass
-
-            try:
-                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
-            except asyncio.TimeoutError:
-                log.warning("safe_command: command timed out", exc_info=False)
-                try:
-                    await interaction.followup.send("⚗️ Chemical reaction took too long! Cleaning...", ephemeral=True)
-                except Exception:
-                    log.exception("safe_command: failed to send timeout followup")
-                return None
-            except Exception as e:
-                log.exception("safe_command: unhandled exception in command")
-                # Avoid leaking the whole traceback to users; log server side and show friendly message.
-                try:
-                    await interaction.followup.send(f"🧪 The experiment exploded unexpectedly. Cleaning up... (`{type(e).__name__}`)", ephemeral=True)
-                except Exception:
-                    log.exception("safe_command: failed to send exception followup")
-                return None
-
-        # Make discord.app_commands see the original signature so registration is correct
-        try:
-            wrapper.__signature__ = inspect.signature(func)
-        except Exception:
-            log.debug("safe_command: couldn't set wrapper __signature__", exc_info=True)
-
-        return wrapper
-    return decorator
-
-# Cooldown wrapper, at any point in any code for commands you can do @cooldown(int) AFTER @app_command.commands such as:
-# @app_commands.command(name="example", description="An example command")
-# @cooldown(10)  # 10 seconds cooldown
-# (rest of code)...
-# Calculated in seconds. 1m = 60s, 10m = 600s, 1h = 3600s
 
 # Bot activity list, add your own activities here, bot will randomly pick one every 10 minutes (also configurable in main.py)
 ALLOW_DOUBLE_ACTIVITIES = False # Set to True to allow combinations of two activities
