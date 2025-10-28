@@ -273,7 +273,7 @@ async def main():
         try:
             backup_all_dbs_to_gdrive_env([
                 (ECONOMY_DB_PATH, "economy.db"),
-                (MODERATOR_DB_PATH, "moderator.db"),
+                (MODERATOR_DB_PATH, "moderator.db")
             ], BACKUP_FOLDER_ID)
             log.info("Final backup complete.")
         except Exception as e:
