@@ -1005,21 +1005,19 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=5.0)
-    # @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
-    # @cooldown(cl=2, tm=10.0, ft=3)
-    # async def explode(self, interaction: discord.Interaction):
-    #    await interaction.response.defer(ephemeral=False)
-    #    toresult = 1 / 0  # This will raise a ZeroDivisionError
-    #    await interaction.followup.send(f"The result is {toresult}- Wait how did you see this?", ephemeral=False)
+    @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
+    @cooldown(cl=2, tm=10.0, ft=3)
+    async def explode(self, interaction: discord.Interaction):
+       await interaction.response.defer(ephemeral=False)
+       toresult = 1 / 0  # This will raise a ZeroDivisionError
+       await interaction.followup.send(f"The result is {toresult}- Wait how did you see this?", ephemeral=False)
 
-    # @safe_command(timeout=2.0)
-    # @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
-    # @cooldown(cl=2, tm=10.0, ft=3)
-    # async def slowpoke(self, interaction: discord.Interaction):
-    #    await interaction.response.defer(ephemeral=False)
-    #    await asyncio.sleep(5)  # Intentional delay longer than set timeout
-    #    await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.", ephemeral=False)
+    @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
+    @cooldown(cl=2, tm=4.0, ft=3)
+    async def slowpoke(self, interaction: discord.Interaction):
+       await interaction.response.defer(ephemeral=False)
+       await asyncio.sleep(5)  # Intentional delay longer than set timeout
+       await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.", ephemeral=False)
 
 class FunCog(commands.Cog):
     def __init__(self, bot):
