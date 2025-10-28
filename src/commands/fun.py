@@ -1,12 +1,16 @@
 import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime, psutil, os, base64
+import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime, psutil, os, base64, config
 from typing import Optional
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
-from config import cooldown
+from config import BOT_OWNER, BOT_TOKEN, cooldown
 from datetime import timezone, timedelta, datetime
 import CloudflarePing as cf
+
+from logger import get_logger
+
+log = get_logger()
 
 # Constants for dice limits
 MAX_DICE = 100
@@ -968,7 +972,6 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="Guilds", value=str(guild_count), inline=True)
         embed.add_field(name="Users", value=str(user_count), inline=True)
         embed.add_field(name="Memory Usage", value=f"{mem_info.rss / (1024 * 1024):.2f} MB", inline=True)
-        embed.add_field(name="CPU Usage", value=f"{cpu_percent:.2f}%", inline=True)
         embed.add_field(name="Uptime", value=format_uptime(uptime_seconds), inline=True)
         embed.add_field(name="Python Version", value=platform.python_version(), inline=True)
         embed.add_field(name="Discord.py Version", value=discord.__version__, inline=True)
@@ -1009,15 +1012,23 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=2, tm=10.0, ft=3)
     async def explode(self, interaction: discord.Interaction):
        await interaction.response.defer(ephemeral=False)
+
+       if interaction.user.id != BOT_OWNER:
+           return await interaction.followup.send("❌ This is a dev only command!")
+
        toresult = 1 / 0  # This will raise a ZeroDivisionError
        await interaction.followup.send(f"The result is {toresult}- Wait how did you see this?", ephemeral=False)
 
     @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
     @cooldown(cl=2, tm=4.0, ft=3)
     async def slowpoke(self, interaction: discord.Interaction):
-       await interaction.response.defer(ephemeral=False)
-       await asyncio.sleep(5)  # Intentional delay longer than set timeout
-       await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.", ephemeral=False)
+        await interaction.response.defer()
+
+        if interaction.user.id != BOT_OWNER:
+            return await interaction.followup.send("❌ This is a dev only command!")
+
+        await asyncio.sleep(5)
+        await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.")
 
 class FunCog(commands.Cog):
     def __init__(self, bot):

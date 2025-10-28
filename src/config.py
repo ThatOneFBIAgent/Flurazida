@@ -30,7 +30,7 @@ from typing import Callable, Optional
 from discord import Interaction
 from logger import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger()
 log.setLevel(logging.INFO)
 
 # Console handler

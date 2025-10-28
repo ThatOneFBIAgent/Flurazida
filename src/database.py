@@ -13,7 +13,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload # fuck pydrive2
 from logger import get_logger
-log = get_logger("database")
+
+log = get_logger()
 
 def log_db_call(func):
     from functools import wraps

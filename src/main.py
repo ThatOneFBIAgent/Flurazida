@@ -18,7 +18,7 @@ from database import (
 )
 from logger import get_logger
 
-log = get_logger("main")
+log = get_logger()
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None

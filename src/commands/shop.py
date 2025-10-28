@@ -5,6 +5,10 @@ from discord import Interaction
 from database import buy_item, modify_robber_multiplier, use_item 
 from config import cooldown
 
+from logger import get_logger
+
+log = get_logger()
+
 SHOP_ITEMS = [
     {"id": 1, "name": "Bragging Rights", "price": 10000, "effect": "Nothing. Just flex.", "uses_left": 1},
     {"id": 2, "name": "Robber's Mask", "price": 5000, "effect": "Increases robbery success", "uses_left": 3},
@@ -47,12 +51,12 @@ class ShopView(discord.ui.View):
             await interaction.response.edit_message(embed=self.format_shop_page(), view=self)
 
     @discord.ui.button(label="🛒 Buy Item", style=discord.ButtonStyle.green)
-    async def buy_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def on_buy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Prompts the user with a modal form to enter the item name"""
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("❌ This isn't your shop session!", ephemeral=True)
 
-        class BuyItemModal(discord.ui.Modal, title="Buy Item"):
+        class BuyItemModal(discord.ui.Modal, title="Buy Item"):  # type: ignore
             item_name = discord.ui.TextInput(
                 label="Item Name",
                 placeholder="Enter the name of the item you want to buy",
@@ -60,35 +64,27 @@ class ShopView(discord.ui.View):
                 max_length=50,
             )
 
-            def __init__(self, user_id):
+            def __init__(self, user_id: int):
                 super().__init__()
                 self.user_id = user_id
 
-            async def on_submit(self, modal_interaction: discord.Interaction):
-                # Only allow the user who opened the modal to submit
-                if modal_interaction.user.id != self.user_id:
-                    await modal_interaction.response.send_message(
-                        "❌ You can't submit this modal!", ephemeral=True
-                    )
-                    return
+            async def on_submit(self, interaction: discord.Interaction):
+                if interaction.user.id != self.user_id:
+                    return await interaction.response.send_message("❌ Not your modal!", ephemeral=True)
 
                 name = self.item_name.value.strip().lower()
                 item_data = next((item for item in SHOP_ITEMS if item["name"].lower() == name), None)
                 if not item_data:
-                    await modal_interaction.response.send_message(
-                        f"❌ **'{self.item_name.value}' is not a valid item!**", ephemeral=True
-                    )
-                    return
+                    return await interaction.response.send_message(f"❌ '{self.item_name.value}' not found!", ephemeral=True)
 
                 success = buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"])
                 if success:
-                    await modal_interaction.response.send_message(
-                        f"✅ **@{interaction.user.mention} bought {item_data['name']} for {item_data['price']} coins!**", ephemeral=False
+                    await interaction.response.send_message(
+                        f"✅ **{interaction.user.mention} bought {item_data['name']} for {item_data['price']} coins!**"
                     )
                 else:
-                    await modal_interaction.response.send_message(
-                        f"❌ **You don't have enough money!**", ephemeral=True
-                    )
+                    await interaction.response.send_message("❌ Not enough money!", ephemeral=True)
+
 
         await interaction.response.send_modal(BuyItemModal(self.user_id))
 

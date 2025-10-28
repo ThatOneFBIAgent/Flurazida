@@ -7,8 +7,9 @@ from discord import app_commands
 from discord.ui import View, Button
 from discord.ext import commands
 from config import cooldown
+from logger import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger()
 
 # Global image selection memory
 USER_SELECTED: Dict[int, Tuple[str, float]] = {}
@@ -242,8 +243,9 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
 
 
 class ImageCommands(app_commands.Group):
-    def __init__(self):
+    def __init__(self, bot):
         super().__init__(name="image", description="Image manipulation commands")
+        self.bot = bot
 
     # Selection / helpers
     def _get_user_selection(self, user_id: int) -> Optional[str]:
@@ -878,11 +880,17 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, gif, "inverted.gif")
     
     @app_commands.command(name="speechbubble", description="Add a speech bubble caption to an image.")
+    @app_commands.describe(position="Where the bubble tail points (left, right, center)")
+    @app_commands.choices(position=[
+        app_commands.Choice(name="Left", value="left"),
+        app_commands.Choice(name="Right", value="right"),
+    ])
     @cooldown(cl=15, tm=30.0, ft=3)
     async def speechbubble(
         self,
         interaction: discord.Interaction,
         caption: str,
+        position: app_commands.Choice[str],
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
@@ -894,36 +902,56 @@ class ImageCommands(app_commands.Group):
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
 
-        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 32)
+        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 36)
+        bubble_path = os.path.join(os.getcwd(), "resources", "bubbles", f"{position.value}.png")
+
+        if not os.path.exists(bubble_path):
+            return await interaction.followup.send(f"❌ Missing bubble template for '{position.value}'!", ephemeral=True)
+
+        bubble_base = Image.open(bubble_path).convert("RGBA")
+
         out_frames = []
-        for f in frames:
-            tmp = f.copy().convert("RGBA")
+        for frame in frames:
+            tmp = frame.copy().convert("RGBA")
             w, h = tmp.size
+
+            # Target height (30–40% of image)
+            target_h = int(h * 0.35)
+            target_w = int(w * 0.95)  # cover nearly full width
+
+            # Resize and squash bubble to match aspect
+            bubble = bubble_base.resize((target_w, target_h), Image.LANCZOS)
+
+            # Position bubble near top or mid depending on taste
+            bx = int((w - target_w) / 2)
+            by = int(h * 0.05)
+
+            tmp.alpha_composite(bubble, (bx, by))
+
+            # Draw text inside bubble
             draw = ImageDraw.Draw(tmp)
+            padding = int(target_h * 0.1)
+            text_box_w = target_w - padding * 2
+            text_x = bx + padding
+            text_y = by + padding
 
-            # Simple speech bubble
-            padding = 10
-            lines = self.wrap_text(caption, font, w - 4 * padding)
+            lines = self.wrap_text(caption, font, text_box_w)
             line_height = font.getbbox("Ay")[3]
-            box_height = len(lines) * line_height + 2 * padding
-            box_width = max(font.getlength(line) for line in lines) + 2 * padding
+            total_text_height = len(lines) * line_height
+            centered_y = by + (target_h - total_text_height) // 2
 
-            box_x = padding
-            box_y = h - box_height - padding
-
-            # Draw bubble
-            draw.rectangle([box_x, box_y, box_x + box_width, box_y + box_height], fill=(255,255,255,200), outline=(0,0,0))
-            # Draw tail
-            tail = [(box_x + box_width // 2 - 10, box_y + box_height),
-                    (box_x + box_width // 2 + 10, box_y + box_height),
-                    (box_x + box_width // 2, box_y + box_height + 20)]
-            draw.polygon(tail, fill=(255,255,255,200), outline=(0,0,0))
-
-            # Draw text
             for i, line in enumerate(lines):
-                text_x = box_x + padding
-                text_y = box_y + padding + i * line_height
-                draw.text((text_x, text_y), line, font=font, fill=(0,0,0))
+                lw = font.getlength(line)
+                tx = bx + (target_w - lw) / 2
+                ty = centered_y + i * line_height
+                draw.text(
+                    (tx, ty),
+                    line,
+                    font=font,
+                    fill=(0, 0, 0),
+                    stroke_width=2,
+                    stroke_fill=(255, 255, 255)
+                )
 
             out_frames.append(tmp)
 
@@ -1123,7 +1151,7 @@ class ImageCog(commands.Cog):
             await asyncio.sleep(300)
 
     async def cog_load(self):
-        self.bot.tree.add_command(ImageCommands())
+        self.bot.tree.add_command(ImageCommands(self.bot))
         self.bot.tree.add_command(select_image)
 
 async def setup(bot):

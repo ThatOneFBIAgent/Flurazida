@@ -4,6 +4,10 @@ from discord import app_commands, Interaction, ui
 from database import update_balance, get_balance
 from config import cooldown
 
+from logger import get_logger
+
+log = get_logger()
+
 def resolve_bet_input(bet_input, user_id):
     """
     Accepts a user-provided bet (string or int).
