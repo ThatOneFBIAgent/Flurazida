@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 import config, asyncio, random, sys, socket, aiohttp, os, psutil, time, signal, io
 import CloudflarePing as cf
 from database import (
-    get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive_env,
+    econ_conn, get_expired_cases, mod_conn, mod_cursor, periodic_backup, restore_db_from_gdrive_env,
     ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID, backup_all_dbs_to_gdrive_env, restore_all_dbs_from_gdrive_env
 )
 from logger import get_logger
@@ -274,7 +274,7 @@ async def main():
             backup_all_dbs_to_gdrive_env([
                 (ECONOMY_DB_PATH, "economy.db"),
                 (MODERATOR_DB_PATH, "moderator.db")
-            ], BACKUP_FOLDER_ID)
+            ], BACKUP_FOLDER_ID, commit_conns=[econ_conn, mod_conn])
             log.info("Final backup complete.")
         except Exception as e:
             log.error(f"Backup on exit failed: {e}")

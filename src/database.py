@@ -1,6 +1,7 @@
 # database.py
 # only mess with this file if you want a headache, trust me it's not fun.
 
+from logging import exception
 import sqlite3, shutil, os, asyncio, sys, time, json, tempfile, io, base64, zipfile
 from functools import wraps
 from dotenv import load_dotenv
@@ -110,15 +111,21 @@ def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
         service.files().create(body=meta, media_body=media, fields="id").execute()
         log.info("Created new backup.")
 
-def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: str):
+def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: str, commit_conns: list[sqlite3.Connection]=None):
     """
     Combine multiple .db files into one .zip and upload (overwrite) it to Drive.
     dbs = [(local_path, drive_filename), ...]
     """
+    if commit_conns:
+        for conn in commit_conns:
+            try:
+                conn.commit()
+            except Exception as e:
+                log.warning(f"Failed to commit connection before backup: {e}")
+
     zip_filename = "Databases_Flurazide.zip"
     temp_zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
 
-    # Create a ZIP file with all DBs
     log.info(f"Creating combined backup: {temp_zip_path}")
     with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for local_path, drive_filename in dbs:
@@ -658,27 +665,12 @@ async def periodic_backup(interval_hours=1):
     log.info("Started periodic_backup task")
     while True:
         try:
-            log.info("Running backup...")
-            econ_conn.commit()
-            mod_conn.commit()
-            log.info("Databases committed.")
-
-            try:
-                backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
-            except HttpError as e:
-                log.warning(f"Backup failed for economy.db: {e}")
-            except Exception as e:
-                log.warning(f"Unexpected error backing up economy.db: {e}")
-            
-            try:
-                backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
-            except HttpError as e:
-                log.warning(f"Backup failed for moderator.db: {e}")
-            except Exception as e:
-                log.warning(f"Unexpected error backing up moderator.db: {e}")
-            
-            log.info("Backup task completed.")
+            backup_all_dbs_to_gdrive_env([
+                (ECONOMY_DB_PATH, "economy.db"),
+                (MODERATOR_DB_PATH, "moderator.db")
+            ], BACKUP_FOLDER_ID, commit_conns=[econ_conn, mod_conn])
         except Exception as e:
-            log.error(f"Periodic backup loop encountered an unexpected error: {e}")
-
+            log.warning(f"Periodic backup fail: {e}")
+            
+        log.info("Backup task completed.")
         await asyncio.sleep(interval_hours * 3600)
