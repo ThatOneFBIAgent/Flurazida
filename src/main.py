@@ -14,7 +14,7 @@ import config, asyncio, random, sys, socket, aiohttp, os, psutil, time, signal, 
 import CloudflarePing as cf
 from database import (
     get_expired_cases, mod_cursor, periodic_backup, restore_db_from_gdrive_env,
-    ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID, backup_db_to_gdrive_env
+    ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID, backup_all_dbs_to_gdrive_env, restore_all_dbs_from_gdrive_env
 )
 from logger import get_logger
 
@@ -229,8 +229,12 @@ async def moderation_expiry_task():
 
 
 async def main():
-    restore_db_from_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
-    restore_db_from_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
+    restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
+        {
+            "economy.db": ECONOMY_DB_PATH,
+            "moderator.db": MODERATOR_DB_PATH,
+        }
+    )
     BACKUP_DELAY_HOURS = 1
 
     cf.ensure_started()
@@ -267,8 +271,10 @@ async def main():
         log.info("Shutdown signal received, stopping bot...")
         await bot.close()  # closes connections cleanly
         try:
-            backup_db_to_gdrive_env(ECONOMY_DB_PATH, "economy.db", BACKUP_FOLDER_ID)
-            backup_db_to_gdrive_env(MODERATOR_DB_PATH, "moderator.db", BACKUP_FOLDER_ID)
+            backup_all_dbs_to_gdrive_env([
+                (ECONOMY_DB_PATH, "economy.db"),
+                (MODERATOR_DB_PATH, "moderator.db"),
+            ], BACKUP_FOLDER_ID)
             log.info("Final backup complete.")
         except Exception as e:
             log.error(f"Backup on exit failed: {e}")

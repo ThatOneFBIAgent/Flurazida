@@ -487,7 +487,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="forcegif", description="Convert an image (or gif) to a forced GIF output.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def force_gif(
         self,
         interaction: discord.Interaction,
@@ -510,7 +510,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="caption", description="Add a caption at the top of an image (accepts gifs).")
-    @cooldown(15)
+    @cooldown(cl=15, tm=30.0, ft=3)
     async def caption_image(
         self,
         interaction: discord.Interaction,
@@ -544,7 +544,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="caption2", description="Add a caption at the bottom of an image (accepts gifs).")
-    @cooldown(15)
+    @cooldown(cl=15, tm=30.0, ft=3)
     async def caption2_image(
         self,
         interaction: discord.Interaction,
@@ -578,7 +578,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="jpegify", description="Apply JPEG artifacting. Set recursions to repeat the effect.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def jpegify(
         self,
         interaction: discord.Interaction,
@@ -604,7 +604,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="avatar", description="Get a user's avatar (or your own by default).")
-    @cooldown(5)
+    @cooldown(cl=5, tm=25.0, ft=3)
     async def avatar(
         self,
         interaction: discord.Interaction,
@@ -621,7 +621,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, data, f"{target.id}_avatar.png")
 
     @app_commands.command(name="banner", description="Get a user's banner (or your own by default).")
-    @cooldown(5)
+    @cooldown(cl=5, tm=25.0, ft=3)
     async def banner(
         self,
         interaction: discord.Interaction,
@@ -641,7 +641,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, data, f"{target.id}_banner.png")
 
     @app_commands.command(name="serverbanner", description="Get the server (guild) banner.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=25.0, ft=3)
     async def serverbanner(self, interaction: discord.Interaction):
         await interaction.response.defer()
         if not interaction.guild:
@@ -658,7 +658,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_banner.png")
 
     @app_commands.command(name="emote", description="Gets raw emote image by its name.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=25.0, ft=3)
     async def emote(
         self,
         interaction: discord.Interaction,
@@ -683,7 +683,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="serveravatar", description="Get the server (guild) icon.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=25.0, ft=3)
     async def serveravatar(self, interaction: discord.Interaction):
         await interaction.response.defer()
         if not interaction.guild:
@@ -701,7 +701,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="flip", description="Flip an image horizontally/vertically or both.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def flip(
         self,
         interaction: discord.Interaction,
@@ -756,7 +756,7 @@ class ImageCommands(app_commands.Group):
 
     # @safe_command(timeout=30.0)
     @app_commands.command(name="globe", description="Wrap an image onto a rotating globe (exports a GIF).")
-    @cooldown(20)
+    @cooldown(cl=20, tm=30.0, ft=3)
     async def globe(
         self,
         interaction: discord.Interaction,
@@ -790,7 +790,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, gif, "globe.gif")
 
     @app_commands.command(name="blur", description="Apply a blur effect to an image.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def blur(
         self,
         interaction: discord.Interaction,
@@ -817,7 +817,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, gif, "blurred.gif")
 
     @app_commands.command(name="hueshift", description="Shift the hue of an image.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def hueshift(
         self,
         interaction: discord.Interaction,
@@ -849,7 +849,7 @@ class ImageCommands(app_commands.Group):
             await self._send_image_bytes(interaction, gif, "hueshifted.gif")
     
     @app_commands.command(name="invert", description="Invert the colors of an image.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def invert(
         self,
         interaction: discord.Interaction,
@@ -878,7 +878,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, gif, "inverted.gif")
     
     @app_commands.command(name="speechbubble", description="Add a speech bubble caption to an image.")
-    @cooldown(15)
+    @cooldown(cl=15, tm=30.0, ft=3)
     async def speechbubble(
         self,
         interaction: discord.Interaction,
@@ -894,7 +894,7 @@ class ImageCommands(app_commands.Group):
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
 
-        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "arial.ttf"), 32)
+        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 32)
         out_frames = []
         for f in frames:
             tmp = f.copy().convert("RGBA")
@@ -931,7 +931,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, gif, "speechbubble.gif")
 
     @app_commands.command(name="swirl", description="Apply a swirl effect to an image.")
-    @cooldown(15)
+    @cooldown(cl=15, tm=30.0, ft=3)
     async def swirl(
         self,
         interaction: discord.Interaction,
@@ -982,7 +982,7 @@ class ImageCommands(app_commands.Group):
         await self._send_image_bytes(interaction, gif, "swirled.gif")
 
     @app_commands.command(name="imagefy", description="Convert last image sent by bot to PNG or JPG.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def imagefy(
         self,
         interaction: discord.Interaction,
@@ -1065,7 +1065,7 @@ class ImageCommands(app_commands.Group):
             )
     
     @app_commands.command(name="qrcode", description="Generate or read a QR code.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def qrcode(
         self,
         interaction: discord.Interaction,

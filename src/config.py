@@ -25,6 +25,7 @@ FORBIDDEN_GUILDS = {
  
 import time, discord, functools, asyncio, inspect, logging
 from functools import wraps
+from discord import File, Interaction
 from typing import Callable, Optional
 from discord import Interaction
 from logger import get_logger
@@ -33,38 +34,118 @@ log = logging.getLogger(__name__)
 
 # Use a dict to store cooldowns: {(user_id, command_name): timestamp}
 _user_command_cooldowns = {}
+_command_failures = {}
 
-def cooldown(seconds: int):
+# reason we use equals to all three is so even if we forget one it still works with defaults, although that "none" error is annoying
+def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
+    """
+    Adds cooldown, timeout, and failure tracking to a command.
+    When a user repeatedly fails a command, the owner gets a DM with logs.
+    Parameters:
+    - cl: cooldown in seconds between uses per user (0 = no cooldown)
+    - tm: timeout in seconds for command execution (None = no timeout)
+    - ft: failure threshold before alerting owner/user (3 = default)
+    """
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Detect Interaction object
+            # detect interaction
             if isinstance(args[0], Interaction):
                 interaction = args[0]
             else:
                 interaction = args[1]
 
             user_id = interaction.user.id
-            command_name = func.__name__  # You could also use func directly as key if you're insane (i am not yet)
-
+            command_name = func.__name__
             key = (user_id, command_name)
             now = time.time()
 
-            if key in _user_command_cooldowns:
+            # --- cooldown check ---
+            if cl > 0 and key in _user_command_cooldowns:
                 elapsed = now - _user_command_cooldowns[key]
-                if elapsed < seconds:
-                    log.info(f"[Cooldown] {user_id} hit cooldown for {command_name}")
+                if elapsed < cl:
                     await interaction.response.send_message(
-                        f"🕒 That command’s on cooldown! Try again in {round(seconds - elapsed, 1)}s.",
-                        ephemeral=True
+                        f"🕒 That command’s on cooldown! Try again in {round(cl - elapsed, 1)}s.",
+                        ephemeral=True,
                     )
                     return
 
-            # Set the cooldown
             _user_command_cooldowns[key] = now
-            return await func(*args, **kwargs)
+
+            # --- main run + timeout ---
+            try:
+                if tm:
+                    result = await asyncio.wait_for(func(*args, **kwargs), timeout=tm)
+                else:
+                    result = await func(*args, **kwargs)
+
+                _command_failures[key] = 0
+                return result
+
+            except asyncio.TimeoutError:
+                msg = f"⏰ Command took too long ({tm}s limit reached)."
+                log.warning(f"[Timeout] {command_name} by {user_id} exceeded {tm}s")
+                await _handle_failure(interaction, key, msg, ft, None)
+
+            except Exception as e:
+                msg = f"💥 Something went wrong:\n```{e}```"
+                log.exception(f"[CommandError] {command_name} failed for {user_id}: {e}")
+                await _handle_failure(interaction, key, msg, ft, e)
+
         return wrapper
     return decorator
+
+
+async def _handle_failure(interaction: Interaction, key: tuple, message: str,
+                          ft: int, exc: Exception | None):
+    """Increment failure count, notify user, and optionally DM owner."""
+    user_id, command_name = key
+    _command_failures[key] = _command_failures.get(key, 0) + 1
+    count = _command_failures[key]
+
+    # when threshold hit, reset and alert owner
+    if count >= ft:
+        message += "\n\n⚠️ **Found a bug? Report it to the developer!**"
+        _command_failures[key] = 0
+        await _alert_owner(interaction, command_name, exc)
+
+    # send error to user
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except Exception as send_err:
+        log.error(f"[ErrorSendFail] Could not send failure message: {send_err}")
+
+
+async def _alert_owner(interaction: Interaction, command_name: str, exc: Exception | None):
+    """Send a DM with recent log excerpt to the owner."""
+    try:
+        owner = await interaction.client.fetch_user(BOT_OWNER)
+    except Exception as e:
+        log.error(f"[OwnerFetchError] {e}")
+        return
+
+    try:
+        # build message
+        text = f"⚠️ **Command failure threshold reached!**\n"
+        text += f"Command: `{command_name}`\n"
+        text += f"Guild: `{interaction.guild.name if interaction.guild else 'DM'}`\n"
+        text += f"User: `{interaction.user} ({interaction.user.id})`\n"
+        if exc:
+            text += f"Latest exception: `{exc}`\n"
+
+        # attach latest log file (only last 100 lines to avoid huge file)
+        with open("errors.log", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        recent = "".join(lines[-100:])
+        with open("errors_excerpt.log", "w", encoding="utf-8") as f:
+            f.write(recent)
+
+        await owner.send(content=text, file=File("errors_excerpt.log"))
+    except Exception as e:
+        log.error(f"[OwnerAlertFail] Could not DM owner: {e}")
 
 # NOTE: non-functional at the moment, needs testing and fixing:
 # - does not properly let discord register commands yet

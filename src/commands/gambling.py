@@ -54,7 +54,7 @@ class GamblingCommands(app_commands.Group):
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
-    @cooldown(15) # careful, discord rate limits edits to 5 per 5 seconds so we can't be too fast or we get fucked
+    @cooldown(cl=15, tm=35.0, ft=3) # careful, discord rate limits edits to 5 per 5 seconds so we can't be too fast or we get fucked
     async def slots(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -146,7 +146,7 @@ class GamblingCommands(app_commands.Group):
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
-    @cooldown(15)
+    @cooldown(cl=15, tm=35.0, ft=3)
     async def roulette(self, interaction: discord.Interaction, bet_input: str, choice: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -201,7 +201,7 @@ class GamblingCommands(app_commands.Group):
 
     # @safe_command(timeout=20.0)
     @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
-    @cooldown(20)
+    @cooldown(cl=20, tm=35.0, ft=3)
     async def blackjack(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -340,7 +340,7 @@ class GamblingCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def coinflip(self, interaction: discord.Interaction, bet_input: str, guess: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -372,7 +372,7 @@ class GamblingCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="war", description="Play War! Higher card wins.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def war(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -423,7 +423,7 @@ class GamblingCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="highlow", description="Bet on high (50-100) or low (1-49)!")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def dice(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id

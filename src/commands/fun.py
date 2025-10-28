@@ -20,7 +20,7 @@ class FunCommands(app_commands.Group):
     # table tennis?
     # @safe_command(timeout=15.0)
     @app_commands.command(name="ping", description="Check the bot's response time!")
-    @cooldown(10)
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def ping(self, interaction: discord.Interaction):
         start_time = time.perf_counter()
         await interaction.response.defer(ephemeral=False)
@@ -60,7 +60,7 @@ class FunCommands(app_commands.Group):
     # @safe_command(timeout=30.0)
     @app_commands.command(name="roll", description="Roll a set of dice!")
     @app_commands.describe(dice="Dice expression to roll, type 'help' for syntax.", expand="Show detailed breakdown of the roll")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def roll(self, interaction: discord.Interaction, dice: str, expand: bool = False):
         await interaction.response.defer(ephemeral=False)
 
@@ -393,7 +393,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def eight_ball(self, interaction: discord.Interaction, question: str):
         await interaction.response.defer(ephemeral=False)
         if not question:
@@ -456,7 +456,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
-    @cooldown(60)
+    @cooldown(cl=60, tm=25.0, ft=3)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
         await interaction.response.defer(ephemeral=False)
         if target == interaction.user:
@@ -491,7 +491,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="info", description="Get information about the bot.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def info_of_bot(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         bot_user = self.bot.user
@@ -590,7 +590,7 @@ class FunCommands(app_commands.Group):
     
     # @safe_command(timeout=10.0)
     @app_commands.command(name="serverinfo", description="Get information about current server")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def serverinfo(self, interaction: discord.Interaction, hidden: bool = False):
         await interaction.response.defer(ephemeral=False)
         guild = interaction.guild
@@ -684,7 +684,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="letter", description="Generate a random letter.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def letter(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         letter = random.choice("abcdefghijklmnopqrstuvwxyz")
@@ -694,7 +694,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="cat", description="Get a random cat image")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def cat(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         async with aiohttp.ClientSession() as session:
@@ -715,7 +715,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=10.0)
     @app_commands.command(name="dog", description="Get a random dog image")
-    @cooldown(5)
+    @cooldown(cl=5, tm=20.0, ft=3)
     async def dog(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         async with aiohttp.ClientSession() as session:
@@ -734,7 +734,7 @@ class FunCommands(app_commands.Group):
     
     # @safe_command(timeout=10.0)
     @app_commands.command(name="help", description="Get a list of available commands (paginated).")
-    @cooldown(2)
+    @cooldown(cl=2, tm=10.0, ft=3)
     async def help_command(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
 
@@ -795,7 +795,7 @@ class FunCommands(app_commands.Group):
     # @safe_command(timeout=10.0)
     @app_commands.command(name="pokedex", description="Get information about a Pokémon.")
     @app_commands.describe(pokemon="The name/number of the Pokémon to look up, empty for random")
-    @cooldown(10)
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def pokedex(self, interaction: discord.Interaction, pokemon: str | None = None):
         await interaction.response.defer(ephemeral=False)
         if pokemon is None:
@@ -843,7 +843,7 @@ class FunCommands(app_commands.Group):
     # @safe_command(timeout=10.0)
     @app_commands.command(name="xkcd", description="Get a random XKCD comic.")
     @app_commands.describe(comic="The comic number to fetch (leave empty for random comic)")
-    @cooldown(7)
+    @cooldown(cl=7, tm=25.0, ft=3)
     async def xkcd(self, interaction: discord.Interaction, comic: int | None = None):
         await interaction.response.defer(ephemeral=False)
         # First get the latest comic number
@@ -885,7 +885,7 @@ class FunCommands(app_commands.Group):
     # @safe_command(timeout=10.0)
     @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
     @app_commands.describe(term="The term to look up (leave empty for random definition)")
-    @cooldown(10)
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def urban(self, interaction: discord.Interaction, term: str | None = None):
         await interaction.response.defer(ephemeral=False)
 
@@ -934,7 +934,7 @@ class FunCommands(app_commands.Group):
             await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="debug", description="Stats for nerds, and other bot info.")
-    @cooldown(10)
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         process = psutil.Process(os.getpid())
@@ -978,7 +978,7 @@ class FunCommands(app_commands.Group):
 
     @app_commands.command(name="base64", description="Encode or decode a message in Base64.")
     @app_commands.describe(action="Choose to encode or decode", message="The message to encode/decode")
-    @cooldown(10)
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def base64_command(self, interaction: discord.Interaction, action: str, message: str):
         await interaction.response.defer(ephemeral=False)
         action = action.lower()
@@ -1007,7 +1007,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=5.0)
     # @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
-    # @cooldown(2)
+    # @cooldown(cl=2, tm=10.0, ft=3)
     # async def explode(self, interaction: discord.Interaction):
     #    await interaction.response.defer(ephemeral=False)
     #    toresult = 1 / 0  # This will raise a ZeroDivisionError
@@ -1015,7 +1015,7 @@ class FunCommands(app_commands.Group):
 
     # @safe_command(timeout=2.0)
     # @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
-    # @cooldown(2)
+    # @cooldown(cl=2, tm=10.0, ft=3)
     # async def slowpoke(self, interaction: discord.Interaction):
     #    await interaction.response.defer(ephemeral=False)
     #    await asyncio.sleep(5)  # Intentional delay longer than set timeout

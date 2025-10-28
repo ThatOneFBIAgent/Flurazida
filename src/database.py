@@ -1,7 +1,7 @@
 # database.py
 # only mess with this file if you want a headache, trust me it's not fun.
 
-import sqlite3, shutil, os, asyncio, sys, time, json, tempfile, io, base64
+import sqlite3, shutil, os, asyncio, sys, time, json, tempfile, io, base64, zipfile
 from functools import wraps
 from dotenv import load_dotenv
 from config import BACKUP_GDRIVE_FOLDER_ID
@@ -110,6 +110,48 @@ def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
         service.files().create(body=meta, media_body=media, fields="id").execute()
         log.info("Created new backup.")
 
+def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: str):
+    """
+    Combine multiple .db files into one .zip and upload it to Drive.
+    dbs = [(local_path, drive_filename), ...]
+    """
+    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    zip_filename = f"backup_{timestamp}.zip"
+    temp_zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
+
+    # Create a ZIP file with all DBs
+    log.info(f"Creating combined backup: {temp_zip_path}")
+    with zipfile.ZipFile(temp_zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for local_path, drive_filename in dbs:
+            if not os.path.exists(local_path):
+                log.warning(f"File not found: {local_path}, skipping.")
+                continue
+            zipf.write(local_path, arcname=drive_filename)
+    log.info("All databases zipped successfully.")
+
+    # Upload to Google Drive
+    service = build_drive_service()
+    query = f"'{folder_id}' in parents and name='{zip_filename}' and trashed=false"
+    res = service.files().list(q=query, fields="files(id, name)").execute()
+    files = res.get("files", [])
+
+    media = MediaFileUpload(temp_zip_path, mimetype="application/zip", resumable=True)
+
+    try:
+        if files:
+            file_id = files[0]["id"]
+            service.files().update(fileId=file_id, media_body=media).execute()
+            log.info("Updated existing combined backup.")
+        else:
+            meta = {"name": zip_filename, "parents": [folder_id]}
+            service.files().create(body=meta, media_body=media, fields="id").execute()
+            log.info("Created new combined backup.")
+    finally:
+        try:
+            os.remove(temp_zip_path)
+        except Exception as e:
+            log.warning(f"Couldn't remove temp zip: {e}")
+
 def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
     """
     Download a file named drive_filename from Drive (optionally inside folder_id)
@@ -142,6 +184,76 @@ def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
         return True
     except HttpError as e:
         log.error(f"Failed to download {drive_filename}: {e}")
+        return False
+
+
+def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str], latest_only=True):
+    """
+    Restore all databases from a combined ZIP on Google Drive.
+
+    restore_map = {
+        "economy.db": ECONOMY_DB_PATH,
+        "moderator.db": MODERATOR_DB_PATH
+    }
+
+    If latest_only=True, it restores from the most recently modified backup in folder_id.
+    """
+
+    service = build_drive_service()
+    log.info("Searching for latest backup ZIP in Google Drive...")
+
+    q = f"'{folder_id}' in parents and name contains '.zip' and trashed=false"
+    res = service.files().list(
+        q=q,
+        fields="files(id, name, modifiedTime)",
+        orderBy="modifiedTime desc"
+    ).execute()
+
+    files = res.get("files", [])
+    if not files:
+        log.warning("No .zip backups found on Google Drive.")
+        return False
+
+    # Pick latest by modified time
+    target_file = files[0]
+    file_id = target_file["id"]
+    file_name = target_file["name"]
+    log.info(f"Found backup: {file_name}")
+
+    # Download to temporary location
+    temp_zip = os.path.join(tempfile.gettempdir(), file_name)
+    request = service.files().get_media(fileId=file_id)
+    fh = io.FileIO(temp_zip, 'wb')
+    downloader = MediaIoBaseDownload(fh, request)
+
+    try:
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+            if status:
+                log.info(f"Download progress: {int(status.progress() * 100)}%")
+
+        log.info(f"Downloaded {file_name}, extracting...")
+        with zipfile.ZipFile(temp_zip, "r") as zipf:
+            for member in zipf.namelist():
+                if member in restore_map:
+                    dest_path = restore_map[member]
+                    zipf.extract(member, path=os.path.dirname(dest_path))
+                    # Move extracted file into proper location
+                    os.replace(os.path.join(os.path.dirname(dest_path), member), dest_path)
+                    log.info(f"Restored {member} → {dest_path}")
+                else:
+                    log.warning(f"Skipping unknown file in ZIP: {member}")
+
+        log.info("✅ All databases restored successfully.")
+        os.remove(temp_zip)
+        return True
+
+    except HttpError as e:
+        log.error(f"❌ Failed to restore from Drive: {e}")
+        return False
+    except Exception as e:
+        log.error(f"❌ Unexpected error during restore: {e}")
         return False
 
 # the next lines of code are nasty hacks becuase windows is shit

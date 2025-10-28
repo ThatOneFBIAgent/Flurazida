@@ -22,7 +22,7 @@ class ModeratorCommands(app_commands.Group):
     )
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def mute(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
         await interaction.response.defer(ephemeral=False)
         """Mutes a user for a specified duration."""
@@ -94,7 +94,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to unmute")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def unmute(self, interaction: Interaction, user: discord.Member):
         await interaction.response.defer(ephemeral=False)
         """Unmutes a user."""
@@ -131,7 +131,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to kick", reason="The reason for the kick")
     @app_commands.checks.has_permissions(kick_members=True)
     @app_commands.checks.bot_has_permissions(kick_members=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def kick(self, interaction: Interaction, user: discord.Member, reason: str = None):
         await interaction.response.defer(ephemeral=False)
         """Kicks a user from the server."""
@@ -167,7 +167,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to ban", reason="The reason for the ban", duration="Duration of the ban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def ban(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
         """Bans a user from the server."""
         if user == interaction.user:
@@ -219,7 +219,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user_id="The ID of the user to unban", reason="The reason for the unban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def unban(self, interaction: Interaction, user_id: int, reason: str = None):
         await interaction.response.defer(ephemeral=False)
         """Unbans a user from the server."""
@@ -245,7 +245,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to warn", reason="The reason for the warning")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def warn(self, interaction: Interaction, user: discord.Member, reason: str = None):
         await interaction.response.defer(ephemeral=False)
         """Warns a user."""
@@ -280,7 +280,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.command(name="cases", description="View all cases for the server with pagination.")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
-    @cooldown(10)
+    @cooldown(cl=10, tm=20.0, ft=3)
     async def cases(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=False)
         """View all cases for the server with pagination."""
@@ -351,7 +351,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(case_id="The ID of the case to view")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=False)
         """View details of a specific case."""
@@ -381,7 +381,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(administrator=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def delete_case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=False)
         """Delete a specific case."""
@@ -400,7 +400,7 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(case_id="The ID of the case to edit", reason="The new reason for the case")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(administrator=True)
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def edit_case(self, interaction: Interaction, case_id: int, reason: str):
         """Edit the reason of a specific case."""
         case = get_case(mod_cursor, interaction.guild.id, case_id)

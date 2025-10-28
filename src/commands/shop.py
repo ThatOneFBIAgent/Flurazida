@@ -121,7 +121,7 @@ class ShopCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="shop", description="View and buy items from the shop.")
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def shop(self, interaction: discord.Interaction):
         """Displays shop items using embeds and buttons"""
         if not SHOP_ITEMS:
@@ -133,7 +133,7 @@ class ShopCommands(app_commands.Group):
     # @safe_command(timeout=15.0)
     @app_commands.command(name="use", description="Use an item from your inventory")
     @app_commands.describe(item_name="The name of the item you want to use")
-    @cooldown(5)
+    @cooldown(cl=5, tm=15.0, ft=3)
     async def use(self, interaction: discord.Interaction, item_name: str):
         """Handles using an item properly"""
         item_name = item_name.lower()
