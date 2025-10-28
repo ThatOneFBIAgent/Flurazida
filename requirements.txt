@@ -6,6 +6,7 @@ python-dotenv
 PyDrive2      # or pydrive2
 ping3
 google-api-python-client
+packaging
 google-auth
 google-auth-httplib2
 google-auth-oauthlib   # optional, only if you use user OAuth flows
