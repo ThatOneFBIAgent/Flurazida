@@ -510,13 +510,13 @@ class ImageCommands(app_commands.Group):
         gif = self._frames_to_gif_bytes(frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "forced.gif")
 
-    # @safe_command(timeout=15.0)
-    @app_commands.command(name="caption", description="Add a caption at the top of an image (accepts gifs).")
+    @app_commands.command(name="caption", description="Add a caption at the top or bottom of an image (accepts gifs).")
     @cooldown(cl=15, tm=30.0, ft=3)
     async def caption_image(
         self,
         interaction: discord.Interaction,
         caption: str,
+        bottom: bool = False,
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
@@ -528,55 +528,36 @@ class ImageCommands(app_commands.Group):
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
 
-        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 36)
         out_frames = []
+        font_path = os.path.join(os.getcwd(), "resources", "impact.ttf")
+
         for f in frames:
-            tmp = f.copy().convert("RGBA")
-            tmp = self._draw_text_centered(
-                tmp,
+            base = Image.new("RGBA", f.size, "WHITE")  # solid white bg
+            base.paste(f, (0, 0), f.convert("RGBA"))
+
+            # font auto escaling
+            font_size = 32
+            font = ImageFont.truetype(font_path, font_size)
+            draw = ImageDraw.Draw(base)
+            text_w, _ = draw.textsize(caption, font=font)
+            while text_w > base.width - 40 and font_size > 24:
+                font_size -= 2
+                font = ImageFont.truetype(font_path, font_size)
+                text_w, _ = draw.textsize(caption, font=font)
+
+            # draw caption using V
+            base = self._draw_text_centered(
+                base,
                 caption,
-                bottom=False,
-                font_path=os.path.join(os.getcwd(), "resources", "impact.ttf"),
-                max_font_size=64
+                bottom=bottom,
+                font_path=font_path,
+                max_font_size=font_size,
             )
-            out_frames.append(tmp)
+            out_frames.append(base)
 
+        # --- Save and send GIF ---
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        await self._send_image_bytes(interaction, gif, "caption_top.gif")
-
-    # @safe_command(timeout=15.0)
-    @app_commands.command(name="caption2", description="Add a caption at the bottom of an image (accepts gifs).")
-    @cooldown(cl=15, tm=30.0, ft=3)
-    async def caption2_image(
-        self,
-        interaction: discord.Interaction,
-        caption: str,
-        image: Optional[discord.Attachment] = None,
-        image_url: Optional[str] = None,
-    ):
-        await interaction.response.defer()
-        data = await self._resolve_image_bytes(interaction, image, image_url)
-        if not data:
-            return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
-
-        frames, duration = self._load_frames_from_bytes(data)
-        frames = self._resize_if_needed(frames, max_dim=900)
-
-        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 36)
-        out_frames = []
-        for f in frames:
-            tmp = f.copy().convert("RGBA")
-            tmp = self._draw_text_centered(
-                tmp,
-                caption,
-                bottom=True,
-                font_path=os.path.join(os.getcwd(), "resources", "impact.ttf"),
-                max_font_size=64
-            )
-            out_frames.append(tmp)
-
-        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        await self._send_image_bytes(interaction, gif, "caption_bottom.gif")
+        await self._send_image_bytes(interaction, gif, "captioned.gif")
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="jpegify", description="Apply JPEG artifacting. Set recursions to repeat the effect.")
@@ -818,7 +799,7 @@ class ImageCommands(app_commands.Group):
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "blurred.gif")
 
-    @app_commands.command(name="hueshift", description="Shift the hue of an image.")
+    @app_commands.command(name="hueshift", description="Shift the hue of an image (wraps around HSV color wheel).")
     @cooldown(cl=10, tm=25.0, ft=3)
     async def hueshift(
         self,
@@ -828,7 +809,7 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
-        shift = shift % 1.0  # wrap around
+        shift = shift % 1.0  # normalize [0, 1)
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
@@ -837,18 +818,22 @@ class ImageCommands(app_commands.Group):
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=1200)
 
+        # hue shift amount in integer range (0–255)
+        shift_amount = int(round(shift * 255))
+
         out_frames = []
         for f in frames:
             hsv = f.convert("HSV")
-            np_hsv = np.array(hsv, dtype=np.float32)  # work in float
-            # Shift hue
-            np_hsv[..., 0] = (np_hsv[..., 0] + shift * 255) % 255
-            np_hsv = np_hsv.astype(np.uint8)
-            shifted = Image.fromarray(np_hsv, "HSV").convert("RGBA")
+            np_hsv = np.array(hsv, dtype=np.uint8)
+
+            # Only modify hue channel (index 0)
+            np_hsv[..., 0] = (np_hsv[..., 0].astype(int) + shift_amount) % 256
+
+            shifted = Image.fromarray(np_hsv.astype(np.uint8), "HSV").convert("RGBA")
             out_frames.append(shifted)
 
-            gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-            await self._send_image_bytes(interaction, gif, "hueshifted.gif")
+        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        await self._send_image_bytes(interaction, gif, "hueshifted.gif")
     
     @app_commands.command(name="invert", description="Invert the colors of an image.")
     @cooldown(cl=10, tm=25.0, ft=3)
@@ -916,8 +901,8 @@ class ImageCommands(app_commands.Group):
             w, h = tmp.size
 
             # Target height (30–40% of image)
-            target_h = int(h * 0.35)
-            target_w = int(w * 0.95)  # cover nearly full width
+            target_h = int(h * 0.15)
+            target_w = int(w * 1)  # cover nearly full width
 
             # Resize and squash bubble to match aspect
             bubble = bubble_base.resize((target_w, target_h), Image.LANCZOS)

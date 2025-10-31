@@ -164,6 +164,26 @@ async def on_message(message):
                 log.warning(f"Failed to react {emoji}: {e}")
     await bot.process_commands(message)
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    from discord.app_commands import CommandInvokeError
+
+    # Extract the "real" underlying error
+    original = error.original if isinstance(error, CommandInvokeError) else error
+
+    cmd_name = getattr(interaction.command, "name", "Unknown")
+    cmd_group = getattr(interaction.command, "qualified_name", cmd_name)
+    user = f"{interaction.user} ({interaction.user.id})"
+
+    log.error(
+        f"🔥 Slash command failed:\n"
+        f" • Command: {cmd_group}\n"
+        f" • User: {user}\n"
+        f" • Guild: {getattr(interaction.guild, 'name', 'DM')} "
+        f"({getattr(interaction.guild, 'id', 'N/A')})",
+        exc_info=original
+    )
+
 async def global_blacklist_check(interaction: Interaction) -> bool:
     guild_id = interaction.guild.id if interaction.guild else None
     if guild_id in config.FORBIDDEN_GUILDS:

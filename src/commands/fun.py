@@ -22,7 +22,6 @@ class FunCommands(app_commands.Group):
         self.bot = bot
 
     # table tennis?
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def ping(self, interaction: discord.Interaction):
@@ -61,7 +60,6 @@ class FunCommands(app_commands.Group):
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     # the bane of my existance
-    # @safe_command(timeout=30.0)
     @app_commands.command(name="roll", description="Roll a set of dice!")
     @app_commands.describe(dice="Dice expression to roll, type 'help' for syntax.", expand="Show detailed breakdown of the roll")
     @cooldown(cl=5, tm=20.0, ft=3)
@@ -394,8 +392,6 @@ class FunCommands(app_commands.Group):
         else:
             await interaction.followup.send(embed=embed, ephemeral=False)
 
-
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="8ball" , description="Ask the magic 8-ball a question!")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def eight_ball(self, interaction: discord.Interaction, question: str):
@@ -458,7 +454,6 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="Answer", value=f"`{answer}`", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(cl=60, tm=25.0, ft=3)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
@@ -493,7 +488,6 @@ class FunCommands(app_commands.Group):
         # Finish at 100%
         await msg.edit(content=f"💻 Hacking {target.mention}...\n[██████████] 100%\n✅ Hack complete! All their cookies have been stolen and eaten!🍪")
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="info", description="Get information about the bot.")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def info_of_bot(self, interaction: discord.Interaction):
@@ -587,12 +581,21 @@ class FunCommands(app_commands.Group):
             value=f"`{System}`",
             inline=True
         )
+        embed.add_field(
+            name="📋 Terms of Service",
+            value="[View Terms of Service](https://github.com/ThatOneFBIAgent/Flurazida/blob/main/TOS.md)",
+            inline=False
+        )
+        embed.add_field(
+            name="🔒 Privacy policy",
+            value="[View Privacy policy](https://github.com/ThatOneFBIAgent/Flurazida/blob/main/Privacy.md)"
+            inline=False
+        )
         embed.set_footer(text=f"Fun Fact: {fun_fact}")
 
         await interaction.followup.send(embed=embed, ephemeral=False)
     # stupid dum dum discord reserves bot_ for their own shit, i'm angry
     
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="serverinfo", description="Get information about current server")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def serverinfo(self, interaction: discord.Interaction, hidden: bool = False):

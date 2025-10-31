@@ -1,8 +1,10 @@
-import discord, random, asyncio
+import discord, random, asyncio, re, io, time, matplotlib.pyplot as plt
 from discord.ext import commands
 from discord import app_commands, Interaction, ui
+from discord.ui import Button, View
 from database import update_balance, get_balance
 from config import cooldown
+from typing import Optional
 
 from logger import get_logger
 
@@ -30,6 +32,23 @@ def resolve_bet_input(bet_input, user_id):
     if b > bal:
         return None
     return b
+
+class CrashBetModal(commands.ui.Modal):
+    def __init__(self, players_dict, user_id):
+        super().__init__(title="Place your bet")
+        self.players = players_dict
+        self.user_id = user_id
+        self.bet = commands.ui.TextInput(label="Bet Amount", placeholder="Enter how many coins you want to wager", required=True)
+        self.add_item(self.bet)
+
+    async def on_submit(self, interaction: Interaction):
+        bet_amount = int(self.bet.value)
+        balance = get_balance(interaction.user.id)
+        if bet_amount > balance:
+            return await interaction.response.send_message("❌ You don't have enough coins!", ephemeral=True)
+        update_balance(interaction.user.id, -bet_amount)
+        self.players[self.user_id] = bet_amount
+        await interaction.response.send_message(f"✅ Bet of {bet_amount} coins accepted!", ephemeral=True)
 
 class HighLowView(ui.View):
     def __init__(self, timeout=30):
@@ -479,3 +498,84 @@ class GamblingCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(GamblingCog(bot))
+
+
+# wip stuff down here.
+#        @app_commands.command(name="crash", description="Play the Crash game!")
+#        @app_commands.describe(starting_balance="Your starting bet")
+#        async def crash(self, interaction: Interaction):
+#            await interaction.response.defer(ephemeral=False)
+#            channel_id = interaction.channel_id
+#
+#            if channel_id in self.active_crash_games:
+#                return await interaction.followup.send("🚫 A crash game is already running here!", ephemeral=True)
+#
+#            self.active_crash_games[channel_id] = {"players": {}, "running": False}
+#
+#            # Join phase for 20 seconds
+#            join_embed = f"🎰 Crash game starting!\nClick the button to join. You have 60s to place your bet."
+#            join_view = View(timeout=60)
+#
+#            async def join_callback(i: Interaction, view=self):
+#                await i.response.send_modal(CrashBetModal(self.active_crash_games[channel_id]["players"], i.user.id))
+#
+#            join_btn = Button(label="Join Game", style=discord.ButtonStyle.green)
+#            join_btn.callback = join_callback
+#            join_view.add_item(join_btn)
+#
+#            msg = await interaction.followup.send(join_embed, view=join_view)
+#            await join_view.wait()
+#
+#            players = self.active_crash_games[channel_id]["players"]
+#            if not players:
+#                del self.active_crash_games[channel_id]
+#                return await interaction.followup.send("❌ No one joined the game!", ephemeral=False)
+#
+#            # Generate a random crash multiplier
+#            crash_multiplier = round(random.uniform(1.2, 5.0), 2)
+#
+#            # Generate crash curve (15 points max, update every 3 seconds)
+#            curve_points = min(15, int(crash_multiplier * 3))
+#            multipliers = [round(1 + (crash_multiplier - 1) * (i / curve_points), 2) for i in range(1, curve_points + 1)]
+#
+#            # Cashout button
+#            cashout_view = View()
+#            cashouts = {}
+#
+#            async def cashout_callback(i: Interaction):
+#                user_id = i.user.id
+#                if user_id not in players:
+#                    await i.response.send_message("🚫 You didn't join this game!", ephemeral=True)
+#                    return
+#                if user_id in cashouts:
+#                    await i.response.send_message("✅ Already cashed out!", ephemeral=True)
+#                    return
+#                bet = players[user_id]
+#                multiplier = multipliers[min(len(cashouts), len(multipliers)-1)]
+#                win_amount = int(bet * multiplier)
+#                update_balance(user_id, win_amount)  # add winnings
+#                cashouts[user_id] = win_amount
+#                await i.response.send_message(f"💰 You cashed out at {multiplier}x for {win_amount} coins!", ephemeral=True)
+#
+#            cashout_btn = Button(label="💸 Cashout", style=discord.ButtonStyle.blurple)
+#            cashout_btn.callback = cashout_callback
+#            cashout_view.add_item(cashout_btn)
+#
+#            # Animate the curve and update message
+#            for idx, val in enumerate(multipliers):
+#                plt.figure(figsize=(4, 2))
+#                plt.plot(range(1, idx+2), multipliers[:idx+1], color="green")
+#                plt.ylim(0, max(multipliers)*1.1)
+#                plt.xlabel("Time")
+#                plt.ylabel("Multiplier")
+#                buf = io.BytesIO()
+#                plt.savefig(buf, format="png")
+#                plt.close()
+#                buf.seek(0)
+#                await msg.edit(content=f"🚀 Crash Game Progress: {val}x", attachments=[], view=cashout_view)
+#                await asyncio.sleep(3)
+#
+#            # End game
+#            results = "\n".join([f"<@{uid}> won {amt} coins" for uid, amt in cashouts.items()]) or "No one cashed out in time!"
+#            await msg.edit(content=f"💥 Game over! Crash hit {crash_multiplier}x\n{results}", attachments=[], view=None)
+#            del self.active_crash_games[channel_id]
