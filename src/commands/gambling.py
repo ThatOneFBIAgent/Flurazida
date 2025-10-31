@@ -1,10 +1,9 @@
-import discord, random, asyncio, re, io, time, matplotlib.pyplot as plt
+import discord, random, asyncio, re, io, time
 from discord.ext import commands
 from discord import app_commands, Interaction, ui
 from discord.ui import Button, View
 from database import update_balance, get_balance
 from config import cooldown
-from typing import Optional
 
 from logger import get_logger
 
@@ -33,22 +32,22 @@ def resolve_bet_input(bet_input, user_id):
         return None
     return b
 
-class CrashBetModal(commands.ui.Modal):
-    def __init__(self, players_dict, user_id):
-        super().__init__(title="Place your bet")
-        self.players = players_dict
-        self.user_id = user_id
-        self.bet = commands.ui.TextInput(label="Bet Amount", placeholder="Enter how many coins you want to wager", required=True)
-        self.add_item(self.bet)
-
-    async def on_submit(self, interaction: Interaction):
-        bet_amount = int(self.bet.value)
-        balance = get_balance(interaction.user.id)
-        if bet_amount > balance:
-            return await interaction.response.send_message("❌ You don't have enough coins!", ephemeral=True)
-        update_balance(interaction.user.id, -bet_amount)
-        self.players[self.user_id] = bet_amount
-        await interaction.response.send_message(f"✅ Bet of {bet_amount} coins accepted!", ephemeral=True)
+#class CrashBetModal(commands.ui.Modal):
+#    def __init__(self, players_dict, user_id):
+#        super().__init__(title="Place your bet")
+#        self.players = players_dict
+#        self.user_id = user_id
+#        self.bet = commands.ui.TextInput(label="Bet Amount", placeholder="Enter how many coins you want to wager", required=True)
+#        self.add_item(self.bet)
+#
+#    async def on_submit(self, interaction: Interaction):
+#        bet_amount = int(self.bet.value)
+#        balance = get_balance(interaction.user.id)
+#        if bet_amount > balance:
+#            return await interaction.response.send_message("❌ You don't have enough coins!", ephemeral=True)
+#        update_balance(interaction.user.id, -bet_amount)
+#        self.players[self.user_id] = bet_amount
+#        await interaction.response.send_message(f"✅ Bet of {bet_amount} coins accepted!", ephemeral=True)
 
 class HighLowView(ui.View):
     def __init__(self, timeout=30):

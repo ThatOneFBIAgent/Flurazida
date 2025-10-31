@@ -588,7 +588,7 @@ class FunCommands(app_commands.Group):
         )
         embed.add_field(
             name="🔒 Privacy policy",
-            value="[View Privacy policy](https://github.com/ThatOneFBIAgent/Flurazida/blob/main/Privacy.md)"
+            value="[View Privacy policy](https://github.com/ThatOneFBIAgent/Flurazida/blob/main/Privacy.md)",
             inline=False
         )
         embed.set_footer(text=f"Fun Fact: {fun_fact}")
