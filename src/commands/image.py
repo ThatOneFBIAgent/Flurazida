@@ -535,15 +535,18 @@ class ImageCommands(app_commands.Group):
             base = Image.new("RGBA", f.size, "WHITE")  # solid white bg
             base.paste(f, (0, 0), f.convert("RGBA"))
 
-            # font auto escaling
+            # font auto scaling
             font_size = 32
             font = ImageFont.truetype(font_path, font_size)
             draw = ImageDraw.Draw(base)
-            text_w, _ = draw.textsize(caption, font=font)
+            bbox = draw.textbbox((0, 0), caption, font=font)
+            text_w = bbox[2] - bbox[0]
+
             while text_w > base.width - 40 and font_size > 24:
                 font_size -= 2
                 font = ImageFont.truetype(font_path, font_size)
-                text_w, _ = draw.textsize(caption, font=font)
+                bbox = draw.textbbox((0, 0), caption, font=font)
+                text_w = bbox[2] - bbox[0]
 
             # draw caption using V
             base = self._draw_text_centered(
@@ -554,7 +557,7 @@ class ImageCommands(app_commands.Group):
                 max_font_size=font_size,
             )
             out_frames.append(base)
-
+            
         # --- Save and send GIF ---
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "captioned.gif")

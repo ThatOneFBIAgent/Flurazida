@@ -146,17 +146,17 @@ class ModeratorCommands(app_commands.Group):
 
         # --- Permission safety checks ---
         if user == interaction.user:
-            return await interaction.followup.send("❌ You can’t ban yourself.", ephemeral=True)
+            return await interaction.followup.send("❌ You can't ban yourself.", ephemeral=True)
         if user.id == self.bot.user.id:
-            return await interaction.followup.send("❌ You can’t ban the bot.", ephemeral=True)
+            return await interaction.followup.send("❌ You can't ban the bot.", ephemeral=True)
         if user.guild_permissions.administrator:
-            return await interaction.followup.send("❌ You can’t ban an administrator.", ephemeral=True)
+            return await interaction.followup.send("❌ You can't ban an administrator.", ephemeral=True)
         if user.top_role >= interaction.user.top_role:
-            return await interaction.followup.send("❌ You can’t ban someone with equal or higher role.", ephemeral=True)
+            return await interaction.followup.send("❌ You can't ban someone with equal or higher role.", ephemeral=True)
 
         bot_member = interaction.guild.me or await interaction.guild.fetch_member(self.bot.user.id)
         if user.top_role >= bot_member.top_role:
-            return await interaction.followup.send("❌ That user’s role is higher or equal to mine!", ephemeral=True)
+            return await interaction.followup.send("❌ That user's role is higher or equal to mine!", ephemeral=True)
 
         # --- Duration parsing ---
         total_seconds = 0
@@ -182,7 +182,7 @@ class ModeratorCommands(app_commands.Group):
         try:
             await interaction.guild.ban(user, reason=reason, delete_message_days=0)
         except discord.Forbidden:
-            return await interaction.followup.send("❌ I don’t have permission to ban that user.", ephemeral=True)
+            return await interaction.followup.send("❌ I don't have permission to ban that user.", ephemeral=True)
         except Exception as e:
             log.error(f"[{interaction.guild.name}] Error banning user {user}: {e}", exc_info=True)
             return await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
@@ -369,7 +369,7 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Failed to send case details message: {e}")
             return await interaction.followup.send("❌ An error occurred while trying to display case details.", ephemeral=True)
 
-    # @safe_command(timeout=15.0)
+    # doesnt work for some reason
     @app_commands.command(name="deletecase", description="Delete a specific case.")
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
     @app_commands.checks.has_permissions(administrator=True)
