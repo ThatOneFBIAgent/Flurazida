@@ -14,6 +14,8 @@ pillow
 imageio
 qrcode[pil]
 pyzbar
+matplotlib
+packaging
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
