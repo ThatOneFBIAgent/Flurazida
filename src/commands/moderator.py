@@ -1,9 +1,10 @@
-import discord, asyncio, time, sys
+import discord, asyncio, time, sys, datetime
 from discord.ext import commands
 from discord import app_commands
 from discord import Interaction
 from database import get_cases_for_guild, get_case, insert_case, remove_case, edit_case_reason, mod_cursor
 from config import cooldown
+from typing import Optional
 
 from logger import get_logger
 
@@ -14,43 +15,23 @@ class ModeratorCommands(app_commands.Group):
         super().__init__(name="moderator", description="Moderation related commands")
         self.bot = bot
 
-    # @safe_command(timeout=15.0)
-    @app_commands.command(name="mute", description="Mutes selected user for a period of time, default is 1 hour.")
-    @app_commands.describe(
-        user="The user to mute",
-        reason="The reason for the mute",
-        duration="Duration of the mute (default is 1 hour, format: 1h, 30m, etc.)"
-    )
+    @app_commands.command(name="mute", description="Mutes (timeouts) a user for a set duration.")
+    @app_commands.describe(user="The user to mute", duration="Duration (e.g., 1h, 30m, 7d)", reason="Reason for the mute")
     @app_commands.checks.has_permissions(moderate_members=True)
-    @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
+    @app_commands.checks.bot_has_permissions(moderate_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def mute(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
-        await interaction.response.defer(ephemeral=False)
-        """Mutes a user for a specified duration."""
+    async def mute(self, interaction: Interaction, user: discord.Member, duration: str, reason: str = None):
+        await interaction.response.defer(ephemeral=True)
+
         if user == interaction.user:
             return await interaction.followup.send("❌ You cannot mute yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
             return await interaction.followup.send("❌ You cannot mute the bot!", ephemeral=True)
         if user.top_role >= interaction.user.top_role:
-            return await interaction.followup.send("❌ You cannot mute a user with a higher or equal role!", ephemeral=True)
-        bot_member = interaction.guild.get_member(self.bot.user.id)
-        if bot_member is None:
-            bot_member = await interaction.guild.fetch_member(self.bot.user.id)
-        if user.top_role >= bot_member.top_role:
-            return await interaction.followup.send("❌ I cannot mute a user with a higher or equal role than my own!", ephemeral=True)
+            return await interaction.followup.send("❌ You cannot mute someone with a higher or equal role!", ephemeral=True)
         if user.guild_permissions.administrator:
             return await interaction.followup.send("❌ You cannot mute an administrator!", ephemeral=True)
-        if manage_roles := interaction.guild.me.guild_permissions.manage_roles or interaction.guild.me.guild_permissions.moderate_members or interaction.guild.me.guild_permissions.moderate_members:
-            if not manage_roles:
-                return await interaction.followup.send("❌ I do not have sufficient permissions to mute!", ephemeral=True)
-        
 
-        # Default duration is 1 hour
-        if duration is None:
-            duration = "1h"  # 1 hour in seconds
-        if reason is None:
-            reason = "No reason provided"
-        
         # Parse duration
         duration_seconds = 0
         if duration.endswith("d"):
@@ -59,73 +40,49 @@ class ModeratorCommands(app_commands.Group):
             duration_seconds = int(duration[:-1]) * 3600
         elif duration.endswith("m"):
             duration_seconds = int(duration[:-1]) * 60
+        else:
+            return await interaction.followup.send("❌ Invalid duration format! Use `1h`, `30m`, `7d`, etc.", ephemeral=True)
 
-        # Mute logic (create if not exists mute role and add to user)
+        expiry_time = int(time.time()) + duration_seconds
+        until_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=duration_seconds)
+
+        if reason is None:
+            reason = "No reason provided"
+
         try:
-            mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
-            if not mute_role:
-                mute_role = await interaction.guild.create_role(name="Muted", reason="Mute role created by bot")
-                for channel in interaction.guild.channels:
-                    try:
-                        await channel.set_permissions(mute_role, send_messages=False, speak=False, read_message_history=True, read_messages=True)
-                    except discord.Forbidden:
-                        log.warning(f"Could not set permissions for {mute_role} in {channel.name}.")
-
-            # Log the mute in the database & mute the user
-            await user.add_roles(mute_role, reason="Muted by command")
-            if duration_seconds > 0:
-                expiry_time = int(time.time()) + duration_seconds 
-                insert_case(
-                    mod_cursor, interaction.guild.id, user.id, user.name, reason, "mute", interaction.user.id, int(time.time()), expiry=expiry_time
-                )
-            elif duration_seconds == 0:
-                expiry_time = 0
-                insert_case(
-                    mod_cursor, interaction.guild.id, user.id, user.name, reason, "mute", interaction.user.id, int(time.time())
-                )
-            await interaction.followup.send(f"✅ **{user.mention} has been muted for {duration}**", ephemeral=False)
+            await user.timeout(until=until_time, reason=reason)
+            insert_case(
+                mod_cursor, interaction.guild.id, user.id, user.name, reason, "mute",
+                interaction.user.id, int(time.time()), expiry=expiry_time
+            )
+            await interaction.followup.send(
+                f"✅ **{user.mention} has been muted for {duration}**\n📝 Reason: {reason}", ephemeral=False
+            )
         except discord.Forbidden:
-            await interaction.followup.send("❌ I do not have permission to mute this user!", ephemeral=True)
+            await interaction.followup.send("❌ I don't have permission to mute that user!", ephemeral=True)
         except Exception as e:
-            log.error(f"Error muting user: {e}")
-            await interaction.followup.send("❌ An error occurred while trying to mute the user.", ephemeral=True)
+            log.error(f"Error timing out user: {e}")
+            await interaction.followup.send("❌ Something went wrong while muting the user.", ephemeral=True)
 
-    # @safe_command(timeout=15.0)
-    @app_commands.command(name="unmute", description="Unmutes a user.")
-    @app_commands.describe(user="The user to unmute")
+    @app_commands.command(name="unmute", description="Removes a mute (timeout) from a user.")
+    @app_commands.describe(user="The user to unmute", reason="Reason for unmuting (optional)")
     @app_commands.checks.has_permissions(moderate_members=True)
-    @app_commands.checks.bot_has_permissions(moderate_members=True, manage_roles=True)
+    @app_commands.checks.bot_has_permissions(moderate_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def unmute(self, interaction: Interaction, user: discord.Member):
-        await interaction.response.defer(ephemeral=False)
-        """Unmutes a user."""
-        if user == interaction.user:
-            return await interaction.followup.send("❌ You cannot unmute yourself!", ephemeral=True)
-        if user.id == self.bot.user.id:
-            return await interaction.followup.send("❌ You cannot unmute the bot!", ephemeral=True)
-        if user.top_role >= interaction.user.top_role:
-            return await interaction.followup.send("❌ You cannot unmute a user with a higher or equal role!", ephemeral=True)
-        bot_member = interaction.guild.get_member(self.bot.user.id)
-        if bot_member is None:
-            bot_member = await interaction.guild.fetch_member(self.bot.user.id)
-        if user.top_role >= bot_member.top_role:
-            return await interaction.followup.send("❌ I cannot unmute a user with a higher or equal role than my own!", ephemeral=True)
-        if user.guild_permissions.administrator:
-            return await interaction.followup.send("❌ You cannot unmute an administrator!", ephemeral=True)
+    async def unmute(self, interaction: Interaction, user: discord.Member, reason: str = None):
+        await interaction.response.defer(ephemeral=True)
 
-        mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
-        if mute_role not in user.roles:
-            return await interaction.followup.send("❌ This user is not muted!", ephemeral=True)
+        if not user.is_timed_out():
+            return await interaction.followup.send("⚠️ This user is not currently muted.", ephemeral=True)
 
         try:
-            await user.remove_roles(mute_role, reason="Unmuted by command")
-            # do not remove cases, as they are permanent records.
-            await interaction.followup.send(f"✅ **{user.mention} has been unmuted**", ephemeral=False)
+            await user.timeout(until=None, reason=reason or "Manual unmute")
+            await interaction.followup.send(f"✅ **{user.mention} has been unmuted.**", ephemeral=False)
         except discord.Forbidden:
-            await interaction.followup.send("❌ I do not have permission to unmute this user!", ephemeral=True)
+            await interaction.followup.send("❌ I don't have permission to unmute that user!", ephemeral=True)
         except Exception as e:
             log.error(f"Error unmuting user: {e}")
-            await interaction.followup.send("❌ An error occurred while trying to unmute the user.", ephemeral=True)
+            await interaction.followup.send("❌ Something went wrong while unmuting.", ephemeral=True)
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="kick", description="Kicks a user from the server.")
@@ -164,56 +121,86 @@ class ModeratorCommands(app_commands.Group):
             await interaction.followup.send("❌ An error occurred while trying to kick the user.", ephemeral=True)
     
     # @safe_command(timeout=15.0)
-    @app_commands.command(name="ban", description="Bans a user from the server.")
-    @app_commands.describe(user="The user to ban", reason="The reason for the ban", duration="Duration of the ban")
+    @app_commands.command(name="ban", description="Bans a user from the server (optionally timed).")
+    @app_commands.describe(
+        user="User to ban",
+        duration="Ban duration (e.g. 1d, 12h, 30m). Default is 7 days.",
+        reason="Reason for the ban"
+    )
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def ban(self, interaction: Interaction, user: discord.Member, reason: str = None, duration: str = None):
-        """Bans a user from the server."""
+    async def ban(
+        self,
+        interaction: Interaction,
+        user: discord.Member,
+        duration: str = "7d",
+        reason: str = "No reason provided"
+    ):
+        await interaction.response.defer(ephemeral=False)
+
+        # --- Permission safety checks ---
         if user == interaction.user:
-            return await interaction.followup.send("❌ You cannot ban yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You can’t ban yourself.", ephemeral=True)
         if user.id == self.bot.user.id:
-            return await interaction.followup.send("❌ You cannot ban the bot!", ephemeral=True)
-        if user.top_role >= interaction.user.top_role:
-            return await interaction.followup.send("❌ You cannot ban a user with a higher or equal role!", ephemeral=True)
-        bot_member = interaction.guild.get_member(self.bot.user.id)
-        if bot_member is None:
-            bot_member = await interaction.guild.fetch_member(self.bot.user.id)
-        if user.top_role >= bot_member.top_role:
-            return await interaction.followup.send("❌ I cannot ban a user with a higher or equal role than my own!", ephemeral=True)
+            return await interaction.followup.send("❌ You can’t ban the bot.", ephemeral=True)
         if user.guild_permissions.administrator:
-            return await interaction.followup.send("❌ You cannot ban an administrator!", ephemeral=True)
+            return await interaction.followup.send("❌ You can’t ban an administrator.", ephemeral=True)
+        if user.top_role >= interaction.user.top_role:
+            return await interaction.followup.send("❌ You can’t ban someone with equal or higher role.", ephemeral=True)
 
-        # Default duration is 1 hour
-        if duration is None:
-            duration = "7d"
-        if reason is None:
-            reason = "No reason provided"
+        bot_member = interaction.guild.me or await interaction.guild.fetch_member(self.bot.user.id)
+        if user.top_role >= bot_member.top_role:
+            return await interaction.followup.send("❌ That user’s role is higher or equal to mine!", ephemeral=True)
 
-        # Parse duration
-        duration_seconds = 0
-        if duration.endswith("d"):
-            duration_seconds = int(duration[:-1]) * 86400
-        elif duration.endswith("h"):
-            duration_seconds = int(duration[:-1]) * 3600
-        elif duration.endswith("m"):
-            duration_seconds = int(duration[:-1]) * 60
-        expiry_time = int(time.time()) + duration_seconds if duration_seconds > 0 else 0
+        # --- Duration parsing ---
+        total_seconds = 0
+        matches = re.findall(r"(\d+)([dhm])", duration)
+        if not matches:
+            return await interaction.followup.send(
+                "❌ Invalid duration format. Try something like `3d`, `12h`, or `30m`.",
+                ephemeral=True
+            )
 
+        for value, unit in matches:
+            value = int(value)
+            if unit == "d":
+                total_seconds += value * 86400
+            elif unit == "h":
+                total_seconds += value * 3600
+            elif unit == "m":
+                total_seconds += value * 60
+
+        expiry = int(time.time()) + total_seconds if total_seconds > 0 else 0
+
+        # --- Execute ban ---
         try:
-            await interaction.guild.ban(user, reason=reason)
-            insert_case(
-                mod_cursor, interaction.guild.id, user.id, user.name, reason, "ban", interaction.user.id, int(time.time()), expiry=expiry_time
-                )
-            await interaction.followup.send(
-                f"✅ **{user.mention} has been banned for {duration if duration_seconds > 0 else 'permanently'}**", ephemeral=False
-                )
+            await interaction.guild.ban(user, reason=reason, delete_message_days=0)
         except discord.Forbidden:
-                await interaction.followup.send("❌ I do not have permission to ban this user!", ephemeral=True)
+            return await interaction.followup.send("❌ I don’t have permission to ban that user.", ephemeral=True)
         except Exception as e:
-                log.error(f"Error banning user: {e}")
-                await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
+            log.error(f"[{interaction.guild.name}] Error banning user {user}: {e}", exc_info=True)
+            return await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
+
+        # --- Log case to DB (expiry handled by your main unban task) ---
+        insert_case(
+            self.mod_cursor,
+            interaction.guild.id,
+            user.id,
+            user.name,
+            reason,
+            "ban",
+            interaction.user.id,
+            int(time.time()),
+            expiry=expiry
+        )
+
+        # --- Confirmation message ---
+        duration_text = duration if expiry else "permanently"
+        await interaction.followup.send(
+            f"✅ **{user.mention} has been banned for {duration_text}.**\nReason: `{reason}`",
+            ephemeral=False
+        )
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="unban", description="Unbans a user from the server.")
@@ -415,6 +402,122 @@ class ModeratorCommands(app_commands.Group):
             await interaction.followup.send(f"✅ Case #{case_id} has been updated with new reason: {reason}", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to edit this case!", ephemeral=True)
+
+    @app_commands.command(name="purge", description="Deletes messages with optional filters.")
+    @app_commands.describe(
+        user="Only delete messages from this user (optional)",
+        limit="How many messages to scan (max 100)",
+        type="Filter type: all, links, or media",
+        reason="Reason for purging (optional)"
+    )
+    @app_commands.choices(type=[
+        app_commands.Choice(name="All messages", value="all"),
+        app_commands.Choice(name="Messages containing links", value="links"),
+        app_commands.Choice(name="Messages with media", value="media")
+    ])
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    @cooldown(cl=3, tm=20.0, ft=2)
+    async def purge(self, interaction: Interaction, user: Optional[discord.Member] = None, limit: int = 50, type: str = "all", reason: str = None):
+        await interaction.response.defer(ephemeral=True)
+        if limit > 100:
+            limit = 100
+
+        def check(msg: discord.Message):
+            if user and msg.author != user:
+                return False
+            if type == "links" and not ("http" in msg.content or "www." in msg.content):
+                return False
+            if type == "media" and not msg.attachments:
+                return False
+            return True
+
+        deleted = await interaction.channel.purge(limit=limit, check=check, reason=reason or "Purge command")
+
+        await interaction.followup.send(
+            f"🧹 Deleted **{len(deleted)}** messages{f' from {user.mention}' if user else ''}.", ephemeral=True
+        )
+
+    @app_commands.command(name="whois", description="Get detailed information about a user.")
+    @app_commands.describe(user="The user to look up (defaults to yourself).")
+    async def whois(self, interaction: discord.Interaction, user: discord.Member = None):
+        await interaction.response.defer(thinking=True)
+
+        member = user or interaction.user
+        created_utc = member.created_at.replace(tzinfo=datetime.timezone.utc)
+        joined_utc = member.joined_at.replace(tzinfo=datetime.timezone.utc) if member.joined_at else None
+
+        # Detect "young" accounts (<60 days)
+        age_days = (datetime.datetime.now(datetime.timezone.utc) - created_utc).days
+        young_account = age_days < 60
+
+        # Build Embed
+        embed = discord.Embed(
+            title=f"🕵️ User Info — {member.display_name}",
+            color=member.color if member.color.value != 0 else 0x5865F2
+        )
+
+        # Basic Info
+        embed.add_field(name="Display Name", value=member.display_name, inline=True)
+        embed.add_field(name="Username", value=f"{member.name}", inline=True)
+        embed.add_field(name="User ID", value=f"`{member.id}`", inline=True)
+
+        # Account creation
+        embed.add_field(
+            name="Account Created",
+            value=f"{created_utc.strftime('%d/%m/%Y at %I:%M:%S %p UTC')}",
+            inline=False
+        )
+
+        # Server join info
+        if joined_utc:
+            embed.add_field(
+                name="Joined Server",
+                value=f"{joined_utc.strftime('%d/%m/%Y at %I:%M:%S %p UTC')}",
+                inline=False
+            )
+
+        # Timeout check
+        if member.communication_disabled_until:
+            until_time = member.communication_disabled_until
+            embed.add_field(
+                name="⏳ Timed Out Until",
+                value=f"{until_time.strftime('%d/%m/%Y at %I:%M:%S %p UTC')}",
+                inline=False
+            )
+
+        # Nickname
+        if member.nick:
+            embed.add_field(name="Nickname", value=member.nick, inline=False)
+
+        # Avatar & Banner
+        avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
+        banner_url = None
+        try:
+            user_obj = await interaction.client.fetch_user(member.id)
+            if user_obj.banner:
+                banner_url = user_obj.banner.url
+        except Exception:
+            pass
+
+        embed.set_thumbnail(url=avatar_url)
+        embed.add_field(
+            name="Links",
+            value=f"[Avatar]({avatar_url})" + (f" | [Banner]({banner_url})" if banner_url else ""),
+            inline=False
+        )
+
+        # Bot/human marker
+        marker = "🤖 Bot Account" if member.bot else "🧍 Human Account"
+        embed.add_field(name="Account Type", value=marker, inline=False)
+
+        # Footer for young accounts
+        if young_account:
+            embed.set_footer(text="⚠️ YOUNG ACCOUNT DETECTED — Created less than 60 days ago")
+        else:
+            embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+
+        await interaction.followup.send(embed=embed)
 
 
 class ModeratorCog(commands.Cog):
