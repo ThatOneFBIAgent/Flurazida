@@ -26,16 +26,20 @@ COPY requirements.txt /app/requirements.txt
 RUN python -m pip install --upgrade pip setuptools wheel \
  && python -m pip install -r /app/requirements.txt
 
-# Copy source
-COPY . /app
-RUN chown -R bot:bot /app
 
-# Ensure resources folder exists (font, etc.) and is readable
-RUN mkdir -p /app/resources || true
 
 # Run as non-root (optional but recommended)
 # create user 'bot'
 RUN useradd --create-home --no-log-init bot || true
+
+# Copy source
+COPY . /app
+
+# Ensure resources folder exists (font, etc.) and is readable
+RUN mkdir -p /app/resources || true
+
+# Allow user to write
+RUN chown -R bot:bot /app
 USER bot
 ENV HOME=/home/bot
 WORKDIR /app
