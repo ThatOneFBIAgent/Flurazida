@@ -50,19 +50,24 @@ class ModeratorCommands(app_commands.Group):
             reason = "No reason provided"
 
         try:
-            await user.timeout(until=until_time, reason=reason)
+            until_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=duration_seconds)
+            await user.timeout(until_time, reason=reason)
+            
             insert_case(
-                mod_cursor, interaction.guild.id, user.id, user.name, reason, "mute",
-                interaction.user.id, int(time.time()), expiry=expiry_time
+                mod_cursor, interaction.guild.id, user.id, user.name,
+                reason, "mute", interaction.user.id, int(time.time()), expiry=int(until_time.timestamp())
             )
+
             await interaction.followup.send(
-                f"✅ **{user.mention} has been muted for {duration}**\n📝 Reason: {reason}", ephemeral=False
+                f"✅ **{user.mention} has been timed out for {duration}**",
+                ephemeral=False
             )
+
         except discord.Forbidden:
-            await interaction.followup.send("❌ I don't have permission to mute that user!", ephemeral=True)
+            await interaction.followup.send("❌ I do not have permission to timeout this user!", ephemeral=True)
         except Exception as e:
             log.error(f"Error timing out user: {e}")
-            await interaction.followup.send("❌ Something went wrong while muting the user.", ephemeral=True)
+            await interaction.followup.send("❌ An error occurred while trying to timeout the user.", ephemeral=True)
 
     @app_commands.command(name="unmute", description="Removes a mute (timeout) from a user.")
     @app_commands.describe(user="The user to unmute", reason="Reason for unmuting (optional)")
@@ -440,85 +445,73 @@ class ModeratorCommands(app_commands.Group):
 
     @app_commands.command(name="whois", description="Get detailed information about a user.")
     @app_commands.describe(user="The user to look up (defaults to yourself).")
-    async def whois(self, interaction: discord.Interaction, user: discord.Member = None):
+    @cooldown(cl=3, tm=15.0, ft=2)
+    async def whois(self, interaction: discord.Interaction, user: discord.User | discord.Member = None):
         await interaction.response.defer(thinking=True)
 
         member = user or interaction.user
-        created_utc = member.created_at.replace(tzinfo=datetime.timezone.utc)
-        joined_utc = member.joined_at.replace(tzinfo=datetime.timezone.utc) if member.joined_at else None
+        if isinstance(member, discord.User):
+            member = interaction.guild.get_member(member.id) or member
 
-        # Detect "young" accounts (<60 days)
-        age_days = (datetime.datetime.now(datetime.timezone.utc) - created_utc).days
-        young_account = age_days < 60
-
-        # Build Embed
-        embed = discord.Embed(
-            title=f"🕵️ User Info — {member.display_name}",
-            color=member.color if member.color.value != 0 else 0x5865F2
-        )
-
-        # Basic Info
-        embed.add_field(name="Display Name", value=member.display_name, inline=True)
-        embed.add_field(name="Username", value=f"{member.name}", inline=True)
-        embed.add_field(name="User ID", value=f"`{member.id}`", inline=True)
-
-        # Account creation
-        embed.add_field(
-            name="Account Created",
-            value=f"{created_utc.strftime('%d/%m/%Y at %I:%M:%S %p UTC')}",
-            inline=False
-        )
-
-        # Server join info
-        if joined_utc:
-            embed.add_field(
-                name="Joined Server",
-                value=f"{joined_utc.strftime('%d/%m/%Y at %I:%M:%S %p UTC')}",
-                inline=False
-            )
-
-        # Timeout check
-        if member.communication_disabled_until:
-            until_time = member.communication_disabled_until
-            embed.add_field(
-                name="⏳ Timed Out Until",
-                value=f"{until_time.strftime('%d/%m/%Y at %I:%M:%S %p UTC')}",
-                inline=False
-            )
-
-        # Nickname
-        if member.nick:
-            embed.add_field(name="Nickname", value=member.nick, inline=False)
-
-        # Avatar & Banner
-        avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
-        banner_url = None
         try:
-            user_obj = await interaction.client.fetch_user(member.id)
-            if user_obj.banner:
-                banner_url = user_obj.banner.url
-        except Exception:
-            pass
+            created_utc = getattr(member, "created_at", None)
+            joined_utc = getattr(member, "joined_at", None)
+            if created_utc:
+                created_utc = created_utc.replace(tzinfo=datetime.timezone.utc)
+            if joined_utc:
+                joined_utc = joined_utc.replace(tzinfo=datetime.timezone.utc)
 
-        embed.set_thumbnail(url=avatar_url)
-        embed.add_field(
-            name="Links",
-            value=f"[Avatar]({avatar_url})" + (f" | [Banner]({banner_url})" if banner_url else ""),
-            inline=False
-        )
+            age_days = (datetime.datetime.now(datetime.timezone.utc) - created_utc).days if created_utc else 0
+            young_account = age_days < 60
 
-        # Bot/human marker
-        marker = "🤖 Bot Account" if member.bot else "🧍 Human Account"
-        embed.add_field(name="Account Type", value=marker, inline=False)
+            color = member.color if hasattr(member, "color") and getattr(member.color, "value", 0) != 0 else 0x5865F2
+            embed = discord.Embed(
+                title=f"🕵️ User Info — {getattr(member, 'display_name', member.name)}",
+                color=color
+            )
 
-        # Footer for young accounts
-        if young_account:
-            embed.set_footer(text="⚠️ YOUNG ACCOUNT DETECTED — Created less than 60 days ago")
-        else:
-            embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+            embed.add_field(name="Display Name", value=getattr(member, "display_name", member.name), inline=True)
+            embed.add_field(name="Username", value=member.name, inline=True)
+            embed.add_field(name="User ID", value=f"`{member.id}`", inline=True)
 
-        await interaction.followup.send(embed=embed)
+            if created_utc:
+                embed.add_field(name="Account Created", value=created_utc.strftime("%d/%m/%Y at %I:%M:%S %p UTC"), inline=False)
+            if joined_utc:
+                embed.add_field(name="Joined Server", value=joined_utc.strftime("%d/%m/%Y at %I:%M:%S %p UTC"), inline=False)
 
+            if getattr(member, "communication_disabled_until", None):
+                until_time = member.communication_disabled_until
+                embed.add_field(name="⏳ Timed Out Until", value=until_time.strftime("%d/%m/%Y at %I:%M:%S %p UTC"), inline=False)
+
+            if getattr(member, "nick", None):
+                embed.add_field(name="Nickname", value=member.nick, inline=False)
+
+            avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
+            banner_url = None
+            try:
+                user_obj = await interaction.client.fetch_user(member.id)
+                if user_obj.banner:
+                    banner_url = user_obj.banner.url
+            except Exception as e:
+                log.warning(f"Failed to fetch banner for {member.id}: {e}")
+
+            embed.set_thumbnail(url=avatar_url)
+            links = f"[Avatar]({avatar_url})" + (f" | [Banner]({banner_url})" if banner_url else "")
+            embed.add_field(name="Links", value=links, inline=False)
+
+            marker = "🤖 Bot Account" if member.bot else "🧍 Human Account"
+            embed.add_field(name="Account Type", value=marker, inline=False)
+
+            if young_account:
+                embed.set_footer(text="⚠️ YOUNG ACCOUNT DETECTED — Created less than 60 days ago")
+            else:
+                embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            log.error(f"WHOIS failed for {member}: {e}")
+            await interaction.followup.send("❌ Failed to fetch user info. Check logs for details.", ephemeral=True)
 
 class ModeratorCog(commands.Cog):
     def __init__(self, bot):
