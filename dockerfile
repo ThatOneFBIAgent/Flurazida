@@ -6,8 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 
 # Install system deps required by some Python packages (zbar for pyzbar, libs for pillow, ffmpeg for media)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       pkg-config \
       zlib1g-dev \
