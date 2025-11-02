@@ -81,7 +81,7 @@ class ModeratorCommands(app_commands.Group):
             return await interaction.followup.send("⚠️ This user is not currently muted.", ephemeral=True)
 
         try:
-            await user.timeout(until=None, reason=reason or "Manual unmute")
+            await user.timeout(None, reason=reason or "Manual unmute")
             await interaction.followup.send(f"✅ **{user.mention} has been unmuted.**", ephemeral=False)
         except discord.Forbidden:
             await interaction.followup.send("❌ I don't have permission to unmute that user!", ephemeral=True)
