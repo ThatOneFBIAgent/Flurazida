@@ -6,5 +6,6 @@ __pycache__/
 .env
 .vscode/*
 .vscode
+.venv
 token.json
 errors.log

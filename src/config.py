@@ -79,7 +79,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
                 elapsed = now - _user_command_cooldowns[key]
                 if elapsed < cl:
                     await interaction.response.send_message(
-                        f"🕒 That command’s on cooldown! Try again in {round(cl - elapsed, 1)}s.",
+                        f"🕒 That command's on cooldown! Try again in {round(cl - elapsed, 1)}s.",
                         ephemeral=True,
                     )
                     return

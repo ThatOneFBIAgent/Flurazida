@@ -8,6 +8,7 @@ from discord.ui import View, Button
 from discord.ext import commands
 from config import cooldown
 from logger import get_logger
+from pyzbar.pyzbar import decode
 
 log = get_logger()
 
@@ -1113,17 +1114,48 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, _ = self._load_frames_from_bytes(data_bytes)
-        frame = frames[0]  # just use first frame
+        frame = frames[0]  # use first frame only
         decoded_objs = decode(frame)
 
         if not decoded_objs:
             return await interaction.followup.send("❌ No QR code detected in the image.", ephemeral=True)
 
         messages = []
-        for obj in decoded_objs:
-            messages.append(f"🔹 Data: `{obj.data.decode('utf-8', errors='ignore')}`")
+        long_texts = []
+        for i, obj in enumerate(decoded_objs, 1):
+            qr_type = obj.type or "Unknown"
+            coords = obj.rect  # namedtuple: left, top, width, height
+            data_str = obj.data.decode("utf-8", errors="ignore").strip() or "(empty)"
 
-        await interaction.followup.send("\n".join(messages))
+            if len(data_str) > 800:
+                # too long — export to text
+                filename = f"qrcode_{i}.txt"
+                long_texts.append((filename, data_str))
+                preview = f"[Content too long → exported as `{filename}`]"
+            else:
+                preview = f"`{data_str}`"
+
+            messages.append(
+                f"**QR #{i}**\n"
+                f"📦 Type: `{qr_type}`\n"
+                f"🗺️ Position: (x={coords.left}, y={coords.top}, w={coords.width}, h={coords.height})\n"
+                f"💬 Data: {preview}"
+            )
+
+        # Send message and any text attachments
+        files = []
+        for filename, text in long_texts:
+            bio = io.BytesIO(text.encode("utf-8"))
+            bio.seek(0)
+            files.append(discord.File(bio, filename=filename))
+
+        embed = discord.Embed(
+            title=f"🧾 QR Scan Results ({len(decoded_objs)} found)",
+            color=0x2ECC71,
+        )
+        embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
+
+        await interaction.followup.send(embed=embed, files=files, ephemeral=False)
 
 class ImageCog(commands.Cog):
     def __init__(self, bot):
