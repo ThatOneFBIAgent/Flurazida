@@ -28,6 +28,7 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 # Copy source
 COPY . /app
+RUN chown -R bot:bot /app
 
 # Ensure resources folder exists (font, etc.) and is readable
 RUN mkdir -p /app/resources || true
