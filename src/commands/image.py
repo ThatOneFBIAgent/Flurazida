@@ -537,7 +537,7 @@ class ImageCommands(app_commands.Group):
             base.paste(f, (0, 0), f.convert("RGBA"))
 
             # font auto scaling
-            font_size = 32
+            font_size = 46
             font = ImageFont.truetype(font_path, font_size)
             draw = ImageDraw.Draw(base)
             bbox = draw.textbbox((0, 0), caption, font=font)

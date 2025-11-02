@@ -58,7 +58,7 @@ class Main(commands.AutoShardedBot):
                 log.info(f"Loaded cog: {cog_name}")
             except Exception as e:
                 failed.append((cog_name, e))
-                log.critical(f"Failed to load cog `{cog_name}`; continuing without it.")
+                log.critical(f"Failed to load cog `{cog_name}`; continuing without it. Reason: {e}")
 
         if failed:
             log.error(f"{len(failed)} cog(s) failed to load: {[n for n, _ in failed]}")
@@ -173,12 +173,26 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
         exc_info=original
     )
 
+# yes i am this petty.
 async def global_blacklist_check(interaction: Interaction) -> bool:
+    # Check guild
     guild_id = interaction.guild.id if interaction.guild else None
     if guild_id in config.FORBIDDEN_GUILDS:
         reason = config.FORBIDDEN_GUILDS[guild_id].get("reason", "No reason")
-        await interaction.response.send_message(f"**This server is not allowed to use the bot.**\nReason: {reason}", ephemeral=False)
+        await interaction.response.send_message(
+            f"❌ This server is not allowed to use the bot.\nReason: {reason}", ephemeral=True
+        )
         raise CheckFailure("Forbidden guild")
+
+    # Check user
+    user_id = interaction.user.id
+    if user_id in config.FORBIDDEN_USERS:
+        reason = config.FORBIDDEN_USERS[user_id].get("reason", "No reason")
+        await interaction.response.send_message(
+            f"❌ You are not allowed to use this bot.\nReason: {reason}", ephemeral=True
+        )
+        raise CheckFailure("Forbidden user")
+
     return True
 
 async def cycle_paired_activities():
@@ -217,15 +231,6 @@ async def moderation_expiry_task():
     while not bot.is_closed():
         now = int(time.time())
         for guild in bot.guilds:
-            expired_mutes = get_expired_cases(mod_cursor, guild.id, "mute", now)
-            for _, user_id in expired_mutes:
-                member = guild.get_member(user_id)
-                mute_role = discord.utils.get(guild.roles, name="Muted")
-                if member and mute_role:
-                    try:
-                        await member.remove_roles(mute_role, reason="Mute expired")
-                    except Exception as e:
-                        log.error(f"Unmute failed: {member} - {e}")
             expired_bans = get_expired_cases(mod_cursor, guild.id, "ban", now)
             for _, user_id in expired_bans:
                 try:

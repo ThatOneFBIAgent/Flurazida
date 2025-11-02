@@ -13,6 +13,10 @@ FORBIDDEN_GUILDS = {
     1375886954889085088: {"reason": "N/a"}
 }
 
+FORBIDDEN_USERS = {
+    935179133598711809: {"reason": "N/a"},
+}
+
 # look at the dumma code in main.py for the rest of the config
 # This file is used to store configuration settings for the bot.
 # it does not mean you'll get my bot's token, i'm not that dumb
