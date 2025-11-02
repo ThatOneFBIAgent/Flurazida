@@ -37,17 +37,6 @@ intents.message_content = True
 intents.members = True
 bot_owner = config.BOT_OWNER
 
-def wait_for_continue():
-    while True:
-        answer = input("Mixer crashed! Turn back on? [Y/N]").strip().lower()
-        if answer == "y":
-            return True
-        elif answer == "n":
-            print("Exiting.")
-            return False
-        else:
-            print("Please type Y or N.")
-
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
         super().__init__(command_prefix="!", intents=intents, *args, **kwargs)
@@ -69,10 +58,10 @@ class Main(commands.AutoShardedBot):
                 log.info(f"Loaded cog: {cog_name}")
             except Exception as e:
                 failed.append((cog_name, e))
-                log.exception(f"Failed to load cog `{cog_name}`; continuing without it.")
+                log.critical(f"Failed to load cog `{cog_name}`; continuing without it.")
 
         if failed:
-            log.warning(f"{len(failed)} cog(s) failed to load: {[n for n, _ in failed]}")
+            log.error(f"{len(failed)} cog(s) failed to load: {[n for n, _ in failed]}")
 
         async def reload(interaction: discord.Interaction, cog_name: str):
             if interaction.user.id != self.user_id:
@@ -188,7 +177,7 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
     guild_id = interaction.guild.id if interaction.guild else None
     if guild_id in config.FORBIDDEN_GUILDS:
         reason = config.FORBIDDEN_GUILDS[guild_id].get("reason", "No reason")
-        await interaction.response.send_message(f"**This server is not allowed.**\nReason: {reason}", ephemeral=False)
+        await interaction.response.send_message(f"**This server is not allowed to use the bot.**\nReason: {reason}", ephemeral=False)
         raise CheckFailure("Forbidden guild")
     return True
 

@@ -1,5 +1,8 @@
 import aiohttp, asyncio, time, logging
 from typing import Optional, TypedDict, Dict, Union
+from logger import get_logger
+
+log = get_logger()
 
 CLOUD_FLARE_PING_INTERVAL = 1800  # seconds
 CLOUD_FLARE_IPV4 = "1.1.1.1"
@@ -26,7 +29,7 @@ async def _ping_once(session: aiohttp.ClientSession, url: str) -> float:
 
 async def _loop(interval: float):
     global _CACHE
-    logging.info("Cloudflare ping loop started (interval=%s)", interval)
+    log.info("Cloudflare ping loop started (interval=%s)", interval)
     while True:
         try:
             async with aiohttp.ClientSession() as session:
@@ -34,13 +37,13 @@ async def _loop(interval: float):
                     v4 = await _ping_once(session, f"https://{CLOUD_FLARE_IPV4}/cdn-cgi/trace")
                 except Exception as e:
                     v4 = None
-                    logging.debug("CF IPv4 ping failed: %s", e)
+                    log.warning("CF IPv4 ping failed: %s", e)
 
                 try:
                     v6 = await _ping_once(session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
                 except Exception as e:
                     v6 = None
-                    logging.debug("CF IPv6 ping failed: %s", e)
+                    log.warning("CF IPv6 ping failed: %s", e)
 
                 async with _CACHE_LOCK:
                     _CACHE["ipv4"] = v4
@@ -49,7 +52,7 @@ async def _loop(interval: float):
                     _CACHE["error"] = None
             # end session
         except Exception as e:
-            logging.exception("Unexpected error in Cloudflare ping loop")
+            log.warning("Unexpected error in Cloudflare ping loop")
             async with _CACHE_LOCK:
                 _CACHE["error"] = str(e)
         await asyncio.sleep(interval)
