@@ -35,25 +35,33 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="📡 API Latency", value=f"`{latency} ms`", inline=True)
         embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f} ms`", inline=True)
 
-        # Add cached Cloudflare ping info (if available)
         try:
             cf_cache = await cf.get_cached_pings()
             ipv4 = cf_cache.get("ipv4")
             ipv6 = cf_cache.get("ipv6")
             ts = cf_cache.get("ts")
 
-            if ipv4 is None:
-                embed.add_field(name="🟠 CF IPv4 RTT", value="N/A", inline=False)
-            else:
-                embed.add_field(name="🟠 CF IPv4 RTT", value=f"`{ipv4:.1f} ms`", inline=False)
+            # Always show IPv4 ping
+            embed.add_field(
+                name="🟠 CF IPv4 RTT",
+                value=f"`{ipv4:.1f} ms`" if ipv4 is not None else "N/A",
+                inline=False,
+            )
 
-            if ipv6 is None:
-                embed.add_field(name="🟠 CF IPv6 RTT", value="N/A", inline=True)
-            else:
-                embed.add_field(name="🟠 CF IPv6 RTT", value=f"`{ipv6:.1f} ms`", inline=True)
+            # Detect Railway/Linux environment
+            system = platform.system().lower()
+            is_linux = system == "linux"
+            is_railway = "RAILWAY_ENVIRONMENT" in os.environ
+
+            # Only show IPv6 if it’s available AND we’re not on Railway/Linux
+            if ipv6 is not None and not (is_linux or is_railway):
+                embed.add_field(name="🟢 CF IPv6 RTT", value=f"`{ipv6:.1f} ms`", inline=True)
 
             if ts:
-                embed.set_footer(text=f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}")
+                embed.set_footer(
+                    text=f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+
         except Exception:
             embed.add_field(name="🟠 CF RTT", value="Error reading cache", inline=True)
 
