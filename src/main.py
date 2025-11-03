@@ -3,18 +3,43 @@
 #    © 2024-2025  Iza Carlos (Aka Carlos E.)
 #    Licensed under the GNU Affero General Public License v3.0
 
+# Standard Library Imports
+import asyncio
+import io
+import os
+import psutil
+import random
+import signal
+import socket
+import sys
+import time
+
+# Third-Party Imports
+import aiohttp
 import discord
-from discord.ext import commands
 from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from discord.ext import commands
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-import config, asyncio, random, sys, socket, aiohttp, os, psutil, time, signal, io
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+
+# Local Application Imports
 import CloudflarePing as cf
+import config
 from database import (
-    econ_conn, get_expired_cases, mod_conn, mod_cursor, periodic_backup, restore_db_from_gdrive_env,
-    ECONOMY_DB_PATH, MODERATOR_DB_PATH, BACKUP_FOLDER_ID, backup_all_dbs_to_gdrive_env, restore_all_dbs_from_gdrive_env
+    econ_conn,
+    get_expired_cases,
+    mod_conn,
+    mod_cursor,
+    periodic_backup,
+    restore_db_from_gdrive_env,
+    ECONOMY_DB_PATH,
+    MODERATOR_DB_PATH,
+    BACKUP_FOLDER_ID,
+    backup_all_dbs_to_gdrive_env,
+    restore_all_dbs_from_gdrive_env,
 )
 from logger import get_logger
 
@@ -175,23 +200,25 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
 
 # yes i am this petty.
 async def global_blacklist_check(interaction: Interaction) -> bool:
-    # Check guild
+    # Check guild blacklist
     guild_id = interaction.guild.id if interaction.guild else None
     if guild_id in config.FORBIDDEN_GUILDS:
         reason = config.FORBIDDEN_GUILDS[guild_id].get("reason", "No reason")
         await interaction.response.send_message(
-            f"❌ This server is not allowed to use the bot.\nReason: {reason}", ephemeral=True
+            f"**This server is not allowed to use the bot.**\nReason: {reason}",
+            ephemeral=True
         )
-        raise CheckFailure("Forbidden guild")
+        return False
 
-    # Check user
+    # Check user blacklist
     user_id = interaction.user.id
     if user_id in config.FORBIDDEN_USERS:
         reason = config.FORBIDDEN_USERS[user_id].get("reason", "No reason")
         await interaction.response.send_message(
-            f"❌ You are not allowed to use this bot.\nReason: {reason}", ephemeral=True
+            f"❌ You are not allowed to use this bot.\nReason: {reason}",
+            ephemeral=True
         )
-        raise CheckFailure("Forbidden user")
+        return False
 
     return True
 

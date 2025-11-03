@@ -1,14 +1,35 @@
-import discord
-import time, random, re, asyncio, math, io, aiohttp, subprocess, platform, threading, json, datetime, psutil, os, base64, config
-from typing import Optional
-from discord.ext import commands
-from discord import app_commands
-from discord import Interaction
-from config import BOT_OWNER, BOT_TOKEN, cooldown
+# Standard Library Imports
+import asyncio
+import base64
+import config
+import datetime
+import io
+import json
+import math
+import os
+import platform
+import psutil
+import random
+import re
+import subprocess
+import threading
+import time
 from datetime import timezone, timedelta, datetime
-import CloudflarePing as cf
+from typing import Optional
 
+
+# Third-Party Imports
+import aiohttp
+import discord
+from discord.ext import commands
+from discord import app_commands, Interaction
+
+
+# Local Imports
+import CloudflarePing as cf
+from config import BOT_OWNER, BOT_TOKEN, cooldown
 from logger import get_logger
+
 
 log = get_logger()
 

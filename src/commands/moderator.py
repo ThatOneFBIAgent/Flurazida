@@ -1,12 +1,30 @@
-import discord, asyncio, time, sys, datetime, re
-from discord.ext import commands
-from discord import app_commands
-from discord import Interaction
-from database import get_cases_for_guild, get_case, insert_case, remove_case, edit_case_reason, mod_cursor
-from config import cooldown
+# Standard Library Imports
+import asyncio
+import datetime
+import re
+import sys
+import time
 from typing import Optional
 
+
+# Third-Party Imports
+import discord
+from discord.ext import commands
+from discord import app_commands, Interaction
+
+
+# Local Imports
+from database import (
+    get_cases_for_guild,
+    get_case,
+    insert_case,
+    remove_case,
+    edit_case_reason,
+    mod_cursor
+)
+from config import cooldown
 from logger import get_logger
+
 
 log = get_logger()
 

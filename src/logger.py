@@ -3,9 +3,7 @@ import inspect
 import sys
 import os
 
-# ────────────────────────────────────────────────────────────────
 # Custom auto-context color formatter
-# ────────────────────────────────────────────────────────────────
 class ColoredFormatter(logging.Formatter):
     COLORS = {
         logging.DEBUG: "\033[90m",    # gray
@@ -32,9 +30,7 @@ class ColoredFormatter(logging.Formatter):
         formatted = f"[{msecs}ms] [{record.levelname:^8}] [{module_name}] {record.getMessage()}"
         return f"{color}{formatted}{self.RESET}"
 
-# ────────────────────────────────────────────────────────────────
 # Base logger setup
-# ────────────────────────────────────────────────────────────────
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColoredFormatter())
 
@@ -44,9 +40,7 @@ logging.basicConfig(
     force=True
 )
 
-# ────────────────────────────────────────────────────────────────
 # Smart auto-context logger getter
-# ────────────────────────────────────────────────────────────────
 def get_logger(name=None) -> logging.Logger:
     """
     Returns a contextual logger based on the caller's filename or module.

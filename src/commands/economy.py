@@ -1,10 +1,30 @@
-import random, discord, asyncio
-from discord import Interaction
+
+# Standard Library Imports
+import asyncio
+import random
+
+
+# Third-Party Imports
+import discord
+from discord import Interaction, app_commands
 from discord.ext import commands
-from discord import app_commands
-from database import get_balance, update_balance, add_user, get_user_items, get_robbery_modifier, check_gun_defense, decrement_gun_use
-from database import remove_item_from_user, update_item_uses, add_item_to_user
+
+
+# Local Imports
+from database import (
+    get_balance,
+    update_balance,
+    add_user,
+    get_user_items,
+    get_robbery_modifier,
+    check_gun_defense,
+    decrement_gun_use,
+    remove_item_from_user,
+    update_item_uses,
+    add_item_to_user
+)
 from config import cooldown
+
 
 class EconomyCommands(app_commands.Group):
     def __init__(self):

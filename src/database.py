@@ -1,18 +1,33 @@
 # database.py
 # only mess with this file if you want a headache, trust me it's not fun.
 
-from logging import exception
-import sqlite3, shutil, os, asyncio, sys, time, json, tempfile, io, base64, zipfile
+# Standard Library Imports
+import asyncio
+import base64
+import io
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import tempfile
+import time
+import zipfile
 from functools import wraps
-from dotenv import load_dotenv
-from config import BACKUP_GDRIVE_FOLDER_ID
+from logging import exception
 
-from google.oauth2.credentials import Credentials
+# Third-Party Imports
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload # fuck pydrive2
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+
+# Local Imports
+from config import BACKUP_GDRIVE_FOLDER_ID
 from logger import get_logger
+
 
 log = get_logger()
 

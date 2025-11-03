@@ -1,14 +1,37 @@
-from re import A, S
-import io, time, math, asyncio, logging, aiohttp, imageio, discord, os, zipfile, json, urllib.parse, re, qrcode
+
+# Standard Library Imports
+import asyncio
+import io
+import json
+import logging
+import math
+import os
+import re
+import time
+import zipfile
+import urllib.parse
 from typing import Dict, Optional, Tuple, List, Literal
+
+
+# Third-Party Imports
+import aiohttp
+import discord
+import imageio
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageFilter
+import qrcode
+from PIL import (
+    Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageFilter
+)
 from discord import app_commands
-from discord.ui import View, Button
 from discord.ext import commands
+from discord.ui import View, Button
+from pyzbar.pyzbar import decode
+
+
+# Local Imports
 from config import cooldown
 from logger import get_logger
-from pyzbar.pyzbar import decode
+
 
 log = get_logger()
 
@@ -488,7 +511,6 @@ class ImageCommands(app_commands.Group):
 
         return None
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="forcegif", description="Convert an image (or gif) to a forced GIF output.")
     @cooldown(cl=10, tm=25.0, ft=3)
     async def force_gif(
@@ -563,7 +585,6 @@ class ImageCommands(app_commands.Group):
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "captioned.gif")
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="jpegify", description="Apply JPEG artifacting. Set recursions to repeat the effect.")
     @cooldown(cl=10, tm=25.0, ft=3)
     async def jpegify(
@@ -589,7 +610,6 @@ class ImageCommands(app_commands.Group):
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, f"jpegified_x{recursions}.gif")
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="avatar", description="Get a user's avatar (or your own by default).")
     @cooldown(cl=5, tm=25.0, ft=3)
     async def avatar(
@@ -668,7 +688,6 @@ class ImageCommands(app_commands.Group):
         ext = "gif" if emote.animated else "png"
         await self._send_image_bytes(interaction, data, f"{emote.id}_emote.{ext}")
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="serveravatar", description="Get the server (guild) icon.")
     @cooldown(cl=5, tm=25.0, ft=3)
     async def serveravatar(self, interaction: discord.Interaction):
@@ -686,7 +705,6 @@ class ImageCommands(app_commands.Group):
                 data = await r.read()
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_icon.png")
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="flip", description="Flip an image horizontally/vertically or both.")
     @cooldown(cl=10, tm=25.0, ft=3)
     async def flip(
@@ -741,7 +759,6 @@ class ImageCommands(app_commands.Group):
                 dst[y, x] = src_np[sy, sx]
         return Image.fromarray(dst, "RGBA")
 
-    # @safe_command(timeout=30.0)
     @app_commands.command(name="globe", description="Wrap an image onto a rotating globe (exports a GIF).")
     @cooldown(cl=20, tm=30.0, ft=3)
     async def globe(

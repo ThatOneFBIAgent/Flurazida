@@ -1,8 +1,26 @@
 # Secrets & others (geeneral config)
 # config.py
-import os, asyncio
-from discord import Interaction
-from dotenv import load_dotenv # why is this always missing import? 23/10/2025: now everything's a missing import lol (i fucked up my ide)
+
+# Standard Library Imports
+import asyncio
+import functools
+import inspect
+import logging
+import os
+import time
+from functools import wraps
+from typing import Callable, Optional
+
+# Third-Party Imports
+import discord
+from discord import File, Interaction
+from dotenv import load_dotenv
+
+# Local Imports
+from logger import get_logger
+
+
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BOT_OWNER = 853154444850364417 # Replace with your own user ID
@@ -26,13 +44,6 @@ FORBIDDEN_USERS = {
 # This will require dotenv, otherwise you risk sharing your bot token with third parties and discord ressetting the token.
 
 # still doesn't stop me from putting code here.
- 
-import time, discord, functools, asyncio, inspect, logging
-from functools import wraps
-from discord import File, Interaction
-from typing import Callable, Optional
-from discord import Interaction
-from logger import get_logger
 
 log = get_logger()
 log.setLevel(logging.INFO)
