@@ -57,34 +57,24 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f} ms`", inline=True)
 
         try:
-            cf_cache = await cf.get_cached_pings()
+            cf_cache = await cf.get_cached_pings() or {}
             ipv4 = cf_cache.get("ipv4")
-            ipv6 = cf_cache.get("ipv6")
             ts = cf_cache.get("ts")
 
-            # Always show IPv4 ping
             embed.add_field(
                 name="🟠 CF IPv4 RTT",
                 value=f"`{ipv4:.1f} ms`" if ipv4 is not None else "N/A",
                 inline=False,
             )
 
-            # Detect Railway/Linux environment
-            system = platform.system().lower()
-            is_linux = system == "linux"
-            is_railway = "RAILWAY_ENVIRONMENT" in os.environ
-
-            # Only show IPv6 if it’s available AND we’re not on Railway/Linux
-            if ipv6 is not None and not (is_linux or is_railway):
-                embed.add_field(name="🟢 CF IPv6 RTT", value=f"`{ipv6:.1f} ms`", inline=True)
-
             if ts:
                 embed.set_footer(
                     text=f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
 
-        except Exception:
-            embed.add_field(name="🟠 CF RTT", value="Error reading cache", inline=True)
+        except Exception as e:
+            log.warning(f"Cloudflare ping cache read failed: {e}")
+            embed.add_field(name="🟠 CF RTT", value="Unavailable", inline=False)
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
@@ -100,10 +90,10 @@ class FunCommands(app_commands.Group):
             HELP_TEXT = (
                 "🎲 **Dice Roller Help**\n\n"
                 "Syntax: combine terms with + or -: `1d20 + 1d4 - 2 + 3d6k2`\n\n"
-                "> `XdY` — roll X Y-sided dice\n"
-                "> `XdYkN` / `XdYD N` — keep highest N / drop lowest N (per-group). NOTE: **drop uses uppercase `D`** to avoid ambiguity with the dice `d`.\n\n"
-                "> numeric terms like `+2` or `-1` are constants\n\n"
-                "> `!` / `!!` / `!p` / `!!p` — explode / compound / penetrate / compound+penetrate\n"
+                "`XdY` — roll X Y-sided dice\n"
+                "`XdYkN` / `XdYD N` — keep highest N / drop lowest N (per-group). NOTE: **drop uses uppercase `D`** to avoid ambiguity with the dice `d`.\n\n"
+                "numeric terms like `+2` or `-1` are constants\n\n"
+                "`!` / `!!` / `!p` / `!!p` — explode / compound / penetrate / compound+penetrate\n"
                 "Tip: pass the slash option `expand=True` for a full breakdown."
             )
             help_embed = discord.Embed(title="🎲 Dice Roller Help", description=HELP_TEXT, color=0x3498db)

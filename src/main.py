@@ -13,6 +13,7 @@ import signal
 import socket
 import sys
 import time
+import contextlib
 
 # Third-Party Imports
 import aiohttp
@@ -34,7 +35,6 @@ from database import (
     mod_conn,
     mod_cursor,
     periodic_backup,
-    restore_db_from_gdrive_env,
     ECONOMY_DB_PATH,
     MODERATOR_DB_PATH,
     BACKUP_FOLDER_ID,
@@ -200,6 +200,14 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
 
 # yes i am this petty.
 async def global_blacklist_check(interaction: Interaction) -> bool:
+    # Check if bot is shutting down/restarting
+    if getattr(bot, "_is_shutting_down", False):
+        await interaction.response.send_message(
+            "🚧 Bot is restarting, please wait a moment.",
+            ephemeral=True
+        )
+        return False
+
     # Check guild blacklist
     guild_id = interaction.guild.id if interaction.guild else None
     if guild_id in config.FORBIDDEN_GUILDS:
@@ -255,19 +263,80 @@ async def cycle_paired_activities():
 
 async def moderation_expiry_task():
     await bot.wait_until_ready()
-    while not bot.is_closed():
-        now = int(time.time())
-        for guild in bot.guilds:
-            expired_bans = get_expired_cases(mod_cursor, guild.id, "ban", now)
-            for _, user_id in expired_bans:
-                try:
-                    user = await bot.fetch_user(user_id)
-                    await guild.unban(user, reason="Ban expired")
-                except Exception as e:
-                    log.error(f"Unban failed: {user_id} - {e}")
-        log.info("Moderation expiry check complete.")
-        await asyncio.sleep(60)
+    log.info("Moderation expiry task started.")
 
+    while not bot.is_closed():
+        try:
+            now = int(time.time())
+            # Fetch all expired cases at once
+            expired_cases = get_expired_cases(mod_cursor, None, "ban", now)
+            # expected structure: [(guild_id, user_id), ...]
+
+            if not expired_cases:
+                await asyncio.sleep(90 + random.randint(0, 10))  # no rush
+                continue
+
+            guild_map = {}
+            for guild_id, user_id in expired_cases:
+                guild_map.setdefault(guild_id, []).append(user_id)
+
+            for guild_id, user_ids in guild_map.items():
+                guild = bot.get_guild(guild_id)
+                if not guild:
+                    continue
+
+                for user_id in user_ids:
+                    try:
+                        user = await bot.fetch_user(user_id)
+                        await guild.unban(user, reason="Ban expired")
+                        log.info(f"✅ Unbanned {user} ({user_id}) from {guild.name}")
+                    except discord.NotFound:
+                        log.warning(f"User {user_id} not found when unbanning.")
+                    except Exception as e:
+                        log.error(f"❌ Failed to unban {user_id} in {guild_id}: {e}")
+
+            # sleep slightly randomized to desync ticks
+            await asyncio.sleep(60 + random.randint(5, 20))
+
+        except Exception as e:
+            log.error(f"💥 moderation_expiry_task crashed: {e}")
+            await asyncio.sleep(30) 
+
+async def graceful_shutdown():
+    log.info("Shutdown signal received — performing cleanup...")
+
+    # Prevent new interactions (optional but good practice)
+    bot._is_shutting_down = True
+
+    # Let ongoing tasks wrap up
+    await asyncio.sleep(1)
+
+    # Final backup
+    try:
+        log.info("📦 Performing final database backup before shutdown...")
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                backup_all_dbs_to_gdrive_env,
+                [
+                    (ECONOMY_DB_PATH, "economy.db"),
+                    (MODERATOR_DB_PATH, "moderator.db")
+                ],
+                BACKUP_FOLDER_ID,
+                commit_conns=[econ_conn, mod_conn]
+            ),
+            timeout=25  # must complete before Railway kills us
+        )
+        log.info("✅ Backup completed successfully.")
+    except asyncio.TimeoutError:
+        log.error("⚠️ Backup timed out — Railway may have killed us mid-upload.")
+    except Exception as e:
+        log.error(f"❌ Backup failed: {e}")
+
+    # Close bot connections
+    with contextlib.suppress(Exception):
+        await bot.close()
+
+    log.info("👋 Shutdown complete.")
 
 async def main():
     restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
@@ -291,34 +360,21 @@ async def main():
         asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
         bot.tree.interaction_check = global_blacklist_check
 
-        # Create a future that will be set when a shutdown signal is received
         shutdown_signal = asyncio.get_event_loop().create_future()
 
-        # Signal handler
         def _signal_handler():
             if not shutdown_signal.done():
                 shutdown_signal.set_result(True)
 
-        # Register signals
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, _signal_handler)
 
-        # Run the bot, but also wait for shutdown signal
         bot_task = asyncio.create_task(bot.start(config.BOT_TOKEN))
-        await shutdown_signal  # Wait here until signal received
 
-        # Signal received → shutdown
-        log.info("Shutdown signal received, stopping bot...")
-        await bot.close()  # closes connections cleanly
-        try:
-            backup_all_dbs_to_gdrive_env([
-                (ECONOMY_DB_PATH, "economy.db"),
-                (MODERATOR_DB_PATH, "moderator.db")
-            ], BACKUP_FOLDER_ID, commit_conns=[econ_conn, mod_conn])
-            log.info("Final backup complete.")
-        except Exception as e:
-            log.error(f"Backup on exit failed: {e}")
+        await shutdown_signal  # wait for termination signal
+        await graceful_shutdown()
+
 
 if __name__ == "__main__":
     try:
