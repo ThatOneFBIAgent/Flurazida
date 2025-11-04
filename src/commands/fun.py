@@ -14,6 +14,7 @@ import re
 import subprocess
 import threading
 import time
+import secrets
 from datetime import timezone, timedelta, datetime
 from typing import Optional
 
@@ -107,6 +108,12 @@ class FunCommands(app_commands.Group):
         # Remove &N±Z fragments BEFORE tokenizing so the numeric N inside them is not treated as a standalone constant.
         # We'll still parse the actual & modifiers later (see ampersand_matches step further down).
         sanitized_no_amp = re.sub(r'&\d+[+-]\d+', '', sanitized_orig)
+
+        simple_roll_match = re.fullmatch(r'([+-]?)(?:d)?(\d+)', sanitized, re.IGNORECASE)
+        if simple_roll_match:
+            sign = simple_roll_match.group(1) or ''
+            sides = simple_roll_match.group(2)
+            sanitized = f"{sign}1d{sides}"
 
         token_pattern = re.compile(r'([+-]?)(\d+[dD](?:!{1,2}(?:p)?)?\d+(?:[kK]\d+|D\d+)?|\d+)')
         tokens = token_pattern.findall(sanitized_no_amp)
@@ -467,7 +474,8 @@ class FunCommands(app_commands.Group):
             "Listen to your heart, it said yes (no)", "Come again? I was listening to music"
         ]
 
-        answer = random.choice(responses)
+        index = secrets.randbelow(len(responses))
+        answer = responses[index]
         embed = discord.Embed(title="🎱 Magic 8-Ball", color=0x3498db)
         embed.add_field(name="Question", value=f"`{question}`", inline=False)
         embed.add_field(name="Answer", value=f"`{answer}`", inline=False)
