@@ -2,7 +2,6 @@
 import asyncio
 import base64
 import config
-import datetime
 import io
 import json
 import math
@@ -103,19 +102,21 @@ class FunCommands(app_commands.Group):
 
         # Tokenize into signed parts: supports +1d20, -2, +3d6k1!!p etc.
         sanitized = dice.replace(" ", "")
-        sanitized_orig = sanitized  # keep the full original (contains & modifiers) for later parsing of &N+Z
 
-        # Remove &N±Z fragments BEFORE tokenizing so the numeric N inside them is not treated as a standalone constant.
-        # We'll still parse the actual & modifiers later (see ampersand_matches step further down).
-        sanitized_no_amp = re.sub(r'&\d+[+-]\d+', '', sanitized_orig)
-
+        # Normalize shorthand like "20" or "+20" into "1d20"
         simple_roll_match = re.fullmatch(r'([+-]?)(?:d)?(\d+)', sanitized, re.IGNORECASE)
         if simple_roll_match:
             sign = simple_roll_match.group(1) or ''
             sides = simple_roll_match.group(2)
             sanitized = f"{sign}1d{sides}"
 
-        token_pattern = re.compile(r'([+-]?)(\d+[dD](?:!{1,2}(?:p)?)?\d+(?:[kK]\d+|D\d+)?|\d+)')
+        sanitized_orig = sanitized  # keep the full original (contains & modifiers) for later parsing of &N+Z
+        # Remove &N±Z fragments BEFORE tokenizing so the numeric N inside them is not treated as a standalone constant.
+        # We'll still parse the actual & modifiers later (see ampersand_matches step further down).
+        sanitized_no_amp = re.sub(r'&\d+[+-]\d+', '', sanitized)
+
+        # Tokenize
+        token_pattern = re.compile(r'([+-]?)(\d+[dD](?:!{1,2}(?:p)?)?\d+(?:[kK]\d+|D\d+)?|\d+)', re.IGNORECASE)
         tokens = token_pattern.findall(sanitized_no_amp)
         if not tokens:
             await interaction.followup.send("❌ **Invalid format!** Do /roll dice: help for syntax and examples", ephemeral=False)
@@ -484,36 +485,109 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(cl=60, tm=25.0, ft=3)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
+        """
+        Playful fake 'hack' animation. Totally simulated — does not access any real data.
+        """
         await interaction.response.defer(ephemeral=False)
+
         if target == interaction.user:
-            return await interaction.followup.send("❌ You can't hack yourself!", ephemeral=True)
+            return await interaction.followup.send("❌ You can't hack yourself (unless you want to be roasted by your own IP).", ephemeral=True)
 
-        # Simulate hacking process with an elaborate "animation" and rising percentage
-        message = await interaction.followup.send(f"💻 Hacking {target.mention}... Please wait...", ephemeral=False)
+        # Tiny friendly disclaimer so we dont get banished by discord
+        disclaimer = "-# ⚠️ **Disclaimer:** This is a simulated gag — no personal data is accessed or stored."
+        msg = await interaction.followup.send(f"💻 Initializing hack sequence on {target.mention}...\n{disclaimer}", ephemeral=False)
+        try:
+            msg = await interaction.original_response()
+        except Exception:
+            # fallback if original_response not available
+            pass
 
-        steps = [
-            "Bypassing firewall...",
-            "Accessing mainframe...",
-            "Decrypting passwords...",
-            "Extracting data...",
-            "Uploading virus...",
-            "Finalizing hack..."
+        # Flavorful staged messages
+        stages = [
+            "Scanning ports (why are there so many open ports?)",
+            "Bypassing cookie consent... delicious crumbs detected",
+            "Probing social media for embarrassing karaoke clips",
+            "Cracking password (this is probably 'password123' tbh)",
+            "Injecting tasteful malware (just kidding, it's glitter)",
+            "Compiling list of suspiciously common hobbies...",
+            "Accessing private folder: `mildly_awkward_memes/`",
+            "Uploading hypebeast.exe to cloud (takes a sec)",
+            "Planting digital cactus 🌵 — can't remove remotely, oops"
         ]
-        total_steps = len(steps)
-        percent_per_step = 100 // (total_steps + 1)
+
+        # Randomized leak pool (completely fictional/fake)
+        fake_emails = [
+            f"{target.name.lower()}{random.randint(1,999)}@example.com",
+            f"{target.name.lower()}.{random.randint(10,99)}@mailinator.com",
+            f"{target.name[0].lower()}{secrets.token_hex(2)}@nope.invalid"
+        ]
+        fake_passwords = ["hunter2", "ilovepizza", "correcthorsebatterystaple", "123456789", "letmeinpls"]
+        fake_ips = [f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
+                    f"172.1{random.randint(6,31)}.{random.randint(0,255)}.{random.randint(0,255)}"]
+        fake_files = ["mildly_awkward_meme.png", "favorite_thanksgiving_dish.txt", "guitar_solo.mid", "shopping_list.xlsx"]
+
         progress = 0
+        bar_len = 20
 
-        # Get the message object to edit
-        msg = await interaction.original_response()
+        # chance to "backfire" on the invoker (comedic)
+        backfire = random.random() < 0.06  # 6% chance to backfire
+        if backfire:
+            final_status = "BACKFIRE"
+            final_text = f"💥 Whoops — security flagged your machine! You got pwned instead. Better luck next time, {interaction.user.mention}."
+        else:
+            final_status = "SUCCESS"
+            final_text = f"✅ Hack complete! Collected a tasteful pile of totally-fictional evidence on {target.display_name}."
 
-        for i, step in enumerate(steps):
-            progress += percent_per_step
-            bar = "█" * (progress // 10) + "░" * (10 - (progress // 10))
-            await msg.edit(content=f"💻 Hacking {target.mention}...\n[{bar}] {progress}%\n{step}")
-            await asyncio.sleep(1.2)
+        # perform stages with progress updates
+        for i, stage in enumerate(random.sample(stages, k=min(len(stages), 6))):
+            # jitter progress increments: first steps slow, later steps jump more
+            increment = random.randint(6, 20) if i > 2 else random.randint(6, 12)
+            progress = min(99, progress + increment)
+            blocks = "█" * (progress * bar_len // 100)
+            spaces = "░" * (bar_len - len(blocks))
+            content = f"💻 Hacking **{target.display_name}**...\n`[{blocks}{spaces}] {progress}%`\n🔧 {stage}"
+            try:
+                await msg.edit(content=content)
+            except Exception:
+                # some clients don't allow edit in this context; ignore
+                pass
+            await asyncio.sleep(random.uniform(0.9, 1.6))
 
-        # Finish at 100%
-        await msg.edit(content=f"💻 Hacking {target.mention}...\n[██████████] 100%\n✅ Hack complete! All their cookies have been stolen and eaten!🍪")
+        # final flash to 100
+        progress = 100
+        blocks = "█" * bar_len
+        await asyncio.sleep(0.6)
+        try:
+            await msg.edit(content=f"💻 Hacking **{target.display_name}**...\n`[{blocks}] 100%`\n🎯 Finalizing...")
+        except Exception:
+            pass
+        await asyncio.sleep(0.9)
+
+        # Build a quirky embed of fake 'leaked' info (strictly fictional)
+        embed = discord.Embed(title=f"📂 Leak — {target.display_name}", color=0xE74C3C)
+        if backfire:
+            embed.description = final_text
+            embed.add_field(name="Effect", value="You have been roasted. Console: `¯\\_(ツ)_/¯`", inline=False)
+            embed.add_field(name="Remediation", value="Reboot, unplug, beg for mercy.", inline=False)
+        else:
+            embed.add_field(name="Primary Email", value=random.choice(fake_emails), inline=True)
+            embed.add_field(name="Favorite Password (leaked)", value=random.choice(fake_passwords), inline=True)
+            embed.add_field(name="Last Known IP", value=random.choice(fake_ips), inline=True)
+            embed.add_field(name="Top Secret Files", value=", ".join(random.sample(fake_files, 2)), inline=False)
+            embed.add_field(name="Note", value="All results are fabricated for entertainment. No personal data was accessed.", inline=False)
+            embed.set_footer(text=final_text)
+
+        # Final send/replace
+        try:
+            await msg.edit(content=None, embed=embed)
+        except Exception:
+            # fallback: send as a new message
+            await interaction.followup.send(embed=embed)
+
+        # playfully log to console (dev-only)
+        log.info(f"[FAKE HACK] {interaction.user} simulated hack of {target} — backfire={backfire}")
+
+        return
 
     @app_commands.command(name="info", description="Get information about the bot.")
     @cooldown(cl=5, tm=20.0, ft=3)
@@ -716,7 +790,6 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=hidden)
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="letter", description="Generate a random letter.")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def letter(self, interaction: discord.Interaction):
@@ -726,7 +799,6 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="Generated Letter", value=f"`{letter}`", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=False) # What are we letter-gatekeeping now?
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="cat", description="Get a random cat image")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def cat(self, interaction: discord.Interaction):
@@ -747,7 +819,6 @@ class FunCommands(app_commands.Group):
                 embed.set_footer(text=f"Cat ID: {cat_id}")
                 await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def dog(self, interaction: discord.Interaction):
@@ -765,8 +836,7 @@ class FunCommands(app_commands.Group):
                 embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
                 embed.set_image(url=dog_url)
                 await interaction.followup.send(embed=embed, ephemeral=False)
-    
-    # @safe_command(timeout=10.0)
+
     @app_commands.command(name="help", description="Get a list of available commands (paginated).")
     @cooldown(cl=2, tm=10.0, ft=3)
     async def help_command(self, interaction: discord.Interaction):
@@ -826,7 +896,6 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=get_embed(0), view=HelpView(), ephemeral=False)
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="pokedex", description="Get information about a Pokémon.")
     @app_commands.describe(pokemon="The name/number of the Pokémon to look up, empty for random")
     @cooldown(cl=10, tm=30.0, ft=3)
@@ -874,7 +943,6 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="xkcd", description="Get a random XKCD comic.")
     @app_commands.describe(comic="The comic number to fetch (leave empty for random comic)")
     @cooldown(cl=7, tm=25.0, ft=3)
@@ -916,7 +984,6 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
     @app_commands.describe(term="The term to look up (leave empty for random definition)")
     @cooldown(cl=10, tm=30.0, ft=3)
@@ -973,7 +1040,6 @@ class FunCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=True)
         process = psutil.Process(os.getpid())
         mem_info = process.memory_info()
-        cpu_percent = process.cpu_percent(interval=0.1)
 
         # Get number of guilds and users
         guild_count = len(self.bot.guilds)

@@ -20,12 +20,12 @@ import imageio
 import numpy as np
 import qrcode
 from PIL import (
-    Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageFilter
+    Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageFilter, ImageOps
 )
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import View, Button
-from pyzbar.pyzbar import decode
+from pyzbar.pyzbar import decode  # type: ignore # We ignore due to the complications of installing pyzbar locally, but this (should) import fine.
 
 
 # Local Imports
@@ -1131,8 +1131,13 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, _ = self._load_frames_from_bytes(data_bytes)
-        frame = frames[0]  # use first frame only
-        decoded_objs = decode(frame)
+
+        decoded_objs = []
+        for frame in frames:
+            gray = ImageOps.grayscale(frame)
+            decoded_objs = decode(gray)
+            if decoded_objs:
+                break
 
         if not decoded_objs:
             return await interaction.followup.send("❌ No QR code detected in the image.", ephemeral=True)
