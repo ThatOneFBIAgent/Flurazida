@@ -89,7 +89,7 @@ class FunCommands(app_commands.Group):
             footer_note = []
             if ts:
                 footer_note.append(
-                    f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
+                    f"CF cached: {datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
             if is_railway:
                 footer_note.append("Running on Railway (IPv6 disabled)")
