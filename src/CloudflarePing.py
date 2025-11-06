@@ -3,6 +3,8 @@
 # Standard Library Imports
 import asyncio
 import time
+import os
+import platform
 from typing import Optional, TypedDict, Dict, Union
 
 
@@ -18,6 +20,11 @@ log = get_logger()
 CLOUD_FLARE_PING_INTERVAL = 1800  # seconds
 CLOUD_FLARE_IPV4 = "1.1.1.1"
 CLOUD_FLARE_IPV6 = "2606:4700:4700::1111"
+
+# Environment detection
+IS_RAILWAY = "RAILWAY_PROJECT_ID" in os.environ  # most reliable Railway indicator
+IS_DOCKER = os.path.exists("/.dockerenv")
+IS_LINUX = platform.system().lower() == "linux"
 
 class CloudflareCache(TypedDict):
     ipv4: Optional[float]
@@ -49,21 +56,22 @@ async def _loop(interval: float):
                 except Exception as e:
                     v4 = None
                     log.warning("CF IPv4 ping failed: %s", e)
-
-                try:
-                    v6 = await _ping_once(session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
-                except Exception as e:
-                    v6 = None
-                    log.warning("CF IPv6 ping failed: %s", e)
-
+                v6 = None
+                if not IS_RAILWAY and not IS_DOCKER:
+                    try:
+                        v6 = await _ping_once(session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
+                    except Exception as e:
+                        v6 = None
+                        log.warning("CF IPv6 ping failed: %s", e)
+                else:
+                    log.debug("Skipping IPv6 ping (unsupported in Railway/Docker).")
                 async with _CACHE_LOCK:
                     _CACHE["ipv4"] = v4
                     _CACHE["ipv6"] = v6
                     _CACHE["ts"] = time.time()
                     _CACHE["error"] = None
-            # end session
         except Exception as e:
-            log.warning("Unexpected error in Cloudflare ping loop")
+            log.warning("Unexpected error in Cloudflare ping loop: %s", e)
             async with _CACHE_LOCK:
                 _CACHE["error"] = str(e)
         await asyncio.sleep(interval)

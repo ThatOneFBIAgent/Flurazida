@@ -56,21 +56,48 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="📡 API Latency", value=f"`{latency} ms`", inline=True)
         embed.add_field(name="⏳ Thinking Time", value=f"`{thinking_time:.2f} ms`", inline=True)
 
+        # Detect environment (used for IPv6 handling)
+        is_railway = "RAILWAY_PROJECT_ID" in os.environ
+        is_docker = os.path.exists("/.dockerenv")
+
         try:
             cf_cache = await cf.get_cached_pings() or {}
             ipv4 = cf_cache.get("ipv4")
+            ipv6 = cf_cache.get("ipv6")
             ts = cf_cache.get("ts")
 
+            # IPv4 RTT
             embed.add_field(
                 name="🟠 CF IPv4 RTT",
                 value=f"`{ipv4:.1f} ms`" if ipv4 is not None else "N/A",
                 inline=False,
             )
 
+            # IPv6 RTT or reason it's missing
+            if ipv6 is not None:
+                embed.add_field(name="🟣 CF IPv6 RTT", value=f"`{ipv6:.1f} ms`", inline=False)
+            else:
+                if is_railway:
+                    ipv6_text = "Not available"
+                elif is_docker:
+                    ipv6_text = "Not available, Docker lacks IPv6)"
+                else:
+                    ipv6_text = "N/A"
+                embed.add_field(name="🟣 CF IPv6 RTT", value=ipv6_text, inline=False)
+
+            # Footer with timestamp and environment note
+            footer_note = []
             if ts:
-                embed.set_footer(
-                    text=f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
+                footer_note.append(
+                    f"CF cached: {datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
+            if is_railway:
+                footer_note.append("Running on Railway (IPv6 disabled)")
+            elif is_docker:
+                footer_note.append("Running in Docker (IPv6 disabled)")
+
+            if footer_note:
+                embed.set_footer(text=" | ".join(footer_note))
 
         except Exception as e:
             log.warning(f"Cloudflare ping cache read failed: {e}")
@@ -94,6 +121,7 @@ class FunCommands(app_commands.Group):
                 "`XdYkN` / `XdYD N` — keep highest N / drop lowest N (per-group). NOTE: **drop uses uppercase `D`** to avoid ambiguity with the dice `d`.\n\n"
                 "numeric terms like `+2` or `-1` are constants\n\n"
                 "`!` / `!!` / `!p` / `!!p` — explode / compound / penetrate / compound+penetrate\n"
+                "Simplified inputs, such as `20` will auto convert to a 1d20.\n"
                 "Tip: pass the slash option `expand=True` for a full breakdown."
             )
             help_embed = discord.Embed(title="🎲 Dice Roller Help", description=HELP_TEXT, color=0x3498db)

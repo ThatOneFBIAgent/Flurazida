@@ -41,7 +41,7 @@ FORBIDDEN_USERS = {
 # and you shouldn't be either.
 
 # Do not host config.py with raw bot token on your repository, instead use environment variables or a secure vault, or just host it on your pc.
-# This will require dotenv, otherwise you risk sharing your bot token with third parties and discord ressetting the token.
+# This will require dotenv (already set in requirements), otherwise you risk sharing your bot token with third parties and discord ressetting the token.
 
 # still doesn't stop me from putting code here.
 
@@ -242,7 +242,7 @@ ACTIVITIES = [
     discord.Game("experimenting with superacids"),
     discord.Game("assembling a Grignard reagent"),
     discord.Game("quantum entanglement hide-and-seek"),
-    discord.Game("running DFT simulations for giggles"),
+    discord.Game("with DFT simulations for giggles"),
 
     # Listening (Listening To ...)
     discord.Activity(type=discord.ActivityType.listening, name="the periodic table song"),
