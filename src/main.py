@@ -121,7 +121,7 @@ class Main(commands.AutoShardedBot):
         ))
 
         await self.tree.sync()
-        await self.tree.sync(guild=discord.Object(id=1240438418388029460))
+        await self.tree.sync(guild=discord.Object(id=1240438418388029460)) # this is for a test server
 
     async def change_activity_all(self, activity, status):
         """Force sync activities across all shards safely."""

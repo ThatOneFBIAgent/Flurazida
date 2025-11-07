@@ -16,7 +16,7 @@ class ColoredFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         color = self.COLORS.get(record.levelno, "")
-        msecs = f"{record.msecs:06.0f}"
+        msecs = f"{record.msecs:03.0f}"
 
         # Auto-truncate file path to relative module hierarchy
         module_path = record.pathname.replace(os.getcwd(), "").lstrip(os.sep)
