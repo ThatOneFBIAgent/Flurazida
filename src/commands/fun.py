@@ -22,7 +22,7 @@ from typing import Optional
 import aiohttp
 import discord
 from discord.ext import commands
-from discord import app_commands, Interaction
+from discord import app_commands, Interaction, Embed
 
 
 # Local Imports
@@ -36,6 +36,11 @@ log = get_logger()
 # Constants for dice limits
 MAX_DICE = 100
 MAX_SIDES = 1000
+
+exchange_cache = {}
+CACHE_DURATION = 86400
+MAX_AMOUNT = 1e8
+MAX_VALUE = 1e8
 
 class FunCommands(app_commands.Group):
     def __init__(self, bot):
@@ -1151,8 +1156,108 @@ class FunCommands(app_commands.Group):
         if interaction.user.id != BOT_OWNER:
             return await interaction.followup.send("❌ This is a dev only command!")
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(5) # This will outtime the timeout limit
         await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.")
+
+    @app_commands.command(name="exchange", description="Convert between two currencies (e.g. USD → EUR).")
+    @app_commands.describe(amount="Amount to convert", from_currency="Base currency (e.g. USD)", to_currency="Target currency (e.g. EUR)")
+    async def exchange(self, interaction: Interaction, amount: float, from_currency: str, to_currency: str):
+        await interaction.response.defer(ephemeral=False)
+
+        # basic validation
+        if amount <= 0:
+            return await interaction.followup.send("❌ Amount must be positive.", ephemeral=True)
+        if amount > MAX_AMOUNT:
+            return await interaction.followup.send("🚫 Amount exceeds safe conversion limit (1e8).", ephemeral=True)
+
+        from_currency = from_currency.strip().upper()
+        to_currency = to_currency.strip().upper()
+
+        if not re.fullmatch(r"[A-Z]{3}", from_currency) or not re.fullmatch(r"[A-Z]{3}", to_currency):
+            return await interaction.followup.send("❌ Invalid currency codes (use 3-letter ISO codes like USD, EUR).", ephemeral=True)
+
+        # cache lookup
+        now = time.time()
+        cached = exchange_cache.get(from_currency)
+        if cached and now - cached["timestamp"] < CACHE_DURATION:
+            rates = cached["rates"]
+        else:
+            url = f"https://open.er-api.com/v6/latest/{from_currency}"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    resp = await session.get(url, timeout=10)
+                    data = await resp.json()
+            except Exception as e:
+                return await interaction.followup.send(f"❌ API error: {e}", ephemeral=True)
+
+            if data.get("result") != "success":
+                return await interaction.followup.send("❌ Failed to retrieve exchange data.", ephemeral=True)
+
+            rates = data.get("rates", {})
+            exchange_cache[from_currency] = {"timestamp": now, "rates": rates}
+
+        if to_currency not in rates:
+            return await interaction.followup.send(f"❌ Target currency `{to_currency}` not available.", ephemeral=True)
+
+        rate = rates[to_currency]
+        converted = amount * rate
+
+        embed = Embed(title="💱 Currency Exchange", color=0x00AAFF)
+        embed.add_field(name="From", value=f"`{amount:,.2f} {from_currency}`", inline=True)
+        embed.add_field(name="To", value=f"`{converted:,.2f} {to_currency}`", inline=True)
+        embed.add_field(name="Rate", value=f"1 {from_currency} → {rate:.4f} {to_currency}", inline=False)
+        embed.set_footer(text="Rates cached up to 24 h | Data: open.er-api.com")
+
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="heights", description="Convert between meters, feet, and inches.")
+    @app_commands.describe(value="Height value (positive number)", unit="Unit of input (m, ft, or in)")
+    async def heights(self, interaction: Interaction, value: float, unit: str):
+        await interaction.response.defer(ephemeral=False)
+
+        if value <= 0:
+            return await interaction.followup.send("❌ Height must be positive.", ephemeral=True)
+        if value > MAX_VALUE:
+            return await interaction.followup.send("🚫 Height too large (max 1e8).", ephemeral=True)
+
+        unit = unit.strip().lower()
+        embed = Embed(title="📏 Height Conversion", color=0x33CC33)
+
+        try:
+            if unit in ("m", "meter", "meters"):
+                meters = value
+                feet_total = meters * 3.28084
+                feet = int(feet_total)
+                inches = (feet_total - feet) * 12
+                embed.add_field(name="Input", value=f"`{meters:.3f} m`", inline=False)
+                embed.add_field(name="Feet/Inches", value=f"`{feet} ft {inches:.1f} in`", inline=False)
+                embed.add_field(name="Inches", value=f"`{feet_total*12:.1f} in`", inline=False)
+
+            elif unit in ("ft", "feet", "foot"):
+                feet = value
+                meters = feet * 0.3048
+                inches_total = feet * 12
+                embed.add_field(name="Input", value=f"`{feet:.3f} ft`", inline=False)
+                embed.add_field(name="Meters", value=f"`{meters:.3f} m`", inline=False)
+                embed.add_field(name="Inches", value=f"`{inches_total:.1f} in`", inline=False)
+
+            elif unit in ("in", "inch", "inches"):
+                inches = value
+                meters = inches * 0.0254
+                feet_total = inches / 12
+                feet = int(feet_total)
+                rem_in = (feet_total - feet) * 12
+                embed.add_field(name="Input", value=f"`{inches:.1f} in`", inline=False)
+                embed.add_field(name="Meters", value=f"`{meters:.3f} m`", inline=False)
+                embed.add_field(name="Feet/Inches", value=f"`{feet} ft {rem_in:.1f} in`", inline=False)
+
+            else:
+                return await interaction.followup.send("❌ Unit must be `m`, `ft`, or `in`.", ephemeral=True)
+
+        except Exception as e:
+            return await interaction.followup.send(f"❌ Conversion error: {e}", ephemeral=True)
+
+        await interaction.followup.send(embed=embed)
 
 class FunCog(commands.Cog):
     def __init__(self, bot):

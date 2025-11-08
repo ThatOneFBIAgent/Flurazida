@@ -28,6 +28,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from config import BACKUP_GDRIVE_FOLDER_ID
 from logger import get_logger
 
+DEBT_FLOOR = -1000
 
 log = get_logger()
 
@@ -383,9 +384,17 @@ async def schedule_effect_decay(user_id, original_value, duration):
 
 @log_db_call
 def update_balance(user_id, amount):
-    """ Updates user balance and syncs to backup """
+    """Updates user balance, clamped to DEBT_FLOOR and synced to backup."""
     log.info(f"Updating balance for {user_id}: {amount} coins")
-    econ_cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    econ_cursor.execute("""
+        UPDATE users
+        SET balance = CASE
+            WHEN balance + ? < ?
+                THEN ?
+            ELSE balance + ?
+        END
+        WHERE user_id = ?
+    """, (amount, DEBT_FLOOR, DEBT_FLOOR, amount, user_id))
     econ_conn.commit()
 
 @log_db_call

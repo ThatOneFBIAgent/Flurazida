@@ -68,10 +68,13 @@ class EconomyCommands(app_commands.Group):
 
         success = random.random() < success_chance
 
+        robber_balancer = get_balance(user_id)
+        if robber_balancer < -50:
+            return await interaction.followup.send("💸 You can't afford risking another crime!")
+
         target_balance = get_balance(target_id)
         if target_balance < 100:
-            await interaction.followup.send(f"💸 {target.mention} doesn't have enough coins to rob!", ephemeral=True)
-            return
+            return await interaction.followup.send(f"💸 {target.mention} doesn't have enough coins to rob!", ephemeral=True)
 
         if success:
             amount = random.randint(50, min(300, target_balance))
@@ -103,7 +106,11 @@ class EconomyCommands(app_commands.Group):
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
-        success = random.random() > 0.4  
+        commiter_bal = get_balance(user_id)
+        if commiter_bal < -100:
+            return await interaction.followup.send("💸 You can't afford risking another crime!")
+
+        success = random.random() > 0.16  
         amount = random.randint(100, 600) if success else -random.randint(300, 600)
 
         update_balance(user_id, amount)
@@ -135,7 +142,7 @@ class EconomyCommands(app_commands.Group):
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
-        success = random.random() > 0.1
+        success = random.random() > 0.07
         amount = random.randint(50, 300) if success else -random.randint(100, 200)
 
         update_balance(user_id, amount)
@@ -159,13 +166,13 @@ class EconomyCommands(app_commands.Group):
 
     # @safe_command(timeout=15.0)
     @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
-    @cooldown(cl=4, tm=25.0, ft=3)
+    @cooldown(cl=6, tm=25.0, ft=3)
     async def work(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         add_user(user_id, interaction.user.name)
 
-        success = random.random() > 0.05
+        success = random.random() > 0.03
         amount = random.randint(20, 250) if success else -random.randint(400, 800)
         update_balance(user_id, amount)
 
