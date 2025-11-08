@@ -209,6 +209,8 @@ class GamblingCommands(app_commands.Group):
         update_balance(user_id, winnings - bet)
 
         result = f"🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n"
+        log.info(f"VISIBLE: {top_final}, {final_row}, {bot_final}")
+        log.info(f"GRID USED: {grid}")
 
         if winnings > 0:
             result += f"✨ **You won `{winnings}` coins!** ✨"
