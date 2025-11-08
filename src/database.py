@@ -36,7 +36,7 @@ def log_db_call(func):
     from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
-        log.info(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.debug(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return func(*args, **kwargs)
     return wrapper
 
@@ -44,7 +44,7 @@ def log_mod_call(func):
     from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
-        log.info(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.debug(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return func(*args, **kwargs)
     return wrapper
 

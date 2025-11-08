@@ -191,26 +191,27 @@ class GamblingCommands(app_commands.Group):
             if symbol == "🗿":
                 return 100
             if symbol == "7️⃣":
-                return 10
-            return 5
+                return 15
+            return 3
 
         winnings = 0
         winning_lines = []
 
+        best_win = 0
         for line in lines:
             s1, s2, s3 = [grid[r][c] for r, c in line]
             if s1 == s2 == s3:
-                winnings += bet * reward_for(s1)
-                winning_lines.append((line, s1))
+                best_win = max(best_win, bet * reward_for(s1))
             elif s1 == s2 or s2 == s3 or s1 == s3:
-                winnings += bet * 2  # small partial pair reward
+                best_win = max(best_win, bet * 1.2)
+        winnings = best_win
 
         # update balance
         update_balance(user_id, winnings - bet)
 
         result = f"🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n"
-        log.info(f"VISIBLE: {top_final}, {final_row}, {bot_final}")
-        log.info(f"GRID USED: {grid}")
+        log.debug(f"VISIBLE: {top_final}, {final_row}, {bot_final}")
+        log.debug(f"GRID USED: {grid}")
 
         if winnings > 0:
             result += f"✨ **You won `{winnings}` coins!** ✨"
