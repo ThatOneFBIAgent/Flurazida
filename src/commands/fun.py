@@ -1075,6 +1075,10 @@ class FunCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=True)
 
         # Core data
+        cpu_count = psutil.cpu_count(logical=True)
+        cpu_freq = psutil.cpu_freq()
+        total_mem = psutil.virtual_memory().total / (1024 * 1024)
+        used_mem = psutil.virtual_memory().used / (1024 * 1024)
         mem = self.process.memory_full_info()
         cpu = psutil.cpu_percent(interval=None)
         latency = round(self.bot.latency * 1000, 2)
@@ -1084,6 +1088,14 @@ class FunCommands(app_commands.Group):
             uptime_seconds = 0
         else:
             uptime_seconds = int(now - bot_start_time)
+
+        shard_stats = []
+        for shard_id, shard in self.bot.shards.items():
+            shard_latency = round(shard.latency * 1000, 2)
+            # estimate per shard mem — psutil doesn’t isolate per-thread/shard usage,
+            # but we can give an even slice of total RSS for clarity
+            mem_mb = mem.rss / (len(self.bot.shards) or 1) / (1024 * 1024)
+            shard_stats.append(f"`Shard {shard_id}` | 🧠 {mem_mb:.1f} MB | 📶 {shard_latency} ms")
 
         def format_uptime(seconds: int):
             days, seconds = divmod(seconds, 86400)
@@ -1106,7 +1118,7 @@ class FunCommands(app_commands.Group):
         embed.add_field(
             name="📡 Core",
             value=(
-                f"**Latency:** `{latency} ms`\n"
+                f"**Latency:** `{latency}` ms\n"
                 f"**Uptime:** `{format_uptime(uptime_seconds)}`\n"
                 f"**Python:** `{platform.python_version()}`\n"
                 f"**discord.py:** `{discord.__version__}`"
@@ -1117,8 +1129,9 @@ class FunCommands(app_commands.Group):
         embed.add_field(
             name="🧠 System",
             value=(
-                f"**Memory:** `{mem.rss / (1024 * 1024):.2f} MB`\n"
-                f"**CPU Load:** `{cpu:.1f}%`"
+                f"**CPU:** `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
+                f"**RAM:** `{used_mem:.0f}` / `{total_mem:.0f}` MB\n"
+                f"**OS:** {platform.system()} {platform.release()}"
             ),
             inline=True
         )
@@ -1128,11 +1141,17 @@ class FunCommands(app_commands.Group):
             value=(
                 f"**Guilds:** `{len(self.bot.guilds)}`\n"
                 f"**Users:** `{len(self.bot.users)}`\n"
-                f"**Shards:** `{len(self.bot.shards)}`"
             ),
             inline=True
         )
-        embed.set_footer(text=f"Process ID `{self.process.pid}` | {interaction.client.user.name}")
+
+        embed.add_field(
+            name="🧩 Shards",
+            value="\n".join(shard_stats),
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Process ID {self.process.pid} | {interaction.client.user.name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="base64", description="Encode or decode a message in Base64.")
