@@ -93,198 +93,105 @@ class GamblingCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="gambling", description="Gambling related commands")
 
-    # @safe_command(timeout=10.0)
     @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
-    @cooldown(cl=15, tm=35.0, ft=3) # careful, discord rate limits edits to 5 per 5 seconds so we can't be too fast or we get fucked
+    @cooldown(cl=15, tm=35.0, ft=3)
     async def slots(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         balance = get_balance(user_id)
+
         if balance <= DEBT_FLOOR:
             return await interaction.followup.send(
                 f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
                 ephemeral=True
             )
-        bet_amount = resolve_bet_input(bet_input, user_id)
-        if bet_amount is None or bet_amount <= 0:
+
+        bet = resolve_bet_input(bet_input, user_id)
+        if bet is None or bet <= 0:
             return await interaction.followup.send(
                 "❌ Invalid bet amount (must be a positive integer within your available balance).",
                 ephemeral=True
             )
-        
-        bet = bet_amount
 
         symbol_pool = ["🍒", "🍋", "🍉", "⭐", "🍌", "🍑", "🥭", "7️⃣", "🗿"]
-        weights =      [10,    10,    10,    8,    8,    8,    8,    3,    1]
-        empty = "<:empty:1388238752295555162>"  # Replace with your actual :empty: emoji ID
+        weights = [10, 10, 10, 8, 8, 8, 8, 3, 1]
+        empty = "<:empty:1388238752295555162>"  # replace w/ your emoji ID
 
-        # Prepare the final result for the middle row
-        top_final  = random.choices(symbol_pool, weights=weights, k=3)
-        final_row  = random.choices(symbol_pool, weights=weights, k=3)
-        bot_final  = random.choices(symbol_pool, weights=weights, k=3)
+        # Prepare final results
+        top_final = random.choices(symbol_pool, weights=weights, k=3)
+        mid_final = random.choices(symbol_pool, weights=weights, k=3)
+        bot_final = random.choices(symbol_pool, weights=weights, k=3)
 
-        # Animation setup: all reels start spinning
-        spin_time = [2.5, 3.6, 4.5]  # seconds for each reel to stop
-        interval = 0.38 # Less spammy, lower = faster updates but risks rate limit
-        elapsed = 0
-        start_time = asyncio.get_event_loop().time()
-        stopped = [False, False, False]
-        current = [[random.choice(symbol_pool) for _ in range(3)] for _ in range(3)]  # 3 rows
-
-        embed = discord.Embed(title="Slot Machine", color=0xFFD700)
-        await interaction.followup.send(embed=embed, ephemeral=False)
+        # Show "spinning" message
+        embed = discord.Embed(
+            title="🎰 Slot Machine",
+            description="*Spinning...*",
+            color=0xFFD700
+        )
+        await interaction.followup.send(embed=embed)
         msg = await interaction.original_response()
 
-        while not all(stopped):
-            now = asyncio.get_event_loop().time()
-            elapsed = now - start_time
-
-            for col in range(3):
-                if not stopped[col]:
-                    # Update all 3 rows in this column with the same emoji
-                    emoji = random.choice(symbol_pool)
-                    for row in range(3):
-                        current[row][col] = emoji
-
-            # Stop each reel at its time, and set its column to the final result
-            for col, t in enumerate(spin_time):
-                if not stopped[col] and elapsed >= t:
-                    stopped[col] = True
-                    current[0][col] = top_final[col]
-                    current[1][col] = final_row[col]
-                    current[2][col] = bot_final[col]
-
-            # Build the slot matrix
-            matrix = (
-                f"{empty} {current[0][0]} {current[0][1]} {current[0][2]} {empty}\n"
-                f"➡️ {current[1][0]} {current[1][1]} {current[1][2]} ⬅️\n"
-                f"{empty} {current[2][0]} {current[2][1]} {current[2][2]} {empty}"
+        # Fake short animation (2–3 edits max)
+        for _ in range(3):
+            temp_grid = [[random.choice(symbol_pool) for _ in range(3)] for _ in range(3)]
+            spin_display = (
+                f"{empty} {temp_grid[0][0]} {temp_grid[0][1]} {temp_grid[0][2]} {empty}\n"
+                f"➡️ {temp_grid[1][0]} {temp_grid[1][1]} {temp_grid[1][2]} ⬅️\n"
+                f"{empty} {temp_grid[2][0]} {temp_grid[2][1]} {temp_grid[2][2]} {empty}"
             )
-            embed.description = f"🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n*Spinning...*"
+            embed.description = f"🎰{empty}🎰{empty}🎰\n{spin_display}\n🎰{empty}🎰{empty}🎰\n*Spinning...*"
             await msg.edit(embed=embed)
-            await asyncio.sleep(interval)
+            await asyncio.sleep(0.7 + random.uniform(0, 0.3))
 
-        # Final display
+        # Build final grid
         matrix = (
             f"{empty} {top_final[0]} {top_final[1]} {top_final[2]} {empty}\n"
-            f"➡️ {final_row[0]} {final_row[1]} {final_row[2]} ⬅️\n"
+            f"➡️ {mid_final[0]} {mid_final[1]} {mid_final[2]} ⬅️\n"
             f"{empty} {bot_final[0]} {bot_final[1]} {bot_final[2]} {empty}"
         )
 
-        # Determine winnings (actual casino like)
-        grid = [top_final, final_row, bot_final]
+        # Calculate winnings
+        grid = [top_final, mid_final, bot_final]
         lines = [
-            # Rows
             [(0, 0), (0, 1), (0, 2)],
             [(1, 0), (1, 1), (1, 2)],
             [(2, 0), (2, 1), (2, 2)],
-            # Columns
             [(0, 0), (1, 0), (2, 0)],
             [(0, 1), (1, 1), (2, 1)],
             [(0, 2), (1, 2), (2, 2)],
-            # Diagonals
             [(0, 0), (1, 1), (2, 2)],
             [(0, 2), (1, 1), (2, 0)],
         ]
 
         def reward_for(symbol):
-            if symbol == "🗿":
-                return 100
-            if symbol == "7️⃣":
-                return 15
+            if symbol == "🗿": return 100
+            if symbol == "7️⃣": return 15
             return 3
 
         winnings = 0
-        winning_lines = []
-
-        best_win = 0
         for line in lines:
             s1, s2, s3 = [grid[r][c] for r, c in line]
             if s1 == s2 == s3:
-                best_win = max(best_win, bet * reward_for(s1))
+                winnings = max(winnings, int(bet * reward_for(s1)))
             elif s1 == s2 or s2 == s3 or s1 == s3:
-                best_win = max(best_win, bet * 1.2)
-        winnings = best_win
+                winnings = max(winnings, int(bet * 1.2))
 
-        # update balance
-        update_balance(user_id, winnings - bet)
+        net_gain = int(winnings - bet)
+        update_balance(user_id, net_gain)
 
+        # Build result message
         result = f"🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n"
-        log.debug(f"VISIBLE: {top_final}, {final_row}, {bot_final}")
-        log.debug(f"GRID USED: {grid}")
 
-        if winnings > 0:
-            result += f"✨ **You won `{winnings}` coins!** ✨"
+        if net_gain > 0:
+            result += f"✨ **You profited `{net_gain}` coins!** ✨"
+        elif winnings > 0:
+            result += f"💫 **You broke even! (`+0`)**"
         else:
-            result += "💀 **You lost your bet...**"
+            result += f"💀 **You lost your bet of `{bet}` coins.**"
 
         embed.description = result
         await msg.edit(embed=embed)
 
-    # @safe_command(timeout=10.0)
-    @app_commands.command(name="roulette", description="Bet on a number or color (red/black) in Roulette!")
-    @cooldown(cl=15, tm=35.0, ft=3)
-    async def roulette(self, interaction: discord.Interaction, bet_input: str, choice: str):
-        await interaction.response.defer(ephemeral=False)
-        user_id = interaction.user.id
-        balance = get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-            return await interaction.followup.send(
-                f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
-                ephemeral=True
-            )
-        bet_amount = resolve_bet_input(bet_input, user_id)
-        if bet_amount is None or bet_amount <= 0:
-            return await interaction.followup.send(
-                "❌ Invalid bet amount (must be a positive integer within your available balance).",
-                ephemeral=True
-            )
-        
-        bet = bet_amount
-        wheel_numbers = list(range(0, 37))  # 0-36
-
-        # Animation: show spinning effect before revealing result
-        spin_steps = 8
-        fake_spins = [random.choice(wheel_numbers) for _ in range(spin_steps - 1)]
-        embed = discord.Embed(
-            title="Roulette",
-            description="🎡 Spinning the wheel...",
-            color=0xFF4500
-        )
-        await interaction.followup.send(embed=embed, ephemeral=False)
-        msg = await interaction.original_response()
-
-        for i, num in enumerate(fake_spins):
-            color = "🔴 Red" if num % 2 == 1 else "⚫ Black"
-            embed.description = f"🎡 The ball is spinning... `{num}` {color}"
-            await msg.edit(embed=embed)
-            await asyncio.sleep(0.5 + i * 0.05)  # Slightly increase delay for effect
-
-        # Now pick the real result
-        landed = random.choice(wheel_numbers)
-        color = "🔴 Red" if landed % 2 == 1 else "⚫ Black"
-
-        winnings = 0
-        if choice.isdigit():
-            choice_num = int(choice)
-            if choice_num == landed:
-                winnings = bet * 35  # Single number payout
-        elif choice.lower() in ["red", "black"]:
-            if (choice.lower() == "red" and color == "🔴 Red") or (choice.lower() == "black" and color == "⚫ Black"):
-                winnings = bet * 2
-
-        update_balance(user_id, winnings - bet)
-        result = f"🎡 The ball landed on `{landed}` {color}!\n"
-
-        if winnings > 0:
-            result += f"✨ **You won `{winnings}` coins!** ✨"
-        else:
-            result += "💀 **You lost your bet...**"
-
-        embed.description = result
-        await msg.edit(embed=embed)
-
-    # @safe_command(timeout=20.0)
     @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
     @cooldown(cl=20, tm=200.0, ft=3)
     async def blackjack(self, interaction: discord.Interaction, bet_input: str):
@@ -438,7 +345,6 @@ class GamblingCommands(app_commands.Group):
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def coinflip(self, interaction: discord.Interaction, bet_input: str, guess: str):
@@ -479,7 +385,6 @@ class GamblingCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="war", description="Play War! Higher card wins.")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def war(self, interaction: discord.Interaction, bet_input: str):
@@ -539,7 +444,6 @@ class GamblingCommands(app_commands.Group):
         embed.description += f"\n\n{result}"
         await msg.edit(embed=embed)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="highlow", description="Bet on high (50-100) or low (1-49)!")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def dice(self, interaction: discord.Interaction, bet_input: str):

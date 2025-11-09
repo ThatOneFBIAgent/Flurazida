@@ -30,7 +30,6 @@ class EconomyCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="economy", description="Economy related commands")
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
     @cooldown(cl=600, tm=25.0, ft=3)
     async def rob(self, interaction: discord.Interaction, target: discord.Member):
@@ -98,7 +97,6 @@ class EconomyCommands(app_commands.Group):
             ]
             await interaction.followup.send(random.choice(messages), ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="crime", description="Commit a crime for cash. Risky!")
     @cooldown(cl=8, tm=25.0, ft=3)
     async def crime(self, interaction: discord.Interaction):
@@ -134,7 +132,6 @@ class EconomyCommands(app_commands.Group):
 
         await interaction.followup.send(random.choice(messages), ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="slut", description="Do some... work for quick cash.")
     @cooldown(cl=10, tm=25.0, ft=3) # Horny bastards.
     async def slut(self, interaction: discord.Interaction):
@@ -164,7 +161,6 @@ class EconomyCommands(app_commands.Group):
 
         await interaction.followup.send(random.choice(messages), ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
     @cooldown(cl=6, tm=25.0, ft=3)
     async def work(self, interaction: discord.Interaction):
@@ -195,7 +191,6 @@ class EconomyCommands(app_commands.Group):
 
         await interaction.followup.send(random.choice(messages), ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="balance", description="Check your current balance")
     @cooldown(cl=2, tm=25.0, ft=3)
     async def balance(self, interaction: discord.Interaction):
@@ -204,7 +199,6 @@ class EconomyCommands(app_commands.Group):
         balance = get_balance(user_id)
         await interaction.followup.send(f"💰 Your balance: **{balance}** coins")
 
-    # @safe_command(timeout=20.0)
     @app_commands.command(name="inventory", description="Check your inventory")
     @cooldown(cl=4, tm=25.0, ft=3)
     async def inventory(self, interaction: discord.Interaction):
@@ -223,7 +217,6 @@ class EconomyCommands(app_commands.Group):
         else:
             await interaction.followup.send("📦 You have no items in your inventory!", ephemeral=True)
     
-    # @safe_command(timeout=20.0)
     @app_commands.command(name="transfer", description="Give money to another user")
     @cooldown(cl=8, tm=25.0, ft=3)
     async def transfer(self, interaction: discord.Interaction, target: discord.Member, amount: int):
@@ -237,6 +230,10 @@ class EconomyCommands(app_commands.Group):
 
         add_user(user_id, interaction.user.name)
         add_user(target_id, target.name)
+
+        userbalance = get_balance(user_id)
+        if userbalance <= 0:
+            return await interaction.followup.send("💸 You can't transfer a negative balance!")
 
         if amount <= 0:
             await interaction.followup.send("❌ Invalid amount!", ephemeral=True)
@@ -252,7 +249,6 @@ class EconomyCommands(app_commands.Group):
 
         await interaction.followup.send(f"💸 You transferred {target.mention} 💰 `{amount}` coins!", ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="give", description="Give an item (or items) to another user")
     @cooldown(cl=10, tm=25.0, ft=3)
     async def give(self, interaction: discord.Interaction, target: discord.Member, item_id: int, amount: int):

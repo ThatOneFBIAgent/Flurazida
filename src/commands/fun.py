@@ -46,6 +46,8 @@ class FunCommands(app_commands.Group):
     def __init__(self, bot):
         super().__init__(name="fun", description="Fun commands like dice rolling, 8ball, ping, etc.")
         self.bot = bot
+        self.process = psutil.Process(os.getpid())
+        psutil.cpu_percent(interval=None) 
 
     # table tennis?
     @app_commands.command(name="ping", description="Check the bot's response time!")
@@ -1067,18 +1069,15 @@ class FunCommands(app_commands.Group):
 
             await interaction.followup.send(embed=embed, ephemeral=False)
 
-    @app_commands.command(name="debug", description="Stats for nerds, and other bot info.")
-    @cooldown(cl=10, tm=30.0, ft=3)
+    @app_commands.command(name="debug", description="Shows system and bot stats.")
+    @cooldown(cl=10, tm=15.0, ft=3)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        process = psutil.Process(os.getpid())
-        mem_info = process.memory_info()
 
-        # Get number of guilds and users
-        guild_count = len(self.bot.guilds)
-        user_count = len(self.bot.users)
-
-        # Uptime
+        # Core data
+        mem = self.process.memory_full_info()
+        cpu = psutil.cpu_percent(interval=None)
+        latency = round(self.bot.latency * 1000, 2)
         now = time.time()
         bot_start_time = getattr(self.bot, "start_time", time.time())
         if bot_start_time is None:
@@ -1086,7 +1085,7 @@ class FunCommands(app_commands.Group):
         else:
             uptime_seconds = int(now - bot_start_time)
 
-        def format_uptime(seconds):
+        def format_uptime(seconds: int):
             days, seconds = divmod(seconds, 86400)
             hours, seconds = divmod(seconds, 3600)
             minutes, seconds = divmod(seconds, 60)
@@ -1097,15 +1096,43 @@ class FunCommands(app_commands.Group):
             parts.append(f"{seconds}s")
             return " ".join(parts)
 
-        embed = discord.Embed(title="🛠️ Debug Info", color=0x3498db)
-        embed.add_field(name="Guilds", value=str(guild_count), inline=True)
-        embed.add_field(name="Users", value=str(user_count), inline=True)
-        embed.add_field(name="Memory Usage", value=f"{mem_info.rss / (1024 * 1024):.2f} MB", inline=True)
-        embed.add_field(name="Uptime", value=format_uptime(uptime_seconds), inline=True)
-        embed.add_field(name="Python Version", value=platform.python_version(), inline=True)
-        embed.add_field(name="Discord.py Version", value=discord.__version__, inline=True)
-        embed.add_field(name="Shard", value=str(interaction.guild.shard_id) if interaction.guild else "N/A", inline=True)
+        # Embed
+        embed = discord.Embed(
+            title="📊 Bot Diagnostics",
+            color=discord.Color.blurple(),
+            description=f"**Status snapshot for:** `{self.bot.user}`"
+        )
 
+        embed.add_field(
+            name="📡 Core",
+            value=(
+                f"**Latency:** `{latency} ms`\n"
+                f"**Uptime:** `{format_uptime(uptime_seconds)}`\n"
+                f"**Python:** `{platform.python_version()}`\n"
+                f"**discord.py:** `{discord.__version__}`"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🧠 System",
+            value=(
+                f"**Memory:** `{mem.rss / (1024 * 1024):.2f} MB`\n"
+                f"**CPU Load:** `{cpu:.1f}%`"
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="🌍 Network",
+            value=(
+                f"**Guilds:** `{len(self.bot.guilds)}`\n"
+                f"**Users:** `{len(self.bot.users)}`\n"
+                f"**Shards:** `{len(self.bot.shards)}`"
+            ),
+            inline=True
+        )
+        embed.set_footer(text=f"Process ID `{self.process.pid}` | {interaction.client.user.name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="base64", description="Encode or decode a message in Base64.")

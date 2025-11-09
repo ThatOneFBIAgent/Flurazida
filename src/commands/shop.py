@@ -118,12 +118,12 @@ class ShopView(discord.ui.View):
         """Convert l33tspeak to normal text for better item recognition"""
         leet_dict = {"4": "a", "3": "e", "1": "i", "0": "o", "5": "s", "7": "t"}
         return re.sub(r"[431057]", lambda x: leet_dict[x.group()], text)
+        # gen no idea why i made this func i am so sorry
 
 class ShopCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="shop", description="Shop related commands")
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="shop", description="View and buy items from the shop.")
     @cooldown(cl=5, tm=15.0, ft=3)
     async def shop(self, interaction: discord.Interaction):
@@ -134,7 +134,6 @@ class ShopCommands(app_commands.Group):
         view = ShopView(interaction.user.id)
         await interaction.response.send_message(embed=view.format_shop_page(), view=view, ephemeral=False)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="use", description="Use an item from your inventory")
     @app_commands.describe(item_name="The name of the item you want to use")
     @cooldown(cl=5, tm=15.0, ft=3)
