@@ -386,39 +386,44 @@ class ImageCommands(app_commands.Group):
         font_path: str = os.path.join(os.getcwd(), "resources", "impact.ttf"),
         max_font_size: int = 64,
         padding: int = 10,
-        bg_color: Tuple[int,int,int,int] = (255,255,255,255)
+        bg_color: Tuple[int,int,int,int] = (255, 255, 255, 255)
     ) -> Image.Image:
-        """Return new image with a white box on top or bottom and centered, wrapped text inside."""
+        """Return new image with a white box on top or bottom and centered wrapped text inside."""
+        # ensure a solid base (no partial transparency carry-over)
+        img = img.convert("RGBA")
+        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+        img = Image.alpha_composite(bg, img)
+
         w, h = img.size
         font_size = max_font_size
         wrapped_lines = []
 
-        # Shrink font until text fits vertically (max half of image height)
+        # shrink font until text fits vertically
         while font_size > 6:
             font = ImageFont.truetype(font_path, font_size)
             lines = []
             for paragraph in text.split("\n"):
-                lines.extend(self.wrap_text(paragraph, font, w - 2*padding))
+                lines.extend(self.wrap_text(paragraph, font, w - 2 * padding))
             line_height = font.getbbox("Ay")[3]
-            box_height = len(lines) * line_height + 2*padding
+            box_height = len(lines) * line_height + 2 * padding
             if box_height <= h // 2:
                 wrapped_lines = lines
                 break
             font_size -= 2
 
+        # fallback if still too tall
         if not wrapped_lines:
-            # fallback if still too tall
             font = ImageFont.truetype(font_path, font_size)
-            wrapped_lines = self.wrap_text(text, font, w - 2*padding)
+            wrapped_lines = self.wrap_text(text, font, w - 2 * padding)
             line_height = font.getbbox("Ay")[3]
-            box_height = len(wrapped_lines) * line_height + 2*padding
+            box_height = len(wrapped_lines) * line_height + 2 * padding
 
-        # Create new image with extra box height
+        # create new image with caption region
         new_h = h + box_height
-        new_img = Image.new("RGBA", (w, new_h), (0,0,0,0))
+        new_img = Image.new("RGBA", (w, new_h), (255, 255, 255, 255))
 
         if bottom:
-            new_img.paste(img, (0,0))
+            new_img.paste(img, (0, 0))
             box_y = h
         else:
             new_img.paste(img, (0, box_height))
@@ -427,13 +432,13 @@ class ImageCommands(app_commands.Group):
         draw = ImageDraw.Draw(new_img)
         draw.rectangle([0, box_y, w, box_y + box_height], fill=bg_color)
 
-        # Draw each line centered
+        # draw centered text lines
         for i, line in enumerate(wrapped_lines):
-            bbox = draw.textbbox((0,0), line, font=font)
-            text_w, text_h = bbox[2]-bbox[0], bbox[3]-bbox[1]
-            text_x = (w - text_w)//2
-            text_y = box_y + padding + i*line_height
-            draw.text((text_x, text_y), line, font=font, fill=(0,0,0,255))
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            text_x = (w - text_w) // 2
+            text_y = box_y + padding + i * line_height
+            draw.text((text_x, text_y), line, font=font, fill=(0, 0, 0, 255))
 
         return new_img
 
@@ -555,32 +560,33 @@ class ImageCommands(app_commands.Group):
         font_path = os.path.join(os.getcwd(), "resources", "impact.ttf")
 
         for f in frames:
-            base = Image.new("RGBA", f.size, "WHITE")  # solid white bg
-            base.paste(f, (0, 0), f.convert("RGBA"))
+            f = f.convert("RGBA")
 
-            # font auto scaling
+            # dynamic font scaling — ensures text fits width nicely
             font_size = 46
+            draw = ImageDraw.Draw(f)
             font = ImageFont.truetype(font_path, font_size)
-            draw = ImageDraw.Draw(base)
             bbox = draw.textbbox((0, 0), caption, font=font)
             text_w = bbox[2] - bbox[0]
 
-            while text_w > base.width - 40 and font_size > 24:
+            while text_w > f.width - 40 and font_size > 24:
                 font_size -= 2
                 font = ImageFont.truetype(font_path, font_size)
                 bbox = draw.textbbox((0, 0), caption, font=font)
                 text_w = bbox[2] - bbox[0]
 
-            # draw caption using V
-            base = self._draw_text_centered(
-                base,
+            # add caption properly
+            framed = self._draw_text_centered(
+                f,
                 caption,
                 bottom=bottom,
                 font_path=font_path,
                 max_font_size=font_size,
             )
-            out_frames.append(base)
-            
+
+            # ensure fully opaque frame before saving to gif
+            out_frames.append(framed.convert("RGB"))
+
         # --- Save and send GIF ---
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "captioned.gif")
@@ -678,9 +684,9 @@ class ImageCommands(app_commands.Group):
         if not emote:
             return await interaction.followup.send(f"❌ No emote named '{emote_name}' found in this server.", ephemeral=True)
 
-        url = emote.url.with_size(1024)  # ← fixed
+        url = emote.url.with_size(1024)
         async with aiohttp.ClientSession() as s:
-            async with s.get(str(url)) as r:  # convert Asset to string for aiohttp
+            async with s.get(str(url)) as r:
                 if r.status != 200:
                     return await interaction.followup.send("❌ Failed to fetch emote image.")
                 data = await r.read()

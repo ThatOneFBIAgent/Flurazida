@@ -65,7 +65,7 @@ test_server = config.TEST_SERVER
 
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
-        super().__init__(command_prefix="!", intents=intents, *args, **kwargs)
+        super().__init__(command_prefix="!", shard_count=2, intents=intents, *args, **kwargs)
         self.user_id = bot_owner
         self._ready_once = asyncio.Event()
         self._activity_sync_lock = asyncio.Lock()
@@ -156,7 +156,8 @@ async def on_shard_connect(shard_id):
 
 @bot.event
 async def on_shard_ready(shard_id):
-    log.info(f"🌐 [Shard {shard_id}] is ready and receiving events.")
+    guilds = [g for g in bot.guilds if g.shard_id == shard_id]
+    log.info(f"🌐 [Shard {shard_id}] ready — handling {len(guilds)} guild(s).")
 
 @bot.event
 async def on_shard_disconnect(shard_id):

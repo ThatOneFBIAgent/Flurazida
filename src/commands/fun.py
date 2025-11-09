@@ -1150,7 +1150,7 @@ class FunCommands(app_commands.Group):
             value="\n".join(shard_stats),
             inline=False
         )
-        
+
         embed.set_footer(text=f"Process ID {self.process.pid} | {interaction.client.user.name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 

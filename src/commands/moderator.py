@@ -107,7 +107,6 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Error unmuting user: {e}")
             await interaction.followup.send("❌ Something went wrong while unmuting.", ephemeral=True)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="kick", description="Kicks a user from the server.")
     @app_commands.describe(user="The user to kick", reason="The reason for the kick")
     @app_commands.checks.has_permissions(kick_members=True)
@@ -142,8 +141,7 @@ class ModeratorCommands(app_commands.Group):
         except Exception as e:
             log.error(f"Error kicking user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to kick the user.", ephemeral=True)
-    
-    # @safe_command(timeout=15.0)
+
     @app_commands.command(name="ban", description="Bans a user from the server (optionally timed).")
     @app_commands.describe(
         user="User to ban",
@@ -225,7 +223,6 @@ class ModeratorCommands(app_commands.Group):
             ephemeral=False
         )
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="unban", description="Unbans a user from the server.")
     @app_commands.describe(user_id="The ID of the user to unban", reason="The reason for the unban")
     @app_commands.checks.has_permissions(ban_members=True)
@@ -251,7 +248,6 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Error unbanning user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to unban the user.", ephemeral=True)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="warn", description="Warns a user.")
     @app_commands.describe(user="The user to warn", reason="The reason for the warning")
     @app_commands.checks.has_permissions(moderate_members=True)
@@ -267,7 +263,6 @@ class ModeratorCommands(app_commands.Group):
         if user.top_role >= interaction.user.top_role:
             return await interaction.followup.send("❌ You cannot warn a user with a higher or equal role!", ephemeral=True)
 
-        # FIX: get bot as a Member, not ClientUser
         bot_member = interaction.guild.get_member(self.bot.user.id)
         if bot_member is None:
             bot_member = await interaction.guild.fetch_member(self.bot.user.id)
@@ -287,7 +282,6 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Error warning user: {e}")
             await interaction.followup.send("❌ An error occurred while trying to warn the user.", ephemeral=True)
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="cases", description="View all cases for the server with pagination.")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
@@ -357,7 +351,6 @@ class ModeratorCommands(app_commands.Group):
             return await interaction.followup.send("❌ An error occurred while trying to display cases.", ephemeral=True)
         view.message = msg
 
-    # @safe_command(timeout=15.0)
     @app_commands.command(name="case", description="View details of a specific case.")
     @app_commands.describe(case_id="The ID of the case to view")
     @app_commands.checks.has_permissions(view_audit_log=True)
@@ -387,7 +380,7 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Failed to send case details message: {e}")
             return await interaction.followup.send("❌ An error occurred while trying to display case details.", ephemeral=True)
 
-    # doesnt work for some reason
+    # TODO: doesnt work for some reason
     @app_commands.command(name="deletecase", description="Delete a specific case.")
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -405,8 +398,7 @@ class ModeratorCommands(app_commands.Group):
             await interaction.followup.send(f"✅ Case #{case_id} has been deleted.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to delete this case!", ephemeral=True)
-    
-    # @safe_command(timeout=15.0)
+
     @app_commands.command(name="editcase", description="Edit the reason of a specific case.")
     @app_commands.describe(case_id="The ID of the case to edit", reason="The new reason for the case")
     @app_commands.checks.has_permissions(administrator=True)
