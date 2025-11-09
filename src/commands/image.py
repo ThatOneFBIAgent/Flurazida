@@ -346,8 +346,16 @@ class ImageCommands(app_commands.Group):
         return bio.read()
 
     async def _send_image_bytes(self, interaction: discord.Interaction, data: bytes, filename: str, ephemeral: bool = False):
-        """Helper to reply with a file."""
-        await interaction.followup.send(file=discord.File(io.BytesIO(data), filename=filename), ephemeral=ephemeral)
+        """Helper to reply with a file and size info."""
+        size_mb = len(data) / (1024 * 1024)
+        size_str = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{size_mb * 1024:.0f} KB"
+
+        file = discord.File(io.BytesIO(data), filename=filename)
+        await interaction.followup.send(
+            content=f"📎 **{filename}** · {size_str}",
+            file=file,
+            ephemeral=ephemeral
+        )
    
     # Utility transforms
 
