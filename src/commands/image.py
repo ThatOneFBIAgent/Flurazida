@@ -1271,6 +1271,7 @@ class ImageCommands(app_commands.Group):
         speed="How fast the petpet animates (2-60)",
         flip="Flip the avatar horizontally"
     )
+    @cooldown(cl=10, tm=25.0, ft=3)
     async def petpet(
         self,
         interaction: discord.Interaction,
@@ -1304,7 +1305,7 @@ class ImageCommands(app_commands.Group):
             avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
 
         # Load petpet template (transparent GIF)
-        petpet = Image.open("resources/petpet_template.gif")
+        petpet = Image.open("resources/template.gif")
         frames = []
 
         # Apply squish by scaling Y dimension
