@@ -41,7 +41,7 @@ log = get_logger()
 USER_SELECTED: Dict[int, Tuple[str, float]] = {}
 MAX_JPEG_RECURSIONS = 15 # increase at your own risk, performance-wise more recursions equals more cpu and ram usage.
 MAX_JPEG_QUALITY = 4096  # max quality setting for jpegify
-EXT_BLACKLIST = (".mp4", ".webm", ".MP4", ".WEBM")
+EXT_BLACKLIST = (".mp4", ".webm", ".MP4", ".WEBM", ".mp3", ".ogg", ".wav", ".mov", ".zip", ".7z", ".rar", ".db", ".exe", ".msi")
 
 # View for selecting an image from multiple attachments
 class ImageSelectView(View):
