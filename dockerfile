@@ -15,12 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libzbar-dev \
       ffmpeg \
       ca-certificates \
-      git \
-    && pip install --no-cache-dir -r requirements.txt \
-    && apt-get purge -y build-essential pkg-config libzbar-dev \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
-
+      git && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apt-get remove -y build-essential pkg-config libzbar-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+    
 # Set working dir
 WORKDIR /app
 
