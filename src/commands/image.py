@@ -1305,7 +1305,7 @@ class ImageCommands(app_commands.Group):
             avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
 
         # Load petpet template (transparent GIF)
-        petpet = Image.open("resources/template.gif")
+        petpet = Image.open("resources/patpat/template.gif")
         frames = []
 
         # Apply squish by scaling Y dimension
