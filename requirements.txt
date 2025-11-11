@@ -15,7 +15,8 @@ imageio
 qrcode[pil]
 pyzbar
 matplotlib
-packaging
+moviepy
+imageio-ffmpeg
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client

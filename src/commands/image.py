@@ -10,6 +10,8 @@ import re
 import time
 import zipfile
 import urllib.parse
+import tempfile
+import subprocess
 from typing import Dict, Optional, Tuple, List, Literal
 
 
@@ -39,6 +41,7 @@ log = get_logger()
 USER_SELECTED: Dict[int, Tuple[str, float]] = {}
 MAX_JPEG_RECURSIONS = 15 # increase at your own risk, performance-wise more recursions equals more cpu and ram usage.
 MAX_JPEG_QUALITY = 4096  # max quality setting for jpegify
+EXT_BLACKLIST = (".mp4", ".webm", ".MP4", ".WEBM")
 
 # View for selecting an image from multiple attachments
 class ImageSelectView(View):
@@ -91,7 +94,7 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
 
     # 1) Direct attachments (Discord-hosted) - highest priority
     for a in message.attachments:
-        if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
+        if a.filename and a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
             valid_attachments.append((a.url, a.filename))
 
     # 2) Embeds (images/thumbnails/provider url)
@@ -107,7 +110,7 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
         # embed.url (sometimes direct link to media)
         if getattr(e, "url", None):
             url = e.url
-            if url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
+            if url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
 
     # 3) URLs in message content
@@ -357,6 +360,31 @@ class ImageCommands(app_commands.Group):
             ephemeral=ephemeral
         )
    
+    async def _video_to_gif_bytes(self, data: bytes):
+        """Convert video bytes to GIF bytes, hard-limiting to 10s before decode."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_in:
+            tmp_in.write(data)
+            tmp_in.flush()
+            gif_path = tmp_in.name.replace(".mp4", ".gif")
+
+            # Use ffmpeg directly to cut and convert only first 10s
+            subprocess.run([
+                "ffmpeg",
+                "-y",                # overwrite
+                "-t", "10",          # hard limit to 10 seconds
+                "-i", tmp_in.name,
+                "-vf", "fps=15,scale=320:-1:flags=lanczos",  # reasonable quality
+                "-loop", "0",
+                gif_path
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            with open(gif_path, "rb") as f:
+                gif_data = f.read()
+
+        os.remove(tmp_in.name)
+        os.remove(gif_path)
+        return gif_data
+
     # Utility transforms
 
     def wrap_text(self, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
@@ -533,6 +561,10 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
@@ -557,6 +589,10 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
@@ -608,6 +644,11 @@ class ImageCommands(app_commands.Group):
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
+
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         if recursions > MAX_JPEG_RECURSIONS:
             return await interaction.response.send_message(f"❌ Recursions too high! Max is {MAX_JPEG_RECURSIONS}.", ephemeral=True)
@@ -729,6 +770,10 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
@@ -786,6 +831,11 @@ class ImageCommands(app_commands.Group):
         await interaction.response.defer()
         frames_count = max(8, min(64, frames_count))
         rotations = max(1, min(10, rotations))
+
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
@@ -845,6 +895,11 @@ class ImageCommands(app_commands.Group):
     ):
         await interaction.response.defer()
         shift = shift % 1.0  # normalize [0, 1)
+
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
@@ -915,6 +970,12 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
+
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
+
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
@@ -992,6 +1053,11 @@ class ImageCommands(app_commands.Group):
         strength = max(0.1, min(10.0, strength))
         radius = max(10.0, min(500.0, radius))
 
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
+        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
@@ -1139,6 +1205,11 @@ class ImageCommands(app_commands.Group):
             await interaction.followup.send(file=discord.File(bio, "qrcode.png"))
             return
 
+        if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
+        elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
+
         # Else, read QR code from image
         data_bytes = await self._resolve_image_bytes(interaction, image, image_url)
         if not data_bytes:
@@ -1192,6 +1263,82 @@ class ImageCommands(app_commands.Group):
         embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
 
         await interaction.followup.send(embed=embed, files=files, ephemeral=False)
+
+    @app_commands.command(name="petpet", description="Pat someone's head with love!")
+    @app_commands.describe(
+        user="Who to pat (defaults to yourself)",
+        squish="How squished the petpet is (100-300)",
+        speed="How fast the petpet animates (2-60)",
+        flip="Flip the avatar horizontally"
+    )
+    async def petpet(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.User] = None,
+        squish: Optional[int] = 150,
+        speed: Optional[int] = 20,
+        flip: Optional[bool] = False
+    ):
+        await interaction.response.defer()
+
+        # Validate / clamp
+        squish = max(100, min(squish, 300))
+        speed = max(2, min(speed, 60))
+
+        target = user or interaction.user
+        avatar_url = target.display_avatar.with_format("png").url
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(avatar_url) as resp:
+                if resp.status != 200:
+                    return await interaction.followup.send("❌ Failed to fetch avatar.")
+                avatar_bytes = await resp.read()
+
+        # Filter out video formats
+        if avatar_url.endswith((".mp4", ".webm")):
+            return await interaction.followup.send("❌ Invalid format! Try using a PNG, JPEG or GIF.")
+
+        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+
+        if flip:
+            avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # Load petpet template (transparent GIF)
+        petpet = Image.open("resources/petpet_template.gif")
+        frames = []
+
+        # Apply squish by scaling Y dimension
+        squish_factor = squish / 150.0  # normalize around 150 = neutral
+        for frame in ImageSequence.Iterator(petpet):
+            frame = frame.convert("RGBA")
+
+            # Apply squish
+            w, h = avatar.size
+            new_h = int(h * (150 / squish))  # inverse scaling logic
+            resized_avatar = avatar.resize((112, max(1, new_h)), Image.LANCZOS)
+
+            composed = Image.new("RGBA", frame.size)
+            composed.paste(resized_avatar, (40, 80 + (112 - new_h) // 2), resized_avatar)
+            composed.alpha_composite(frame)
+            frames.append(composed)
+
+        # Encode GIF with adjusted frame duration
+        output = io.BytesIO()
+        duration = max(20, min(200, int(1000 / speed)))  # ~20ms–200ms per frame
+        frames[0].save(
+            output,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            loop=0,
+            duration=duration,
+            disposal=2,
+            transparency=0,
+        )
+        output.seek(0)
+
+        # Send using your helper
+        await self._send_image_bytes(interaction, output.read(), "petpet.gif")
 
 class ImageCog(commands.Cog):
     def __init__(self, bot):
