@@ -1263,83 +1263,83 @@ class ImageCommands(app_commands.Group):
         embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
 
         await interaction.followup.send(embed=embed, files=files, ephemeral=False)
+# TODO: fix this to actually work
+#    @app_commands.command(name="petpet", description="Pat someone's head with love!")
+#    @app_commands.describe(
+#        user="Who to pat (defaults to yourself)",
+#        squish="How squished the petpet is (100-300)",
+#        speed="How fast the petpet animates (2-60)",
+#        flip="Flip the avatar horizontally"
+#    )
+#    @cooldown(cl=10, tm=25.0, ft=3)
+#    async def petpet(
+#        self,
+#        interaction: discord.Interaction,
+#        user: Optional[discord.User] = None,
+#        squish: Optional[int] = 150,
+#        speed: Optional[int] = 20,
+#        flip: Optional[bool] = False
+#    ):
+#        await interaction.response.defer()
 
-    @app_commands.command(name="petpet", description="Pat someone's head with love!")
-    @app_commands.describe(
-        user="Who to pat (defaults to yourself)",
-        squish="How squished the petpet is (100-300)",
-        speed="How fast the petpet animates (2-60)",
-        flip="Flip the avatar horizontally"
-    )
-    @cooldown(cl=10, tm=25.0, ft=3)
-    async def petpet(
-        self,
-        interaction: discord.Interaction,
-        user: Optional[discord.User] = None,
-        squish: Optional[int] = 150,
-        speed: Optional[int] = 20,
-        flip: Optional[bool] = False
-    ):
-        await interaction.response.defer()
+#        # Validate / clamp
+#        squish = max(100, min(squish, 300))
+#        speed = max(2, min(speed, 60))
 
-        # Validate / clamp
-        squish = max(100, min(squish, 300))
-        speed = max(2, min(speed, 60))
+#        target = user or interaction.user
+#        avatar_url = target.display_avatar.with_format("png").url
 
-        target = user or interaction.user
-        avatar_url = target.display_avatar.with_format("png").url
+#        async with aiohttp.ClientSession() as session:
+#            async with session.get(avatar_url) as resp:
+#                if resp.status != 200:
+#                    return await interaction.followup.send("❌ Failed to fetch avatar.")
+#                avatar_bytes = await resp.read()
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(avatar_url) as resp:
-                if resp.status != 200:
-                    return await interaction.followup.send("❌ Failed to fetch avatar.")
-                avatar_bytes = await resp.read()
+#        # Filter out video formats
+#        if avatar_url.endswith((".mp4", ".webm")):
+#            return await interaction.followup.send("❌ Invalid format! Try using a PNG, JPEG or GIF.")
 
-        # Filter out video formats
-        if avatar_url.endswith((".mp4", ".webm")):
-            return await interaction.followup.send("❌ Invalid format! Try using a PNG, JPEG or GIF.")
+#        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
 
-        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+#        if flip:
+#            avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
 
-        if flip:
-            avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
+#        # Load petpet template (transparent GIF)
+#        petpet = Image.open("resources/patpat/template.gif")
+#        frames = []
 
-        # Load petpet template (transparent GIF)
-        petpet = Image.open("resources/patpat/template.gif")
-        frames = []
+#        # Apply squish by scaling Y dimension
+#        squish_factor = squish / 150.0  # normalize around 150 = neutral
+#        for frame in ImageSequence.Iterator(petpet):
+#            frame = frame.convert("RGBA")
 
-        # Apply squish by scaling Y dimension
-        squish_factor = squish / 150.0  # normalize around 150 = neutral
-        for frame in ImageSequence.Iterator(petpet):
-            frame = frame.convert("RGBA")
+#            # Apply squish
+#            w, h = avatar.size
+#            new_h = int(h * (150 / squish))  # inverse scaling logic
+#            resized_avatar = avatar.resize((112, max(1, new_h)), Image.LANCZOS)
 
-            # Apply squish
-            w, h = avatar.size
-            new_h = int(h * (150 / squish))  # inverse scaling logic
-            resized_avatar = avatar.resize((112, max(1, new_h)), Image.LANCZOS)
+#            composed = Image.new("RGBA", frame.size)
+#            composed.paste(resized_avatar, (40, 80 + (112 - new_h) // 2), resized_avatar)
+#            composed.alpha_composite(frame)
+#            frames.append(composed)
 
-            composed = Image.new("RGBA", frame.size)
-            composed.paste(resized_avatar, (40, 80 + (112 - new_h) // 2), resized_avatar)
-            composed.alpha_composite(frame)
-            frames.append(composed)
+#        # Encode GIF with adjusted frame duration
+#        output = io.BytesIO()
+#        duration = max(20, min(200, int(1000 / speed)))  # ~20ms–200ms per frame
+#        frames[0].save(
+#            output,
+#            format="GIF",
+#            save_all=True,
+#            append_images=frames[1:],
+#            loop=0,
+#            duration=duration,
+#            disposal=2,
+#            transparency=0,
+#        )
+#        output.seek(0)
 
-        # Encode GIF with adjusted frame duration
-        output = io.BytesIO()
-        duration = max(20, min(200, int(1000 / speed)))  # ~20ms–200ms per frame
-        frames[0].save(
-            output,
-            format="GIF",
-            save_all=True,
-            append_images=frames[1:],
-            loop=0,
-            duration=duration,
-            disposal=2,
-            transparency=0,
-        )
-        output.seek(0)
-
-        # Send using your helper
-        await self._send_image_bytes(interaction, output.read(), "petpet.gif")
+#        # Send using your helper
+#        await self._send_image_bytes(interaction, output.read(), "petpet.gif")
 
 class ImageCog(commands.Cog):
     def __init__(self, bot):
