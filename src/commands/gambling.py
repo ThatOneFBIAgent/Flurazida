@@ -168,24 +168,42 @@ class GamblingCommands(app_commands.Group):
             if symbol == "7️⃣": return 15
             return 3
 
-        winnings = 0
+        total_winnings = 0
         for line in lines:
-            s1, s2, s3 = [grid[r][c] for r, c in line]
-            if s1 == s2 == s3:
-                winnings = max(winnings, int(bet * reward_for(s1)))
-            elif s1 == s2 or s2 == s3 or s1 == s3:
-                winnings = max(winnings, int(bet * 1.2))
+            (r1,c1), (r2,c2), (r3,c3) = line
+            s1, s2, s3 = grid[r1][c1], grid[r2][c2], grid[r3][c3]
 
-        net_gain = int(winnings - bet)
+            # 3-match
+            if s1 == s2 == s3:
+                total_winnings += int(bet * reward_for(s1))
+                continue
+
+            # 2-match ONLY if adjacent pairs match
+            # meaning either [pos1,pos2] OR [pos2,pos3]
+            pair1 = s1 == s2
+            pair2 = s2 == s3
+
+            if pair1 or pair2:
+                total_winnings += int(bet * 1.2)
+
+
+        net_gain = int(total_winnings - bet)
         update_balance(user_id, net_gain)
 
         # Build result message
         result = f"🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n"
 
-        if net_gain > 0:
+        if total_winnings > bet:
+            net_gain = total_winnings - bet
             result += f"✨ **You profited `{net_gain}` coins!** ✨"
-        elif winnings > 0:
-            result += f"💫 **You broke even! (`+0`)**"
+
+        elif total_winnings == bet:
+            result += f"💫 **You broke even! (`±0`)**"
+
+        elif total_winnings > 0:
+            net_loss = bet - total_winnings
+            result += f"😬 **You got a partial win but still lost `{net_loss}` coins.**"
+
         else:
             result += f"💀 **You lost your bet of `{bet}` coins.**"
 
