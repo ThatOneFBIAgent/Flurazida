@@ -167,7 +167,7 @@ class GamblingCommands(app_commands.Group):
 
         def reward_for(symbol):
             if symbol == '🗿': return 100
-            if symbol == '7️⃣': return 15
+            if symbol == '7️⃣': return 25
             return 3
 
         total_winnings = 0
@@ -186,7 +186,7 @@ class GamblingCommands(app_commands.Group):
             is_col = c1 == c2 == c3
 
             if (is_row or is_col) and (s1 == s2 or s2 == s3):
-                total_winnings += int(bet * 1.2)
+                total_winnings += int(bet * 0.6)
 
         net_gain = total_winnings - bet
         update_balance(user_id, net_gain)
