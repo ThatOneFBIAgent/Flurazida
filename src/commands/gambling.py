@@ -93,7 +93,7 @@ class GamblingCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="gambling", description="Gambling related commands")
 
-    @app_commands.command(name="slots", description="Spin the slot machine and test your luck!")
+    @app_commands.command(name='slots', description='Spin the slot machine and test your luck!')
     @cooldown(cl=15, tm=35.0, ft=3)
     async def slots(self, interaction: discord.Interaction, bet_input: str):
         await interaction.response.defer(ephemeral=False)
@@ -102,110 +102,106 @@ class GamblingCommands(app_commands.Group):
 
         if balance <= DEBT_FLOOR:
             return await interaction.followup.send(
-                f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
+                f'💸 You are too deep in debt ({balance} coins)! No gambling.',
                 ephemeral=True
             )
 
         bet = resolve_bet_input(bet_input, user_id)
         if bet is None or bet <= 0:
             return await interaction.followup.send(
-                "❌ Invalid bet amount (must be a positive integer within your available balance).",
+                '❌ Invalid bet amount.',
                 ephemeral=True
             )
 
-        symbol_pool = ["🍒", "🍋", "🍉", "⭐", "🍌", "🍑", "🥭", "7️⃣", "🗿"]
-        weights = [10, 10, 10, 8, 8, 8, 8, 3, 1]
-        empty = "<:empty:1388238752295555162>"  # replace w/ your emoji ID
+        symbol_pool = ['🍒','🍋','🍉','⭐','🍌','🍑','🥭','7️⃣','🗿']
+        weights = [10,10,10,8,8,8,8,3,1]
+        empty = '<:empty:1388238752295555162>'
 
-        # Prepare final results
+        # Final results
         top_final = random.choices(symbol_pool, weights=weights, k=3)
         mid_final = random.choices(symbol_pool, weights=weights, k=3)
         bot_final = random.choices(symbol_pool, weights=weights, k=3)
 
-        # Show "spinning" message
         embed = discord.Embed(
-            title="🎰 Slot Machine",
-            description="*Spinning...*",
+            title='🎰 Slot Machine',
+            description='*Spinning...*',
             color=0xFFD700
         )
         await interaction.followup.send(embed=embed)
         msg = await interaction.original_response()
 
-        # Fake short animation (2–3 edits max)
+        # Fake spin
         for _ in range(3):
-            temp_grid = [[random.choice(symbol_pool) for _ in range(3)] for _ in range(3)]
+            temp = [[random.choice(symbol_pool) for _ in range(3)] for _ in range(3)]
             spin_display = (
-                f"{empty} {temp_grid[0][0]} {temp_grid[0][1]} {temp_grid[0][2]} {empty}\n"
-                f"➡️ {temp_grid[1][0]} {temp_grid[1][1]} {temp_grid[1][2]} ⬅️\n"
-                f"{empty} {temp_grid[2][0]} {temp_grid[2][1]} {temp_grid[2][2]} {empty}"
+                f'{empty} {temp[0][0]} {temp[0][1]} {temp[0][2]} {empty}\n'
+                f'➡️ {temp[1][0]} {temp[1][1]} {temp[1][2]} ⬅️\n'
+                f'{empty} {temp[2][0]} {temp[2][1]} {temp[2][2]} {empty}'
             )
-            embed.description = f"🎰{empty}🎰{empty}🎰\n{spin_display}\n🎰{empty}🎰{empty}🎰\n*Spinning...*"
+            embed.description = f'🎰{empty}🎰{empty}🎰\n{spin_display}\n🎰{empty}🎰{empty}🎰\n*Spinning...*'
             await msg.edit(embed=embed)
-            await asyncio.sleep(0.7 + random.uniform(0, 0.3))
+            await asyncio.sleep(0.7 + random.uniform(0,0.3))
 
         # Build final grid
         matrix = (
-            f"{empty} {top_final[0]} {top_final[1]} {top_final[2]} {empty}\n"
-            f"➡️ {mid_final[0]} {mid_final[1]} {mid_final[2]} ⬅️\n"
-            f"{empty} {bot_final[0]} {bot_final[1]} {bot_final[2]} {empty}"
+            f'{empty} {top_final[0]} {top_final[1]} {top_final[2]} {empty}\n'
+            f'➡️ {mid_final[0]} {mid_final[1]} {mid_final[2]} ⬅️\n'
+            f'{empty} {bot_final[0]} {bot_final[1]} {bot_final[2]} {empty}'
         )
 
-        # Calculate winnings
         grid = [top_final, mid_final, bot_final]
+
         lines = [
-            [(0, 0), (0, 1), (0, 2)],
-            [(1, 0), (1, 1), (1, 2)],
-            [(2, 0), (2, 1), (2, 2)],
-            [(0, 0), (1, 0), (2, 0)],
-            [(0, 1), (1, 1), (2, 1)],
-            [(0, 2), (1, 2), (2, 2)],
-            [(0, 0), (1, 1), (2, 2)],
-            [(0, 2), (1, 1), (2, 0)],
+            # rows
+            [(0,0),(0,1),(0,2)],
+            [(1,0),(1,1),(1,2)],
+            [(2,0),(2,1),(2,2)],
+            # columns
+            [(0,0),(1,0),(2,0)],
+            [(0,1),(1,1),(2,1)],
+            [(0,2),(1,2),(2,2)],
+            # diagonals (2-match not allowed)
+            [(0,0),(1,1),(2,2)],
+            [(0,2),(1,1),(2,0)],
         ]
 
         def reward_for(symbol):
-            if symbol == "🗿": return 100
-            if symbol == "7️⃣": return 15
+            if symbol == '🗿': return 100
+            if symbol == '7️⃣': return 15
             return 3
 
         total_winnings = 0
+
         for line in lines:
-            (r1,c1), (r2,c2), (r3,c3) = line
+            (r1,c1),(r2,c2),(r3,c3) = line
             s1, s2, s3 = grid[r1][c1], grid[r2][c2], grid[r3][c3]
 
-            # 3-match
+            # 3 match
             if s1 == s2 == s3:
                 total_winnings += int(bet * reward_for(s1))
                 continue
 
-            # 2-match ONLY if adjacent pairs match
-            # meaning either [pos1,pos2] OR [pos2,pos3]
-            pair1 = s1 == s2
-            pair2 = s2 == s3
+            # 2-match only if horizontal or vertical
+            is_row = r1 == r2 == r3
+            is_col = c1 == c2 == c3
 
-            if pair1 or pair2:
+            if (is_row or is_col) and (s1 == s2 or s2 == s3):
                 total_winnings += int(bet * 1.2)
 
-
-        net_gain = int(total_winnings - bet)
+        net_gain = total_winnings - bet
         update_balance(user_id, net_gain)
 
-        # Build result message
-        result = f"🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n"
+        # Build final result
+        result = f'🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n'
 
-        if total_winnings > bet:
-            net_gain = total_winnings - bet
-            result += f"✨ **You profited `{net_gain}` coins!** ✨"
-
-        elif total_winnings == bet:
-            result += f"💫 **You broke even! (`±0`)**"
-
+        if net_gain > 0:
+            result += f'✨ You profited `{net_gain}` coins! ✨'
+        elif net_gain == 0:
+            result += f'💫 You broke even! (`±0`)'
         elif total_winnings > 0:
-            net_loss = bet - total_winnings
-            result += f"😬 **You got a partial win but still lost `{net_loss}` coins.**"
-
+            result += f'😬 Partial win but still lost `{abs(net_gain)}` coins.'
         else:
-            result += f"💀 **You lost your bet of `{bet}` coins.**"
+            result += f'💀 You lost your bet of `{bet}` coins.'
 
         embed.description = result
         await msg.edit(embed=embed)
