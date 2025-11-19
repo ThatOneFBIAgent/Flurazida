@@ -45,6 +45,7 @@ def get_logger(name=None) -> logging.Logger:
     """
     Returns a contextual logger based on the caller's filename or module.
     If name is omitted, it automatically infers the calling file/module hierarchy.
+    Ergo: get_logger() from src/CloudflarePing.py yields a logger named "src.CloudflarePing"
     """
     if not name:
         # Inspect call stack to find where get_logger() was invoked

@@ -343,7 +343,7 @@ class ImageCommands(app_commands.Group):
                 append_images=rest,
                 loop=loop,
                 duration=duration_ms,
-                disposal=2,
+                disposal=1,
             )
         bio.seek(0)
         return bio.read()
@@ -424,57 +424,53 @@ class ImageCommands(app_commands.Group):
         padding: int = 10,
         bg_color: Tuple[int,int,int,int] = (255, 255, 255, 255)
     ) -> Image.Image:
-        """Return new image with a white box on top or bottom and centered wrapped text inside."""
-        # ensure a solid base (no partial transparency carry-over)
-        img = img.convert("RGBA")
-        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-        img = Image.alpha_composite(bg, img)
+
+        # work in RGB only to avoid GIF palette corruption later
+        img = img.convert("RGB")
 
         w, h = img.size
         font_size = max_font_size
         wrapped_lines = []
 
-        # shrink font until text fits vertically
+        # shrink until it fits
         while font_size > 6:
             font = ImageFont.truetype(font_path, font_size)
             lines = []
-            for paragraph in text.split("\n"):
-                lines.extend(self.wrap_text(paragraph, font, w - 2 * padding))
-            line_height = font.getbbox("Ay")[3]
-            box_height = len(lines) * line_height + 2 * padding
-            if box_height <= h // 2:
+            for para in text.split("\n"):
+                lines.extend(self.wrap_text(para, font, w - 2 * padding))
+            lh = font.getbbox("Ay")[3]
+            box_h = len(lines) * lh + 2 * padding
+            if box_h <= h // 2:
                 wrapped_lines = lines
                 break
             font_size -= 2
 
-        # fallback if still too tall
         if not wrapped_lines:
             font = ImageFont.truetype(font_path, font_size)
             wrapped_lines = self.wrap_text(text, font, w - 2 * padding)
-            line_height = font.getbbox("Ay")[3]
-            box_height = len(wrapped_lines) * line_height + 2 * padding
+            lh = font.getbbox("Ay")[3]
+            box_h = len(wrapped_lines) * lh + 2 * padding
 
-        # create new image with caption region
-        new_h = h + box_height
-        new_img = Image.new("RGBA", (w, new_h), (255, 255, 255, 255))
+        # make new RGB canvas
+        new_h = h + box_h
+        new_img = Image.new("RGB", (w, new_h), (255, 255, 255))
 
         if bottom:
             new_img.paste(img, (0, 0))
             box_y = h
         else:
-            new_img.paste(img, (0, box_height))
+            new_img.paste(img, (0, box_h))
             box_y = 0
 
         draw = ImageDraw.Draw(new_img)
-        draw.rectangle([0, box_y, w, box_y + box_height], fill=bg_color)
+        draw.rectangle([0, box_y, w, box_y + box_h], fill=(255,255,255))
 
-        # draw centered text lines
+        # centered text
         for i, line in enumerate(wrapped_lines):
-            bbox = draw.textbbox((0, 0), line, font=font)
-            text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            text_x = (w - text_w) // 2
-            text_y = box_y + padding + i * line_height
-            draw.text((text_x, text_y), line, font=font, fill=(0, 0, 0, 255))
+            tw, th = draw.textbbox((0,0), line, font=font)[2:]
+            tx = (w - tw) // 2
+            ty = box_y + padding + i * lh
+            draw.text((tx, ty), line, font=font, fill=(0, 0, 0))
 
         return new_img
 
@@ -629,7 +625,9 @@ class ImageCommands(app_commands.Group):
             )
 
             # ensure fully opaque frame before saving to gif
-            out_frames.append(framed.convert("RGB"))
+            rgb = framed.convert('RGB')
+            pal = rgb.convert('P', palette=Image.ADAPTIVE)
+            out_frames.append(pal)
 
         # --- Save and send GIF ---
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
@@ -1360,7 +1358,3 @@ class ImageCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(ImageCog(bot))
-        
-# okay first of all HOW DID I GET 1000 LINES OF CODE HERE?????????
-# secondly wow this is a lot of image commands huh (least obvious Esmbot copycat)
-# also i maybe should add a check for if the bot cant send images but whatever

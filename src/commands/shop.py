@@ -64,7 +64,7 @@ class ShopView(discord.ui.View):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("❌ This isn't your shop session!", ephemeral=True)
 
-        class BuyItemModal(discord.ui.Modal, title="Buy Item"):  # type: ignore
+        class BuyItemModal(discord.ui.Modal, title="Buy Item"):
             item_name = discord.ui.TextInput(
                 label="Item Name",
                 placeholder="Enter the name of the item you want to buy",

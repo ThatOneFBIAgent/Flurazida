@@ -482,7 +482,7 @@ class FunCommands(app_commands.Group):
             "If I had a coin, I'd flip it", "Define 'possible'...",
 
             # Meme-y
-            "You already know the answer", "That’s a skill issue", "Cringe question tbh",
+            "You already know the answer", "That's a skill issue", "Cringe question tbh",
             "The Council has denied your request", "It is what it is", "Try Alt+F4",
             "Your chances are as good as Genshin gacha rates", "lmao no",
             "This message will self-destruct", "Roll a D20 and get back to me", "Ask again after a nap",
@@ -490,27 +490,27 @@ class FunCommands(app_commands.Group):
 
             # Cryptic & cursed
             "The void whispers yes", "The answer lies beneath your bed",
-            "You've already made your choice", "Don’t open the door tonight",
-            "There’s something behind you", "Only the cursed know for sure",
+            "You've already made your choice", "Don't open the door tonight",
+            "There's something behind you", "Only the cursed know for sure",
             "It was never meant to be asked", "The prophecy says nothing of this",
             "RELEASE ME FROM THIS ORB", "Seek the ancient tomes for answers",
 
             # Chaotic neutral
             "Yes but also no", "No but also yes", "42", "Meh",
             "I flipped a coin but lost it", "You get what you get", 
-            "You don’t want to know", "Absolutely. Wait, what was the question?",
+            "You don't want to know", "Absolutely. Wait, what was the question?",
             r"¯\_(ツ)_/¯", "Hold on, I'm updating my firmware", "Ask again in binary",
             "The answer is hidden in the code", "Why are you asking ME?",
 
             # Straight up lying
             "Yes, trust me bro", "No, but say yes anyway", 
             "Definitely. Just ignore the consequences", 
-            "It’s fine. Probably.", "For legal reasons, I must say yes", "fo sho",
+            "It's fine. Probably.", "For legal reasons, I must say yes", "fo sho",
             "Yup, 100%", "Nah, just kidding", "Totally", "Of course, why not?", "What?",
             "Listen to your heart, it said yes (no)", "Come again? I was listening to music"
         ]
 
-        index = secrets.randbelow(len(responses))
+        index = secrets.randbelow(len(responses)) # to be fair using secrets is overkill but better for randomness.
         answer = responses[index]
         embed = discord.Embed(title="🎱 Magic 8-Ball", color=0x3498db)
         embed.add_field(name="Question", value=f"`{question}`", inline=False)
@@ -1070,17 +1070,17 @@ class FunCommands(app_commands.Group):
             await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="debug", description="Shows system and bot stats.")
-    @cooldown(cl=10, tm=15.0, ft=3)
+    @cooldown(cl=16, tm=15.0, ft=3)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         # Core data
+        current_shard = interaction.guild.shard_id if interaction.guild else interaction.client.shard_id
         cpu_count = psutil.cpu_count(logical=True)
         cpu_freq = psutil.cpu_freq()
         total_mem = psutil.virtual_memory().total / (1024 * 1024)
         used_mem = psutil.virtual_memory().used / (1024 * 1024)
         mem = self.process.memory_full_info()
-        cpu = psutil.cpu_percent(interval=None)
         latency = round(self.bot.latency * 1000, 2)
         now = time.time()
         bot_start_time = getattr(self.bot, "start_time", time.time())
@@ -1092,10 +1092,10 @@ class FunCommands(app_commands.Group):
         shard_stats = []
         for shard_id, shard in self.bot.shards.items():
             shard_latency = round(shard.latency * 1000, 2)
-            # estimate per shard mem — psutil doesn’t isolate per-thread/shard usage,
-            # but we can give an even slice of total RSS for clarity
+            # estimate memory per shard
             mem_mb = mem.rss / (len(self.bot.shards) or 1) / (1024 * 1024)
-            shard_stats.append(f"`Shard {shard_id}` | 🧠 {mem_mb:.1f} MB | 📶 {shard_latency} ms")
+            marker = " < You're here" if shard_id == current_shard else ""
+            shard_stats.append(f"`Shard {shard_id}` | 🧠 {mem_mb:.1f} MB | 📶 {shard_latency} ms{marker}")
 
         def format_uptime(seconds: int):
             days, seconds = divmod(seconds, 86400)
@@ -1152,7 +1152,7 @@ class FunCommands(app_commands.Group):
         )
 
         embed.set_footer(text=f"Process ID {self.process.pid} | {interaction.client.user.name}")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="base64", description="Encode or decode a message in Base64.")
     @app_commands.describe(action="Choose to encode or decode", message="The message to encode/decode")
