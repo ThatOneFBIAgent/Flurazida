@@ -589,21 +589,21 @@ async def insert_case(guild_id, user_id, username, reason, action_type, moderato
         timestamp = int(time.time())
     async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
         async with conn.execute("BEGIN IMMEDIATE"):
-        try:
-            async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
-                result = await cursor.fetchone()
-                # if result is None (first case ever), start at one, Otherwise, max + 1
-                next_case_number = (result[0] or 0) +1
-            await conn.execute("""
-                INSERT INTO cases (guild_id, case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (guild_id, next_case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
-            await conn.commit()
-            return next_case_number
-        # exception handler for the offchance it fails.
-        except Exception as e:
-            await conn.rollback()
-            log.error(f"Failed to insert case: {e}")
+            try:
+                async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
+                    result = await cursor.fetchone()
+                    # if result is None (first case ever), start at one, Otherwise, max + 1
+                    next_case_number = (result[0] or 0) +1
+                await conn.execute("""
+                    INSERT INTO cases (guild_id, case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (guild_id, next_case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
+                await conn.commit()
+                return next_case_number
+            # exception handler for the offchance it fails.
+            except Exception as e:
+                await conn.rollback()
+                log.error(f"Failed to insert case: {e}")
 
 @log_mod_call
 async def get_cases_for_guild(guild_id, limit=50, offset=0):
