@@ -319,15 +319,16 @@ async def init_databases():
     async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS cases (
-            case_number INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER NOT NULL,
+            case_number INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            username TEXT NOT NULL,
-            reason TEXT,
+            username TEXT,
+            reason TEXT NOT NULL,
             action_type TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             moderator_id INTEGER NOT NULL,
-            expiry INTEGER DEFAULT 0
+            expiry INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, case_number)
         )
         """)
         # Create index on guild_id for faster queries
@@ -587,14 +588,22 @@ async def insert_case(guild_id, user_id, username, reason, action_type, moderato
     if timestamp is None:
         timestamp = int(time.time())
     async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        await conn.execute("""
-            INSERT INTO cases (guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
-        await conn.commit()
-        # Get the last inserted case_number
-        async with conn.execute("SELECT last_insert_rowid()") as cursor:
-            return (await cursor.fetchone())[0]
+        async with conn.execute("BEGIN IMMEDIATE"):
+        try:
+            async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
+                result = await cursor.fetchone()
+                # if result is None (first case ever), start at one, Otherwise, max + 1
+                next_case_number = (result[0] or 0) +1
+            await conn.execute("""
+                INSERT INTO cases (guild_id, case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (guild_id, next_case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
+            await conn.commit()
+            return next_case_number
+        # exception handler for the offchance it fails.
+        except Exception as e:
+            await conn.rollback()
+            log.error(f"Failed to insert case: {e}")
 
 @log_mod_call
 async def get_cases_for_guild(guild_id, limit=50, offset=0):
