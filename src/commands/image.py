@@ -39,9 +39,9 @@ log = get_logger()
 
 # Global image selection memory
 USER_SELECTED: Dict[int, Tuple[str, float]] = {}
-MAX_JPEG_RECURSIONS = 15 # increase at your own risk, performance-wise more recursions equals more cpu and ram usage.
-MAX_JPEG_QUALITY = 4096  # max quality setting for jpegify
-EXT_BLACKLIST = (".mp4", ".webm", ".MP4", ".WEBM", ".mp3", ".ogg", ".wav", ".mov", ".zip", ".7z", ".rar", ".db", ".exe", ".msi")
+
+# Import config from extraconfig
+from extraconfig import EXT_BLACKLIST, MAX_JPEG_RECURSIONS, MAX_JPEG_QUALITY
 
 # View for selecting an image from multiple attachments
 class ImageSelectView(View):
@@ -186,8 +186,9 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
 
         return None
 
-    # Open a single session and resolve found links
-    async with aiohttp.ClientSession() as session:
+    # Use shared session to resolve found links
+    session = interaction.client.http_session
+    if session:
         for link in found_links:
             # skip obvious non-media shorteners / trackers quickly
             try:
@@ -295,12 +296,15 @@ class ImageCommands(app_commands.Group):
                 return None
         if not url:
             return None
+        session = self.bot.http_session
+        if not session:
+            log.error("HTTP session not available")
+            return None
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    if resp.status != 200:
-                        return None
-                    return await resp.read()
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return None
+                return await resp.read()
         except Exception as e:
             log.exception("Failed to fetch URL: %s", e)
             return None
@@ -331,19 +335,43 @@ class ImageCommands(app_commands.Group):
         """Save frames to GIF bytes (PIL save_all)."""
         bio = io.BytesIO()
         if len(frames) == 1:
-            # save single-frame GIF
-            frames[0].save(bio, format="GIF")
+            # Convert to RGB first, then quantize to ensure proper color handling
+            frame = frames[0]
+            if frame.mode == 'RGBA':
+                # Create white background for transparency
+                rgb = Image.new('RGB', frame.size, (255, 255, 255))
+                rgb.paste(frame, mask=frame.split()[3])  # Use alpha channel as mask
+                frame = rgb
+            elif frame.mode != 'RGB':
+                frame = frame.convert('RGB')
+            # Quantize with dither=0 to preserve white
+            quantized = frame.quantize(colors=256, dither=Image.Dither.NONE)
+            quantized.save(bio, format="GIF")
         else:
             first, rest = frames[0], frames[1:]
-            # PIL handles conversion
-            first.save(
+            # Convert all frames to RGB with white background for transparency
+            processed_frames = []
+            for f in [first] + rest:
+                if f.mode == 'RGBA':
+                    rgb = Image.new('RGB', f.size, (255, 255, 255))
+                    rgb.paste(f, mask=f.split()[3])
+                    f = rgb
+                elif f.mode != 'RGB':
+                    f = f.convert('RGB')
+                processed_frames.append(f)
+            
+            # Quantize first frame and use it as palette for others
+            first_quantized = processed_frames[0].quantize(colors=256, dither=Image.Dither.NONE)
+            rest_quantized = [f.quantize(colors=256, palette=first_quantized, dither=Image.Dither.NONE) for f in processed_frames[1:]]
+            
+            first_quantized.save(
                 bio,
                 format="GIF",
                 save_all=True,
-                append_images=rest,
+                append_images=rest_quantized,
                 loop=loop,
                 duration=duration_ms,
-                disposal=1,
+                disposal=2,
             )
         bio.seek(0)
         return bio.read()
@@ -624,10 +652,10 @@ class ImageCommands(app_commands.Group):
                 max_font_size=font_size,
             )
 
-            # ensure fully opaque frame before saving to gif
-            rgb = framed.convert('RGB')
-            pal = rgb.convert('P', palette=Image.ADAPTIVE)
-            out_frames.append(pal)
+            # Convert to RGBA to preserve white background properly
+            # Use quantize with dither=0 to ensure white stays white
+            rgba = framed.convert('RGBA')
+            out_frames.append(rgba)
 
         # --- Save and send GIF ---
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
@@ -673,11 +701,13 @@ class ImageCommands(app_commands.Group):
         await interaction.response.defer()
         target = user or interaction.user
         url = target.display_avatar.replace(size=1024).url
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return await interaction.followup.send("❌ Failed to fetch avatar.")
-                data = await r.read()
+        session = self.bot.http_session
+        if not session:
+            return await interaction.followup.send("❌ HTTP session not available.")
+        async with session.get(url) as r:
+            if r.status != 200:
+                return await interaction.followup.send("❌ Failed to fetch avatar.")
+            data = await r.read()
         await self._send_image_bytes(interaction, data, f"{target.id}_avatar.png")
 
     @app_commands.command(name="banner", description="Get a user's banner (or your own by default).")
@@ -693,11 +723,13 @@ class ImageCommands(app_commands.Group):
         if not banner:
             return await interaction.followup.send("❌ This user has no banner.", ephemeral=True)
         url = banner.replace(size=1024).url
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return await interaction.followup.send("❌ Failed to fetch banner.")
-                data = await r.read()
+        session = self.bot.http_session
+        if not session:
+            return await interaction.followup.send("❌ HTTP session not available.")
+        async with session.get(url) as r:
+            if r.status != 200:
+                return await interaction.followup.send("❌ Failed to fetch banner.")
+            data = await r.read()
         await self._send_image_bytes(interaction, data, f"{target.id}_banner.png")
 
     @app_commands.command(name="serverbanner", description="Get the server (guild) banner.")
@@ -710,11 +742,13 @@ class ImageCommands(app_commands.Group):
         if not banner:
             return await interaction.followup.send("❌ This server has no banner.", ephemeral=True)
         url = interaction.guild.banner.replace(size=1024).url
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return await interaction.followup.send("❌ Failed to fetch server banner.")
-                data = await r.read()
+        session = self.bot.http_session
+        if not session:
+            return await interaction.followup.send("❌ HTTP session not available.")
+        async with session.get(url) as r:
+            if r.status != 200:
+                return await interaction.followup.send("❌ Failed to fetch server banner.")
+            data = await r.read()
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_banner.png")
 
     @app_commands.command(name="emote", description="Gets raw emote image by its name.")
@@ -732,11 +766,13 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send(f"❌ No emote named '{emote_name}' found in this server.", ephemeral=True)
 
         url = emote.url.with_size(1024)
-        async with aiohttp.ClientSession() as s:
-            async with s.get(str(url)) as r:
-                if r.status != 200:
-                    return await interaction.followup.send("❌ Failed to fetch emote image.")
-                data = await r.read()
+        session = self.bot.http_session
+        if not session:
+            return await interaction.followup.send("❌ HTTP session not available.")
+        async with session.get(str(url)) as r:
+            if r.status != 200:
+                return await interaction.followup.send("❌ Failed to fetch emote image.")
+            data = await r.read()
 
         ext = "gif" if emote.animated else "png"
         await self._send_image_bytes(interaction, data, f"{emote.id}_emote.{ext}")
@@ -751,11 +787,13 @@ class ImageCommands(app_commands.Group):
         if not icon:
             return await interaction.followup.send("❌ This server has no icon.", ephemeral=True)
         url = interaction.guild.icon.replace(size=1024).url
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return await interaction.followup.send("❌ Failed to fetch server icon.")
-                data = await r.read()
+        session = self.bot.http_session
+        if not session:
+            return await interaction.followup.send("❌ HTTP session not available.")
+        async with session.get(url) as r:
+            if r.status != 200:
+                return await interaction.followup.send("❌ Failed to fetch server icon.")
+            data = await r.read()
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_icon.png")
 
     @app_commands.command(name="flip", description="Flip an image horizontally/vertically or both.")
@@ -907,17 +945,31 @@ class ImageCommands(app_commands.Group):
         frames = self._resize_if_needed(frames, max_dim=1200)
 
         # hue shift amount in integer range (0–255)
+        # PIL's HSV mode: H is 0-255 (represents 0-360 degrees)
         shift_amount = int(round(shift * 255))
 
         out_frames = []
         for f in frames:
-            hsv = f.convert("HSV")
+            # Convert to RGB first to ensure proper color space
+            rgb = f.convert("RGB")
+            hsv = rgb.convert("HSV")
             np_hsv = np.array(hsv, dtype=np.uint8)
 
-            # Only modify hue channel (index 0)
-            np_hsv[..., 0] = (np_hsv[..., 0].astype(int) + shift_amount) % 256
+            # Only modify hue channel (index 0), ensure it wraps correctly
+            hue_channel = np_hsv[..., 0].astype(np.uint16)  # Use uint16 to avoid overflow
+            hue_channel = (hue_channel + shift_amount) % 256
+            np_hsv[..., 0] = hue_channel.astype(np.uint8)
 
-            shifted = Image.fromarray(np_hsv.astype(np.uint8), "HSV").convert("RGBA")
+            # Convert back: HSV -> RGB -> RGBA
+            shifted_rgb = Image.fromarray(np_hsv, "HSV").convert("RGB")
+            # Preserve alpha if original had it
+            if f.mode == 'RGBA':
+                shifted = shifted_rgb.convert("RGBA")
+                # Copy alpha channel from original
+                alpha = f.split()[3]
+                shifted.putalpha(alpha)
+            else:
+                shifted = shifted_rgb.convert("RGBA")
             out_frames.append(shifted)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
@@ -952,8 +1004,11 @@ class ImageCommands(app_commands.Group):
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "inverted.gif")
     
-    @app_commands.command(name="speechbubble", description="Add a speech bubble caption to an image.")
-    @app_commands.describe(position="Where the bubble tail points (left, right, center)")
+    @app_commands.command(name="speechbubble", description="Add a speech bubble caption to an image (caption is optional).")
+    @app_commands.describe(
+        position="Where the bubble tail points (left, right)",
+        caption="Text to put in the bubble (optional)"
+    )
     @app_commands.choices(position=[
         app_commands.Choice(name="Left", value="left"),
         app_commands.Choice(name="Right", value="right"),
@@ -962,8 +1017,8 @@ class ImageCommands(app_commands.Group):
     async def speechbubble(
         self,
         interaction: discord.Interaction,
-        caption: str,
         position: app_commands.Choice[str],
+        caption: Optional[str] = None,
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
@@ -981,7 +1036,6 @@ class ImageCommands(app_commands.Group):
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
 
-        font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 36)
         bubble_path = os.path.join(os.getcwd(), "resources", "bubbles", f"{position.value}.png")
 
         if not os.path.exists(bubble_path):
@@ -994,43 +1048,58 @@ class ImageCommands(app_commands.Group):
             tmp = frame.copy().convert("RGBA")
             w, h = tmp.size
 
-            # Target height (30–40% of image)
-            target_h = int(h * 0.15)
-            target_w = int(w * 1)  # cover nearly full width
+            # Calculate bubble size based on whether there's text
+            if caption:
+                # Target height based on text needs (20-25% of image)
+                target_h = int(h * 0.18)
+            else:
+                # Smaller bubble if no text
+                target_h = int(h * 0.12)
+            target_w = int(w * 0.85)  # 85% width for better proportions
 
-            # Resize and squash bubble to match aspect
+            # Resize bubble maintaining aspect ratio better
+            bubble_w, bubble_h = bubble_base.size
+            aspect_ratio = bubble_w / bubble_h
+            calculated_w = int(target_h * aspect_ratio)
+            if calculated_w > target_w:
+                # If calculated width is too wide, scale down
+                target_w = calculated_w
+                if target_w > w * 0.9:
+                    target_w = int(w * 0.9)
+                    target_h = int(target_w / aspect_ratio)
+
             bubble = bubble_base.resize((target_w, target_h), Image.LANCZOS)
 
-            # Position bubble near top or mid depending on taste
+            # Position bubble near top
             bx = int((w - target_w) / 2)
             by = int(h * 0.05)
 
             tmp.alpha_composite(bubble, (bx, by))
 
-            # Draw text inside bubble
-            draw = ImageDraw.Draw(tmp)
-            padding = int(target_h * 0.1)
-            text_box_w = target_w - padding * 2
-            text_x = bx + padding
-            text_y = by + padding
+            # Draw text inside bubble if caption provided
+            if caption:
+                draw = ImageDraw.Draw(tmp)
+                font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 36)
+                padding = int(target_h * 0.15)
+                text_box_w = target_w - padding * 2
 
-            lines = self.wrap_text(caption, font, text_box_w)
-            line_height = font.getbbox("Ay")[3]
-            total_text_height = len(lines) * line_height
-            centered_y = by + (target_h - total_text_height) // 2
+                lines = self.wrap_text(caption, font, text_box_w)
+                line_height = font.getbbox("Ay")[3]
+                total_text_height = len(lines) * line_height
+                centered_y = by + (target_h - total_text_height) // 2
 
-            for i, line in enumerate(lines):
-                lw = font.getlength(line)
-                tx = bx + (target_w - lw) / 2
-                ty = centered_y + i * line_height
-                draw.text(
-                    (tx, ty),
-                    line,
-                    font=font,
-                    fill=(0, 0, 0),
-                    stroke_width=2,
-                    stroke_fill=(255, 255, 255)
-                )
+                for i, line in enumerate(lines):
+                    lw = font.getlength(line)
+                    tx = bx + (target_w - lw) / 2
+                    ty = centered_y + i * line_height
+                    draw.text(
+                        (tx, ty),
+                        line,
+                        font=font,
+                        fill=(0, 0, 0),
+                        stroke_width=2,
+                        stroke_fill=(255, 255, 255)
+                    )
 
             out_frames.append(tmp)
 
@@ -1261,83 +1330,124 @@ class ImageCommands(app_commands.Group):
         embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
 
         await interaction.followup.send(embed=embed, files=files, ephemeral=False)
-# TODO: fix this to actually work
-#    @app_commands.command(name="petpet", description="Pat someone's head with love!")
-#    @app_commands.describe(
-#        user="Who to pat (defaults to yourself)",
-#        squish="How squished the petpet is (100-300)",
-#        speed="How fast the petpet animates (2-60)",
-#        flip="Flip the avatar horizontally"
-#    )
-#    @cooldown(cl=10, tm=25.0, ft=3)
-#    async def petpet(
-#        self,
-#        interaction: discord.Interaction,
-#        user: Optional[discord.User] = None,
-#        squish: Optional[int] = 150,
-#        speed: Optional[int] = 20,
-#        flip: Optional[bool] = False
-#    ):
-#        await interaction.response.defer()
+    @app_commands.command(name="petpet", description="Pat someone's head with love!")
+    @app_commands.describe(
+        user="Who to pat (defaults to yourself)",
+        squish="How squished the petpet is (100-300, default 150)",
+        speed="How fast the petpet animates (10-60, default 30)",
+        flip="Flip the avatar horizontally"
+    )
+    @cooldown(cl=10, tm=25.0, ft=3)
+    async def petpet(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.User] = None,
+        squish: int = 150,
+        speed: int = 30,
+        flip: bool = False
+    ):
+        await interaction.response.defer()
 
-#        # Validate / clamp
-#        squish = max(100, min(squish, 300))
-#        speed = max(2, min(speed, 60))
+        # Validate / clamp
+        squish = max(100, min(squish, 300))
+        speed = max(10, min(speed, 60))
 
-#        target = user or interaction.user
-#        avatar_url = target.display_avatar.with_format("png").url
+        target = user or interaction.user
+        avatar_url = target.display_avatar.with_format("png").url
 
-#        async with aiohttp.ClientSession() as session:
-#            async with session.get(avatar_url) as resp:
-#                if resp.status != 200:
-#                    return await interaction.followup.send("❌ Failed to fetch avatar.")
-#                avatar_bytes = await resp.read()
+        session = self.bot.http_session
+        if not session:
+            return await interaction.followup.send("❌ HTTP session not available.")
+        async with session.get(avatar_url) as resp:
+            if resp.status != 200:
+                return await interaction.followup.send("❌ Failed to fetch avatar.")
+            avatar_bytes = await resp.read()
 
-#        # Filter out video formats
-#        if avatar_url.endswith((".mp4", ".webm")):
-#            return await interaction.followup.send("❌ Invalid format! Try using a PNG, JPEG or GIF.")
+        # Filter out video formats
+        if avatar_url.endswith((".mp4", ".webm")):
+            return await interaction.followup.send("❌ Invalid format! Try using a PNG, JPEG or GIF.")
 
-#        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
 
-#        if flip:
-#            avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
+        if flip:
+            avatar = avatar.transpose(Image.FLIP_LEFT_RIGHT)
 
-#        # Load petpet template (transparent GIF)
-#        petpet = Image.open("resources/patpat/template.gif")
-#        frames = []
+        # Load petpet template (transparent GIF)
+        template_path = os.path.join(os.getcwd(), "resources", "patpat", "template.gif")
+        if not os.path.exists(template_path):
+            return await interaction.followup.send("❌ Petpet template not found!", ephemeral=True)
+        
+        petpet = Image.open(template_path)
+        frames = []
 
-#        # Apply squish by scaling Y dimension
-#        squish_factor = squish / 150.0  # normalize around 150 = neutral
-#        for frame in ImageSequence.Iterator(petpet):
-#            frame = frame.convert("RGBA")
+        # Get template dimensions
+        template_w, template_h = petpet.size
+        
+        # Avatar should be 112x112 (square) to fit properly in template
+        avatar_size = 112
+        avatar_resized = avatar.resize((avatar_size, avatar_size), Image.LANCZOS)
 
-#            # Apply squish
-#            w, h = avatar.size
-#            new_h = int(h * (150 / squish))  # inverse scaling logic
-#            resized_avatar = avatar.resize((112, max(1, new_h)), Image.LANCZOS)
+        # Apply squish by scaling Y dimension dynamically per frame
+        # Normalize squish: 150 = 1.0 (no change), 100 = more squished, 300 = less squished
+        squish_normalized = squish / 150.0
+        
+        # Frame positions in template (approximate, adjust based on your template)
+        # These are the Y positions where avatar should be placed in each frame
+        frame_positions = [80, 75, 70, 75, 80]  # Adjust based on your template animation
+        
+        for i, frame in enumerate(ImageSequence.Iterator(petpet)):
+            frame = frame.convert("RGBA")
+            
+            # Calculate squish for this frame (create a bounce effect)
+            # Frame 0 and 4: less squish, frame 2: most squish
+            frame_squish = squish_normalized
+            if len(frame_positions) > i:
+                # Create bounce effect: middle frames are more squished
+                if i == 2:  # middle frame
+                    frame_squish = squish_normalized * 0.85  # more squished
+                elif i in [1, 3]:  # intermediate frames
+                    frame_squish = squish_normalized * 0.95
+                # else: frame_squish stays at squish_normalized
 
-#            composed = Image.new("RGBA", frame.size)
-#            composed.paste(resized_avatar, (40, 80 + (112 - new_h) // 2), resized_avatar)
-#            composed.alpha_composite(frame)
-#            frames.append(composed)
+            # Apply squish by scaling height
+            new_h = int(avatar_size * frame_squish)
+            if new_h < 1:
+                new_h = 1
+            
+            # Resize avatar with squish (maintain width, change height)
+            squished_avatar = avatar_resized.resize((avatar_size, new_h), Image.LANCZOS)
+            
+            # Position avatar in frame (centered horizontally, positioned vertically)
+            x_pos = 40  # Adjust based on your template
+            if len(frame_positions) > i:
+                y_pos = frame_positions[i] + (avatar_size - new_h) // 2
+            else:
+                y_pos = 80 + (avatar_size - new_h) // 2
 
-#        # Encode GIF with adjusted frame duration
-#        output = io.BytesIO()
-#        duration = max(20, min(200, int(1000 / speed)))  # ~20ms–200ms per frame
-#        frames[0].save(
-#            output,
-#            format="GIF",
-#            save_all=True,
-#            append_images=frames[1:],
-#            loop=0,
-#            duration=duration,
-#            disposal=2,
-#            transparency=0,
-#        )
-#        output.seek(0)
+            composed = Image.new("RGBA", frame.size)
+            composed.paste(squished_avatar, (x_pos, y_pos), squished_avatar)
+            composed.alpha_composite(frame)
+            frames.append(composed)
 
-#        # Send using your helper
-#        await self._send_image_bytes(interaction, output.read(), "petpet.gif")
+        # Encode GIF with adjusted frame duration (faster default)
+        # Speed: higher = faster animation, so lower duration per frame
+        # Default speed 30 means ~33ms per frame (30 fps equivalent)
+        duration = max(16, min(100, int(1000 / speed)))  # ~16ms–100ms per frame
+        
+        output = io.BytesIO()
+        frames[0].save(
+            output,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            loop=0,
+            duration=duration,
+            disposal=2,
+        )
+        output.seek(0)
+
+        # Send using helper
+        await self._send_image_bytes(interaction, output.read(), "petpet.gif")
 
 class ImageCog(commands.Cog):
     def __init__(self, bot):

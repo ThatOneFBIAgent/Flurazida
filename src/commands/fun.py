@@ -27,15 +27,14 @@ from discord import app_commands, Interaction, Embed
 
 # Local Imports
 import CloudflarePing as cf
-from config import BOT_OWNER, BOT_TOKEN, cooldown
+from config import BOT_TOKEN, cooldown
+from extraconfig import BOT_OWNER
 from logger import get_logger
+from roll_logic import execute_roll, MAX_DICE, MAX_SIDES
+from eightball_responses import EIGHTBALL_RESPONSES
 
 
 log = get_logger()
-
-# Constants for dice limits
-MAX_DICE = 100
-MAX_SIDES = 1000
 
 exchange_cache = {}
 CACHE_DURATION = 86400
@@ -135,235 +134,23 @@ class FunCommands(app_commands.Group):
             await interaction.followup.send(embed=help_embed, ephemeral=False)
             return
 
-        # Tokenize into signed parts: supports +1d20, -2, +3d6k1!!p etc.
-        sanitized = dice.replace(" ", "")
-
-        # Normalize shorthand like "20" or "+20" into "1d20"
-        simple_roll_match = re.fullmatch(r'([+-]?)(?:d)?(\d+)', sanitized, re.IGNORECASE)
-        if simple_roll_match:
-            sign = simple_roll_match.group(1) or ''
-            sides = simple_roll_match.group(2)
-            sanitized = f"{sign}1d{sides}"
-
-        sanitized_orig = sanitized  # keep the full original (contains & modifiers) for later parsing of &N+Z
-        # Remove &N±Z fragments BEFORE tokenizing so the numeric N inside them is not treated as a standalone constant.
-        # We'll still parse the actual & modifiers later (see ampersand_matches step further down).
-        sanitized_no_amp = re.sub(r'&\d+[+-]\d+', '', sanitized)
-
-        # Tokenize
-        token_pattern = re.compile(r'([+-]?)(\d+[dD](?:!{1,2}(?:p)?)?\d+(?:[kK]\d+|D\d+)?|\d+)', re.IGNORECASE)
-        tokens = token_pattern.findall(sanitized_no_amp)
-        if not tokens:
-            await interaction.followup.send("❌ **Invalid format!** Do /roll dice: help for syntax and examples", ephemeral=False)
-            return
-
-        def parse_group(text):
-            if text.isdigit():
-                return {"type": "const", "value": int(text)}
-            m = re.match(r'(?P<num>\d+)[dD](?P<explode>!{1,2}p?|!p?)?(?P<sides>\d+)(?P<kd>(?:[kK]\d+|D\d+))?', text)
-            if not m:
-                return None
-            return {
-                "type": "dice",
-                "num": int(m.group("num")),
-                "sides": int(m.group("sides")),
-                "explode": m.group("explode") or "",
-                "keepdrop": m.group("kd") or ""
-            }
-
-        groups = []
-        total_dice_count = 0
-        for sign, body in tokens:
-            parsed = parse_group(body)
-            if not parsed:
-                await interaction.followup.send(f"❌ **Couldn't parse token:** `{body}`", ephemeral=False)
-                return
-            parsed["sign"] = -1 if sign == "-" else 1
-            groups.append(parsed)
-            if parsed["type"] == "dice":
-                total_dice_count += parsed["num"]
-
-        # Limits
+        # Execute roll using roll_logic.py
         try:
-            MAX_DICE
-            MAX_SIDES
-        except NameError:
-            MAX_DICE, MAX_SIDES = 1000, 10000
-
-        if total_dice_count > MAX_DICE:
-            await interaction.followup.send(f"❌ **Too many dice in total!** Limit: `{MAX_DICE}` dice.", ephemeral=False)
+            roll_result = execute_roll(dice)
+        except ValueError as e:
+            await interaction.followup.send(f"❌ **{str(e)}** Do /roll dice: help for syntax and examples", ephemeral=False)
             return
-        for g in groups:
-            if g["type"] == "dice" and g["sides"] > MAX_SIDES:
-                await interaction.followup.send(f"❌ **Die with too many sides!** Limit: `{MAX_SIDES}` sides.", ephemeral=False)
-                return
+        except Exception as e:
+            log.error(f"Error executing roll: {e}", exc_info=True)
+            await interaction.followup.send("❌ **An error occurred while rolling dice.**", ephemeral=False)
+            return
 
-        rng = random.Random()
-
-        def roll_die(sides):
-            return rng.randint(1, sides)
-
-        def resolve_explosions_for_die(first_roll, sides, explode_flag, max_depth=100):
-            """
-            Returns (value_contrib, chain_list, raw_chain)
-            - chain_list: the values that will be shown/added (penetrating subtracts 1 on extras)
-            - raw_chain: raw face values used to test for further explosions (used only internally)
-            """
-            chain_display = [first_roll]
-            raw_chain = [first_roll]
-            if not explode_flag:
-                return first_roll, chain_display, raw_chain
-
-            is_compound = explode_flag.startswith("!!")
-            is_penetrate = "p" in explode_flag
-            depth = 0
-
-            if is_compound:
-                # only chain if first == max
-                if first_roll != sides:
-                    return first_roll, chain_display, raw_chain
-                # roll until we break the chain
-                while depth < max_depth:
-                    depth += 1
-                    nxt_raw = roll_die(sides)
-                    raw_chain.append(nxt_raw)
-                    nxt_display = nxt_raw - 1 if is_penetrate else nxt_raw
-                    chain_display.append(nxt_display)
-                    if nxt_raw != sides:
-                        break
-                return sum(chain_display), chain_display, raw_chain
-            else:
-                # normal explode (possibly penetrating)
-                total = first_roll
-                raw_last = first_roll
-                while depth < max_depth and raw_last == sides:
-                    depth += 1
-                    nxt_raw = roll_die(sides)
-                    raw_chain.append(nxt_raw)
-                    nxt_display = nxt_raw - 1 if is_penetrate else nxt_raw
-                    chain_display.append(nxt_display)
-                    total += nxt_display
-                    raw_last = nxt_raw
-                return total, chain_display, raw_chain
-
-        # Collect per-group and per-die data
-        group_summaries = []
-        flat_kept_entries = []  # flattened list of dicts for kept dice to apply global &-modifiers
-        const_total = 0  # sum of constant numeric tokens (signed)
-        footer_keepdrop = []
-
-        for gi, g in enumerate(groups):
-            if g["type"] == "const":
-                const_total += g["sign"] * g["value"]
-                group_summaries.append({
-                    "kind": "const",
-                    "label": f"{g['sign'] * g['value']}",
-                    "pre_keep_sum": g['sign'] * g['value'],
-                    "post_mod_sum": g['sign'] * g['value'],
-                    "details": None
-                })
-                continue
-
-            per_die = []
-            for _ in range(g["num"]):
-                first = roll_die(g["sides"])
-                contrib, chain_display, raw_chain = resolve_explosions_for_die(first, g["sides"], g["explode"])
-                per_die.append({
-                    "raw_first": first,
-                    "pre_contrib": contrib,       # contribution BEFORE any & modifiers
-                    "chain_display": chain_display,
-                    "raw_chain": raw_chain
-                })
-
-            # apply keep/drop per group (operates on pre_contrib)
-            kd = g["keepdrop"]
-            if kd:
-                # kd now is either like 'k2' / 'K2' or 'D2' (drop must be uppercase D)
-                first_char = kd[0]
-                if first_char in ('k', 'K'):
-                    typ = 'k'
-                elif first_char == 'D':
-                    typ = 'D'
-                else:
-                    # fallback (shouldn't happen with new regex)
-                    typ = first_char.lower()
-                n = int(kd[1:])
-
-                sorted_by = sorted(per_die, key=lambda x: x["pre_contrib"], reverse=True)
-                if typ == "k":
-                    kept = sorted_by[:n]
-                    dropped = sorted_by[n:]
-                    footer_keepdrop.append(f"{g['num']}d{g['sides']}k{n}")
-                else:  # typ == "D"
-                    dropped = sorted_by[:n]
-                    kept = sorted_by[n:]
-                    footer_keepdrop.append(f"{g['num']}d{g['sides']}D{n}")
-            else:
-                kept = per_die
-                dropped = []
-
-            pre_keep_sum = sum(d["pre_contrib"] for d in kept)
-            # Add entries to flat_kept_entries for global &-style modifiers (preserve order groups->dice)
-            for d in kept:
-                flat_kept_entries.append({
-                    "group_index": gi,
-                    "base_value": d["pre_contrib"],  # will be adjusted by &N later
-                    "chain_display": d["chain_display"],
-                    "raw_first": d["raw_first"]
-                })
-
-            group_summaries.append({
-                "kind": "dice",
-                "label": f"{g['sign'] if g['sign']<0 else ''}{g['num']}d{g['sides']}{g['explode']}{g['keepdrop']}",
-                "pre_keep_sum": g['sign'] * pre_keep_sum,  # sign applied here; & modifiers applied globally later
-                "post_mod_sum": None,  # to be filled after global modifiers applied
-                "details": per_die,
-                "sign": g["sign"]
-            })
-
-        # Detect legacy &N+Z modifiers anywhere in the sanitized input
-        ampersand_matches = re.findall(r'&(\d+)([+-]\d+)', sanitized_orig)
-        ampersand_notes = []
-        if ampersand_matches:
-            # apply each match in order found — each modifies the first N kept dice in flat_kept_entries
-            # keep deterministic: we apply them sequentially to the current values
-            for cnt_str, flat_mod_str in ampersand_matches:
-                cnt = int(cnt_str)
-                flat_mod = int(flat_mod_str)
-                applied = 0
-                for e in flat_kept_entries:
-                    if applied >= cnt:
-                        break
-                    e["base_value"] += flat_mod
-                    applied += 1
-                ampersand_notes.append(f"First {cnt} rolls: {flat_mod:+d}")
-
-        # Now compute per-group post-mod sums from flat_kept_entries
-        group_post_sums = {}
-        for idx, gs in enumerate(group_summaries):
-            if gs["kind"] == "const":
-                group_post_sums[idx] = gs["post_mod_sum"]
-                continue
-            group_post_sums[idx] = 0
-
-        for e in flat_kept_entries:
-            gi = e["group_index"]
-            # groups list corresponds to group_summaries in order; note sign must be applied from group_summaries
-            sign = group_summaries[gi]["sign"]
-            group_post_sums[gi] += sign * e["base_value"]
-
-        # fill post_mod_sum into summaries
-        for idx, gs in enumerate(group_summaries):
-            if gs["kind"] == "const":
-                # constants already have post_mod_sum set when appended earlier; ensure it's defined
-                gs["post_mod_sum"] = gs.get("post_mod_sum", gs["pre_keep_sum"])
-                continue
-            # use the computed group_post_sums for dice groups
-            gs["post_mod_sum"] = group_post_sums.get(idx, 0)
-            # pre_keep_sum already had sign applied earlier
-
-        pre_mod_total = sum(gs["pre_keep_sum"] for gs in group_summaries)
-        post_mod_total = sum((gs["post_mod_sum"] if gs["post_mod_sum"] is not None else gs["pre_keep_sum"]) for gs in group_summaries)
+        group_summaries = roll_result["group_summaries"]
+        footer_keepdrop = roll_result["footer_keepdrop"]
+        ampersand_notes = roll_result["ampersand_notes"]
+        const_total = roll_result["const_total"]
+        pre_mod_total = roll_result["pre_mod_total"]
+        post_mod_total = roll_result["post_mod_total"]
 
         # Build output
         # CONTRACTED (simple): "@user rolled (dice): (result)"
@@ -461,57 +248,8 @@ class FunCommands(app_commands.Group):
         if not question:
             return await interaction.followup.send("❌ **I'm not a mind reader! Ask a question!**", ephemeral=True)
         
-        # too little responses, blegh!
-        # instead we asked chatgpt for a bajillion more!
-        responses = [
-            # Classic
-            "Yes", "No", "Maybe", "Definitely", "Absolutely not",
-            "Ask again later", "I wouldn't count on it", "It's certain",
-            "Don't hold your breath", "Yes, in due time",
-
-            # Vague wisdom
-            "The stars are unclear", "Signs point to yes", "Without a doubt",
-            "My sources say no", "Reply hazy, try again", "Better not tell you now",
-            "Cannot predict now", "Concentrate and ask again", "Outlook alright",
-            "Presumably yes", "Very doubtful",
-
-            # Sarcastic
-            "Sure, and pigs might fly too", "Only if you believe hard enough",
-            "Yeah, no.", "Not even in the multiverse", "When hell freezes over",
-            "Ask your mom", "Absolutely. In your dreams.", "I plead the fifth",
-            "If I had a coin, I'd flip it", "Define 'possible'...",
-
-            # Meme-y
-            "You already know the answer", "That's a skill issue", "Cringe question tbh",
-            "The Council has denied your request", "It is what it is", "Try Alt+F4",
-            "Your chances are as good as Genshin gacha rates", "lmao no",
-            "This message will self-destruct", "Roll a D20 and get back to me", "Ask again after a nap",
-            "I'm not a therapist, but yes", "404: Answer not found",
-
-            # Cryptic & cursed
-            "The void whispers yes", "The answer lies beneath your bed",
-            "You've already made your choice", "Don't open the door tonight",
-            "There's something behind you", "Only the cursed know for sure",
-            "It was never meant to be asked", "The prophecy says nothing of this",
-            "RELEASE ME FROM THIS ORB", "Seek the ancient tomes for answers",
-
-            # Chaotic neutral
-            "Yes but also no", "No but also yes", "42", "Meh",
-            "I flipped a coin but lost it", "You get what you get", 
-            "You don't want to know", "Absolutely. Wait, what was the question?",
-            r"¯\_(ツ)_/¯", "Hold on, I'm updating my firmware", "Ask again in binary",
-            "The answer is hidden in the code", "Why are you asking ME?",
-
-            # Straight up lying
-            "Yes, trust me bro", "No, but say yes anyway", 
-            "Definitely. Just ignore the consequences", 
-            "It's fine. Probably.", "For legal reasons, I must say yes", "fo sho",
-            "Yup, 100%", "Nah, just kidding", "Totally", "Of course, why not?", "What?",
-            "Listen to your heart, it said yes (no)", "Come again? I was listening to music"
-        ]
-
-        index = secrets.randbelow(len(responses)) # to be fair using secrets is overkill but better for randomness.
-        answer = responses[index]
+        index = secrets.randbelow(len(EIGHTBALL_RESPONSES))  # Using secrets for better randomness
+        answer = EIGHTBALL_RESPONSES[index]
         embed = discord.Embed(title="🎱 Magic 8-Ball", color=0x3498db)
         embed.add_field(name="Question", value=f"`{question}`", inline=False)
         embed.add_field(name="Answer", value=f"`{answer}`", inline=False)
@@ -668,7 +406,8 @@ class FunCommands(app_commands.Group):
 
         # Get fun fact
         fun_fact = "Fetching fun fact..."
-        async with aiohttp.ClientSession() as session:
+        session = self.bot.http_session
+        if session:
             try:
                 async with session.get("https://uselessfacts.jsph.pl/random.json?language=en") as resp:
                     if resp.status == 200:
@@ -838,39 +577,45 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=5, tm=20.0, ft=3)
     async def cat(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("😿 Failed to fetch a cat image.", ephemeral=True)
-                    return
-                data = await resp.json()
-                if not data or "url" not in data[0]:
-                    await interaction.followup.send("😿 No cat image found.", ephemeral=True)
-                    return
-                cat_url = data[0]["url"]
-                cat_id = data[0].get("id", "unknown")
-                embed = discord.Embed(title="🐱 Random Cat", color=0x3498db)
-                embed.set_image(url=cat_url)
-                embed.set_footer(text=f"Cat ID: {cat_id}")
-                await interaction.followup.send(embed=embed, ephemeral=False)
+        session = self.bot.http_session
+        if not session:
+            await interaction.followup.send("😿 HTTP session not available.", ephemeral=True)
+            return
+        async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
+            if resp.status != 200:
+                await interaction.followup.send("😿 Failed to fetch a cat image.", ephemeral=True)
+                return
+            data = await resp.json()
+            if not data or "url" not in data[0]:
+                await interaction.followup.send("😿 No cat image found.", ephemeral=True)
+                return
+            cat_url = data[0]["url"]
+            cat_id = data[0].get("id", "unknown")
+            embed = discord.Embed(title="🐱 Random Cat", color=0x3498db)
+            embed.set_image(url=cat_url)
+            embed.set_footer(text=f"Cat ID: {cat_id}")
+            await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def dog(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("🐶 Failed to fetch a dog image.", ephemeral=True)
-                    return
-                data = await resp.json()
-                if "message" not in data or not data["message"]:
-                    await interaction.followup.send("🐶 No dog image found.", ephemeral=True)
-                    return
-                dog_url = data["message"]
-                embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
-                embed.set_image(url=dog_url)
-                await interaction.followup.send(embed=embed, ephemeral=False)
+        session = self.bot.http_session
+        if not session:
+            await interaction.followup.send("🐶 HTTP session not available.", ephemeral=True)
+            return
+        async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
+            if resp.status != 200:
+                await interaction.followup.send("🐶 Failed to fetch a dog image.", ephemeral=True)
+                return
+            data = await resp.json()
+            if "message" not in data or not data["message"]:
+                await interaction.followup.send("🐶 No dog image found.", ephemeral=True)
+                return
+            dog_url = data["message"]
+            embed = discord.Embed(title="🐶 Random Dog", color=0x3498db)
+            embed.set_image(url=dog_url)
+            await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="help", description="Get a list of available commands (paginated).")
     @cooldown(cl=2, tm=10.0, ft=3)
@@ -943,12 +688,15 @@ class FunCommands(app_commands.Group):
             poke_name = pokemon.lower().strip()
         api_url = f"https://pokeapi.co/api/v2/pokemon/{poke_name}"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as resp:
-                if resp.status != 200:
-                    await interaction.followup.send(f"❌ Pokémon `{pokemon}` not found.", ephemeral=True)
-                    return
-                data = await resp.json()
+        session = self.bot.http_session
+        if not session:
+            await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
+            return
+        async with session.get(api_url) as resp:
+            if resp.status != 200:
+                await interaction.followup.send(f"❌ Pokémon `{pokemon}` not found.", ephemeral=True)
+                return
+            data = await resp.json()
 
         # Build embed
         embed = discord.Embed(
@@ -983,31 +731,34 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=7, tm=25.0, ft=3)
     async def xkcd(self, interaction: discord.Interaction, comic: int | None = None):
         await interaction.response.defer(ephemeral=False)
+        session = self.bot.http_session
+        if not session:
+            await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
+            return
         # First get the latest comic number
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://xkcd.com/info.0.json") as resp:
+        async with session.get("https://xkcd.com/info.0.json") as resp:
+            if resp.status != 200:
+                await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
+                return
+            latest_data = await resp.json()
+            latest_num = latest_data['num']
+
+        if comic:
+            if comic < 1 or comic > latest_num:
+                await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
+                return
+            async with session.get(f"https://xkcd.com/{comic}/info.0.json") as resp:
                 if resp.status != 200:
                     await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
                     return
-                latest_data = await resp.json()
-                latest_num = latest_data['num']
-
-            if comic:
-                if comic < 1 or comic > latest_num:
-                    await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
+                comic_data = await resp.json()
+        else:
+            rand_num = random.randint(1, latest_num)
+            async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
+                if resp.status != 200:
+                    await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
                     return
-                async with session.get(f"https://xkcd.com/{comic}/info.0.json") as resp:
-                    if resp.status != 200:
-                        await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                        return
-                    comic_data = await resp.json()
-            else:
-                rand_num = random.randint(1, latest_num)
-                async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
-                    if resp.status != 200:
-                        await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                        return
-                    comic_data = await resp.json()
+                comic_data = await resp.json()
 
         embed = discord.Embed(
             title=f"XKCD Comic #{comic_data['num']}: {comic_data['title']}",
@@ -1031,16 +782,19 @@ class FunCommands(app_commands.Group):
         else:
             api_url = "https://api.urbandictionary.com/v0/random"
 
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(api_url) as resp:
-                    if resp.status != 200:
-                        await interaction.followup.send("❌ Failed to fetch definition.", ephemeral=True)
-                        return
-                    data = await resp.json()
-            except Exception:
-                await interaction.followup.send("❌ Error contacting Urban Dictionary.", ephemeral=True)
-                return
+        session = self.bot.http_session
+        if not session:
+            await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
+            return
+        try:
+            async with session.get(api_url) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send("❌ Failed to fetch definition.", ephemeral=True)
+                    return
+                data = await resp.json()
+        except Exception:
+            await interaction.followup.send("❌ Error contacting Urban Dictionary.", ephemeral=True)
+            return
 
             # For random endpoint or define, pick a random entry from the list if multiple
             entries = data.get("list", [])
@@ -1207,6 +961,7 @@ class FunCommands(app_commands.Group):
 
     @app_commands.command(name="exchange", description="Convert between two currencies (e.g. USD → EUR).")
     @app_commands.describe(amount="Amount to convert", from_currency="Base currency (e.g. USD)", to_currency="Target currency (e.g. EUR)")
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def exchange(self, interaction: Interaction, amount: float, from_currency: str, to_currency: str):
         await interaction.response.defer(ephemeral=False)
 
@@ -1229,10 +984,12 @@ class FunCommands(app_commands.Group):
             rates = cached["rates"]
         else:
             url = f"https://open.er-api.com/v6/latest/{from_currency}"
+            session = self.bot.http_session
+            if not session:
+                return await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
             try:
-                async with aiohttp.ClientSession() as session:
-                    resp = await session.get(url, timeout=10)
-                    data = await resp.json()
+                resp = await session.get(url, timeout=10)
+                data = await resp.json()
             except Exception as e:
                 return await interaction.followup.send(f"❌ API error: {e}", ephemeral=True)
 
@@ -1258,6 +1015,7 @@ class FunCommands(app_commands.Group):
 
     @app_commands.command(name="heights", description="Convert between meters, feet, and inches.")
     @app_commands.describe(value="Height value (positive number)", unit="Unit of input (m, ft, or in)")
+    @cooldown(cl=10, tm=30.0, ft=3)
     async def heights(self, interaction: Interaction, value: float, unit: str):
         await interaction.response.defer(ephemeral=False)
 

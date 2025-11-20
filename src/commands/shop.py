@@ -85,7 +85,7 @@ class ShopView(discord.ui.View):
                 if not item_data:
                     return await interaction.response.send_message(f"❌ '{self.item_name.value}' not found!", ephemeral=True)
 
-                success = buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"])
+                success = await buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"])
                 if success:
                     await interaction.response.send_message(
                         f"✅ **{interaction.user.mention} bought {item_data['name']} for {item_data['price']} coins!**"
@@ -146,7 +146,7 @@ class ShopCommands(app_commands.Group):
             return await interaction.response.send_message(f"❌ **'{item_name}' is not a valid item!**", ephemeral=True)
 
         # Use the centralized item effect logic
-        result_message = use_item(interaction.user.id, item_data["id"])
+        result_message = await use_item(interaction.user.id, item_data["id"])
         await interaction.response.send_message(result_message, ephemeral=True)
 
 class ShopCog(commands.Cog):

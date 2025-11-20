@@ -14,6 +14,7 @@ import socket
 import sys
 import time
 import contextlib
+from typing import Optional
 
 # Third-Party Imports
 import aiohttp
@@ -30,11 +31,9 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 import CloudflarePing as cf
 import config
 from database import (
-    econ_conn,
     get_expired_cases,
-    mod_conn,
-    mod_cursor,
     periodic_backup,
+    init_databases,
     ECONOMY_DB_PATH,
     MODERATOR_DB_PATH,
     BACKUP_FOLDER_ID,
@@ -60,8 +59,9 @@ intents.messages = True
 intents.guilds = True
 intents.message_content = True
 intents.members = True
-bot_owner = config.BOT_OWNER
-test_server = config.TEST_SERVER
+from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS
+bot_owner = BOT_OWNER
+test_server = TEST_SERVER
 
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
@@ -70,8 +70,16 @@ class Main(commands.AutoShardedBot):
         self._ready_once = asyncio.Event()
         self._activity_sync_lock = asyncio.Lock()
         self.start_time = time.time()
+        self.http_session: Optional[aiohttp.ClientSession] = None
 
     async def setup_hook(self):
+        # Initialize shared HTTP session
+        self.http_session = aiohttp.ClientSession()
+        log.info("Initialized shared HTTP session")
+        
+        # Start Cloudflare ping loop with shared session
+        cf.ensure_started(session=self.http_session)
+        
         commands_dir = os.path.join(os.path.dirname(__file__), "commands")
         failed = []
         for filename in os.listdir(commands_dir):
@@ -212,8 +220,8 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
 
     # Check guild blacklist
     guild_id = interaction.guild.id if interaction.guild else None
-    if guild_id in config.FORBIDDEN_GUILDS:
-        reason = config.FORBIDDEN_GUILDS[guild_id].get("reason", "No reason")
+    if guild_id in FORBIDDEN_GUILDS:
+        reason = FORBIDDEN_GUILDS[guild_id].get("reason", "No reason")
         await interaction.response.send_message(
             f"**This server is not allowed to use the bot.**\nReason: {reason}",
             ephemeral=True
@@ -222,8 +230,8 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
 
     # Check user blacklist
     user_id = interaction.user.id
-    if user_id in config.FORBIDDEN_USERS:
-        reason = config.FORBIDDEN_USERS[user_id].get("reason", "No reason")
+    if user_id in FORBIDDEN_USERS:
+        reason = FORBIDDEN_USERS[user_id].get("reason", "No reason")
         await interaction.response.send_message(
             f"❌ You are not allowed to use this bot.\nReason: {reason}",
             ephemeral=True
@@ -271,8 +279,8 @@ async def moderation_expiry_task():
         try:
             now = int(time.time())
             # Fetch all expired cases at once
-            expired_cases = get_expired_cases(mod_cursor, None, "ban", now)
-            # expected structure: [(guild_id, user_id), ...]
+            expired_cases = await get_expired_cases(None, "ban", now)
+            # expected structure: [(guild_id, user_id), ...] when guild_id is None
 
             if not expired_cases:
                 await asyncio.sleep(90 + random.randint(0, 10))  # no rush
@@ -317,14 +325,12 @@ async def graceful_shutdown():
     try:
         log.info("📦 Performing final database backup before shutdown...")
         await asyncio.wait_for(
-            asyncio.to_thread(
-                backup_all_dbs_to_gdrive_env,
+            backup_all_dbs_to_gdrive_env(
                 [
                     (ECONOMY_DB_PATH, "economy.db"),
                     (MODERATOR_DB_PATH, "moderator.db")
                 ],
-                BACKUP_FOLDER_ID,
-                commit_conns=[econ_conn, mod_conn]
+                BACKUP_FOLDER_ID
             ),
             timeout=25  # must complete before Railway kills us
         )
@@ -334,6 +340,11 @@ async def graceful_shutdown():
     except Exception as e:
         log.error(f"❌ Backup failed: {e}")
 
+    # Close shared HTTP session
+    if bot.http_session and not bot.http_session.closed:
+        await bot.http_session.close()
+        log.info("Closed shared HTTP session")
+    
     # Close bot connections
     with contextlib.suppress(Exception):
         await bot.close()
@@ -347,9 +358,9 @@ async def main():
             "moderator.db": MODERATOR_DB_PATH,
         }
     )
+    # Initialize database tables
+    await init_databases()
     BACKUP_DELAY_HOURS = 1
-
-    cf.ensure_started()
     async def delayed_backup_starter(delay_hours):
         await bot.wait_until_ready()
         await asyncio.sleep(delay_hours * 3600)

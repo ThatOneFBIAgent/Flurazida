@@ -23,4 +23,4 @@ imageio-ffmpeg
 # aiomysql                  # async client
 
 # Optional utilities
-# aiosqlite                 # if you want async sqlite usage
+aiosqlite                 # async sqlite usage

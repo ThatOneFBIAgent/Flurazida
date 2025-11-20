@@ -41,11 +41,11 @@ class EconomyCommands(app_commands.Group):
             await interaction.followup.send("❌ You can't rob yourself!", ephemeral=True)
             return
 
-        add_user(user_id, interaction.user.name)
-        add_user(target_id, target.name)
+        await add_user(user_id, interaction.user.name)
+        await add_user(target_id, target.name)
 
         # Get robbery modifier for the user (could be items, perks, etc.)
-        modifier = get_robbery_modifier(user_id)
+        modifier = await get_robbery_modifier(user_id)
         # Base success chance is 40%
         base_success_chance = 0.4
         success_chance = base_success_chance + modifier
@@ -56,9 +56,9 @@ class EconomyCommands(app_commands.Group):
             success_chance = 0.05  # Minimum 5%
         
         # 2nd amendment rights in a nutshell
-        gun_defense = check_gun_defense(target_id)
+        gun_defense = await check_gun_defense(target_id)
         if gun_defense:
-            decrement_gun_use(target_id)
+            await decrement_gun_use(target_id)
             await interaction.followup.send(
             f"🔫 {target.mention} defended themselves with a gun! Your robbery failed.",
             ephemeral=False
@@ -67,18 +67,18 @@ class EconomyCommands(app_commands.Group):
 
         success = random.random() < success_chance
 
-        robber_balancer = get_balance(user_id)
+        robber_balancer = await get_balance(user_id)
         if robber_balancer < -50:
             return await interaction.followup.send("💸 You can't afford risking another crime!")
 
-        target_balance = get_balance(target_id)
+        target_balance = await get_balance(target_id)
         if target_balance < 100:
             return await interaction.followup.send(f"💸 {target.mention} doesn't have enough coins to rob!", ephemeral=True)
 
         if success:
             amount = random.randint(50, min(300, target_balance))
-            update_balance(user_id, amount)
-            update_balance(target_id, -amount)
+            await update_balance(user_id, amount)
+            await update_balance(target_id, -amount)
             messages = [
                 f"🦹 You successfully robbed {target.mention} and stole 💰 `{amount}` coins!",
                 f"💰 You snuck up on {target.mention} and got away with `{amount}` coins!",
@@ -88,7 +88,7 @@ class EconomyCommands(app_commands.Group):
             await interaction.followup.send(random.choice(messages), ephemeral=False)
         else:
             penalty = random.randint(50, 400)
-            update_balance(user_id, -penalty)
+            await update_balance(user_id, -penalty)
             messages = [
                 f"🚨 You got caught trying to rob {target.mention}! You paid a fine of 💰 `{penalty}` coins.",
                 f"👮 The police stopped your robbery attempt. Lost 💰 `{penalty}` coins.",
@@ -102,16 +102,16 @@ class EconomyCommands(app_commands.Group):
     async def crime(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
-        add_user(user_id, interaction.user.name)
+        await add_user(user_id, interaction.user.name)
 
-        commiter_bal = get_balance(user_id)
+        commiter_bal = await get_balance(user_id)
         if commiter_bal < -100:
             return await interaction.followup.send("💸 You can't afford risking another crime!")
 
         success = random.random() > 0.16  
         amount = random.randint(100, 600) if success else -random.randint(300, 600)
 
-        update_balance(user_id, amount)
+        await update_balance(user_id, amount)
 
         if success:
             messages = [
@@ -137,12 +137,12 @@ class EconomyCommands(app_commands.Group):
     async def slut(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
-        add_user(user_id, interaction.user.name)
+        await add_user(user_id, interaction.user.name)
 
         success = random.random() > 0.07
         amount = random.randint(50, 300) if success else -random.randint(100, 200)
 
-        update_balance(user_id, amount)
+        await update_balance(user_id, amount)
 
         if success:
             messages = [
@@ -166,11 +166,11 @@ class EconomyCommands(app_commands.Group):
     async def work(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
-        add_user(user_id, interaction.user.name)
+        await add_user(user_id, interaction.user.name)
 
         success = random.random() > 0.03
         amount = random.randint(20, 250) if success else -random.randint(400, 800)
-        update_balance(user_id, amount)
+        await update_balance(user_id, amount)
 
         if success:
             messages = [
@@ -196,7 +196,7 @@ class EconomyCommands(app_commands.Group):
     async def balance(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
-        balance = get_balance(user_id)
+        balance = await get_balance(user_id)
         await interaction.followup.send(f"💰 Your balance: **{balance}** coins")
 
     @app_commands.command(name="inventory", description="Check your inventory")
@@ -204,9 +204,9 @@ class EconomyCommands(app_commands.Group):
     async def inventory(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
-        add_user(user_id, interaction.user.name)
+        await add_user(user_id, interaction.user.name)
 
-        items = get_user_items(user_id)
+        items = await get_user_items(user_id)
         if items:
             inventory_message = "\n".join(
                 # Format each inventory item with its name, ID, and remaining uses
@@ -228,10 +228,10 @@ class EconomyCommands(app_commands.Group):
             await interaction.followup.send("❌ You can't transfer money to yourself!", ephemeral=True)
             return
 
-        add_user(user_id, interaction.user.name)
-        add_user(target_id, target.name)
+        await add_user(user_id, interaction.user.name)
+        await add_user(target_id, target.name)
 
-        userbalance = get_balance(user_id)
+        userbalance = await get_balance(user_id)
         if userbalance <= 0:
             return await interaction.followup.send("💸 You can't transfer a negative balance!")
 
@@ -239,13 +239,13 @@ class EconomyCommands(app_commands.Group):
             await interaction.followup.send("❌ Invalid amount!", ephemeral=True)
             return
 
-        balance = get_balance(user_id)
+        balance = await get_balance(user_id)
         if balance < amount:
             await interaction.followup.send("❌ You don't have enough coins!", ephemeral=True)
             return
 
-        update_balance(user_id, -amount)
-        update_balance(target_id, amount)
+        await update_balance(user_id, -amount)
+        await update_balance(target_id, amount)
 
         await interaction.followup.send(f"💸 You transferred {target.mention} 💰 `{amount}` coins!", ephemeral=False)
 
@@ -260,14 +260,14 @@ class EconomyCommands(app_commands.Group):
             await interaction.followup.send("❌ You can't give items to yourself!", ephemeral=True)
             return
 
-        add_user(user_id, interaction.user.name)
-        add_user(target_id, target.name)
+        await add_user(user_id, interaction.user.name)
+        await add_user(target_id, target.name)
 
         if amount <= 0:
             await interaction.followup.send("❌ Invalid amount!", ephemeral=True)
             return
 
-        items = get_user_items(user_id)
+        items = await get_user_items(user_id)
         item = next((item for item in items if item['item_id'] == item_id), None)
 
         if not item or item['uses_left'] < amount:
@@ -280,13 +280,13 @@ class EconomyCommands(app_commands.Group):
         # Remove the item from sender if uses_left is 0
         if item['uses_left'] == 0:
             # Remove the item from the user's inventory in the database
-            remove_item_from_user(user_id, item_id)
+            await remove_item_from_user(user_id, item_id)
         else:
             # Update the item uses in the database
-            update_item_uses(user_id, item_id, item['uses_left'])
+            await update_item_uses(user_id, item_id, item['uses_left'])
 
         # Add the item to the target's inventory
-        add_item_to_user(target_id, item_id, amount)
+        await add_item_to_user(target_id, item_id, amount)
 
         await interaction.followup.send(f"🎁 You gave {target.mention} {amount} of item ID `{item_id}`!", ephemeral=False)
 

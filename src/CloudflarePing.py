@@ -45,21 +45,28 @@ async def _ping_once(session: aiohttp.ClientSession, url: str) -> float:
         await resp.text()
     return (time.monotonic() - start) * 1000.0  # ms
 
-async def _loop(interval: float):
+async def _loop(interval: float, session: Optional[aiohttp.ClientSession] = None):
     global _CACHE
     log.info("Cloudflare ping loop started (interval=%s)", interval)
     while True:
         try:
-            async with aiohttp.ClientSession() as session:
+            # Use provided session or create a temporary one
+            use_shared = session is not None and not session.closed
+            if use_shared:
+                ping_session = session
+            else:
+                ping_session = aiohttp.ClientSession()
+            
+            try:
                 try:
-                    v4 = await _ping_once(session, f"https://{CLOUD_FLARE_IPV4}/cdn-cgi/trace")
+                    v4 = await _ping_once(ping_session, f"https://{CLOUD_FLARE_IPV4}/cdn-cgi/trace")
                 except Exception as e:
                     v4 = None
                     log.warning("CF IPv4 ping failed: %s", e)
                 v6 = None
                 if not IS_RAILWAY and not IS_DOCKER:
                     try:
-                        v6 = await _ping_once(session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
+                        v6 = await _ping_once(ping_session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
                     except Exception as e:
                         v6 = None
                         log.warning("CF IPv6 ping failed: %s", e)
@@ -70,18 +77,27 @@ async def _loop(interval: float):
                     _CACHE["ipv6"] = v6
                     _CACHE["ts"] = time.time()
                     _CACHE["error"] = None
+            finally:
+                # Only close if we created a temporary session
+                if not use_shared:
+                    await ping_session.close()
         except Exception as e:
             log.warning("Unexpected error in Cloudflare ping loop: %s", e)
             async with _CACHE_LOCK:
                 _CACHE["error"] = str(e)
         await asyncio.sleep(interval)
 
-def ensure_started(interval: int = CLOUD_FLARE_PING_INTERVAL) -> asyncio.Task:
-    """Start background task if not already running. Returns the Task."""
+def ensure_started(interval: int = CLOUD_FLARE_PING_INTERVAL, session: Optional[aiohttp.ClientSession] = None) -> asyncio.Task:
+    """Start background task if not already running. Returns the Task.
+    
+    Args:
+        interval: Ping interval in seconds
+        session: Optional shared HTTP session to use (recommended)
+    """
     global _task
     loop = asyncio.get_event_loop()
     if _task is None or _task.done():
-        _task = loop.create_task(_loop(interval))
+        _task = loop.create_task(_loop(interval, session))
     return _task
 
 async def get_cached_pings() -> Dict[str, Optional[Union[float, str]]]:
@@ -97,14 +113,28 @@ async def get_cached_pings() -> Dict[str, Optional[Union[float, str]]]:
         }
 
 # convenience immediate ping (no caching) if you need fresh values
-async def ping_now() -> Dict[str, Optional[float]]:
-    async with aiohttp.ClientSession() as session:
+async def ping_now(session: Optional[aiohttp.ClientSession] = None) -> Dict[str, Optional[float]]:
+    """Ping Cloudflare immediately without caching.
+    
+    Args:
+        session: Optional shared HTTP session to use (recommended)
+    """
+    use_shared = session is not None and not session.closed
+    if use_shared:
+        ping_session = session
+    else:
+        ping_session = aiohttp.ClientSession()
+    
+    try:
         try:
-            v4 = await _ping_once(session, f"https://{CLOUD_FLARE_IPV4}/cdn-cgi/trace")
+            v4 = await _ping_once(ping_session, f"https://{CLOUD_FLARE_IPV4}/cdn-cgi/trace")
         except Exception:
             v4 = None
         try:
-            v6 = await _ping_once(session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
+            v6 = await _ping_once(ping_session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
         except Exception:
             v6 = None
         return {"ipv4": v4, "ipv6": v6, "ts": time.time(), "error": None}
+    finally:
+        if not use_shared:
+            await ping_session.close()
