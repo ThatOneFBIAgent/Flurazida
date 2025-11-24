@@ -27,12 +27,12 @@ from discord import app_commands, Interaction, Embed
 
 # Local Imports
 import CloudflarePing as cf
+import config
 from config import BOT_TOKEN, cooldown
 from extraconfig import BOT_OWNER
 from logger import get_logger
-from utils.roll_logic import execute_roll, MAX_DICE, MAX_SIDES
+from utils.roll_logic import execute_roll
 from utils.eightball_responses import EIGHTBALL_RESPONSES
-
 
 log = get_logger()
 

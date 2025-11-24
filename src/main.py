@@ -398,8 +398,26 @@ async def main():
 
         bot_task = asyncio.create_task(bot.start(config.BOT_TOKEN))
 
-        await shutdown_signal  # wait for termination signal
-        await graceful_shutdown()
+        try:
+            # Wait for our shutdown future. If the process receives a KeyboardInterrupt
+            await shutdown_signal
+        except asyncio.CancelledError:
+            log.info("Shutdown future was cancelled; initiating cleanup.")
+        except KeyboardInterrupt:
+            log.info("KeyboardInterrupt received; initiating cleanup.")
+        finally:
+            # Ensure bot.start task is cancelled and awaited so discord cleans up
+            if not bot_task.done():
+                bot_task.cancel()
+                try:
+                    await bot_task
+                except asyncio.CancelledError:
+                    pass
+            # Ensure final graceful shutdown (closes http session, backups, bot.close)
+            try:
+                await graceful_shutdown()
+            except Exception:
+                log.exception("Error during graceful shutdown")
 
 # optinally if someone rawdogs main.py
 if __name__ == "__main__":
