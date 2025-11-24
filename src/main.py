@@ -352,12 +352,19 @@ async def graceful_shutdown():
     log.info("👋 Shutdown complete.")
 
 async def main():
-    restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
-        {
-            "economy.db": ECONOMY_DB_PATH,
-            "moderator.db": MODERATOR_DB_PATH,
-        }
-    )
+    # Attempt restore and surface any problem (was being called silently)
+    try:
+        restored_ok = restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
+            {
+                "economy.db": ECONOMY_DB_PATH,
+                "moderator.db": MODERATOR_DB_PATH,
+            }
+        )
+        if restored_ok is False:
+            log.warning("Drive restore returned False (no files restored or an error occurred).")
+    except Exception:
+        log.exception("Exception while restoring databases from Drive")
+
     # Initialize database tables
     await init_databases()
     BACKUP_DELAY_HOURS = 1
@@ -381,16 +388,23 @@ async def main():
 
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, _signal_handler)
+            try:
+                loop.add_signal_handler(sig, _signal_handler)
+            except NotImplementedError:
+                # Windows: loop.add_signal_handler usually isn't implemented for SIGTERM
+                log.warning(f"Cannot register signal handler for {sig!r} on this platform; falling back to default behaviour.")
+            except Exception:
+                log.exception(f"Failed to register signal handler for {sig!r}")
 
         bot_task = asyncio.create_task(bot.start(config.BOT_TOKEN))
 
         await shutdown_signal  # wait for termination signal
         await graceful_shutdown()
 
-
+# optinally if someone rawdogs main.py
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        log.exception(f"Fatal crash: {e}")
+        # Use log.exception to capture full traceback rather than only the exception string
+        log.exception(f"Fatal crash as {e}")

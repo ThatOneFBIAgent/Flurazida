@@ -16,12 +16,12 @@ import discord
 from discord import File, Interaction
 from dotenv import load_dotenv
 
-# Local Imports
+# Ensure we import get_logger used below
 from logger import get_logger
 
+# Correctly load .env from project root's .env folder (project_root/.env/.env)
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env", ".env"))
 
-
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env', '.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Import global config from extraconfig

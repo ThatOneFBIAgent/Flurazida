@@ -203,16 +203,20 @@ def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
 
     file_id = files[0]["id"]
     request = service.files().get_media(fileId=file_id)
-    fh = io.FileIO(local_path, 'wb')
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
+    # Use context manager so file handle is closed promptly (avoids Windows file-lock issues)
     try:
-        while not done:
-            status, done = downloader.next_chunk()
+        with io.FileIO(local_path, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
         log.info(f"Restored database from Google Drive: {drive_filename}")
         return True
     except HttpError as e:
-        log.error(f"Failed to download {drive_filename}: {e}")
+        log.exception(f"Failed to download {drive_filename}: {e}")
+        return False
+    except Exception as e:
+        log.exception(f"Unexpected error while restoring {drive_filename}: {e}")
         return False
 
 
@@ -241,15 +245,16 @@ def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str]):
     file_id = files[0]["id"]
     temp_zip = os.path.join(tempfile.gettempdir(), zip_filename)
     request = service.files().get_media(fileId=file_id)
-    fh = io.FileIO(temp_zip, 'wb')
-    downloader = MediaIoBaseDownload(fh, request)
-
+    # Use context manager so file handle is closed promptly (avoids Windows file-lock issues)
     try:
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-            if status:
-                log.info(f"Download progress: {int(status.progress() * 100)}%")
+        with io.FileIO(temp_zip, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                if status:
+                    log.info(f"Download progress: {int(status.progress() * 100)}%")
 
         log.info(f"Downloaded {zip_filename}, extracting...")
         with zipfile.ZipFile(temp_zip, "r") as zipf:
@@ -263,14 +268,18 @@ def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str]):
                     log.warning(f"Skipping unknown file in ZIP: {member}")
 
         log.info("✅ All databases restored successfully.")
-        os.remove(temp_zip)
+        # Now safe to remove the temp file since file handle is closed
+        try:
+            os.remove(temp_zip)
+        except OSError as e:
+            log.warning(f"Could not remove temp backup file: {e}")
         return True
 
     except HttpError as e:
-        log.error(f"❌ Failed to restore from Drive: {e}")
+        log.exception(f"❌ Failed to restore from Drive: {e}")
         return False
     except Exception as e:
-        log.error(f"❌ Unexpected error during restore: {e}")
+        log.exception(f"❌ Unexpected error during restore: {e}")
         return False
 
 
@@ -303,55 +312,59 @@ SHOP_ITEMS = [
 # Initialize database tables on startup
 async def init_databases():
     """Initialize database tables using aiosqlite"""
-    # Initialize economy database
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT NOT NULL,
-            balance INTEGER NOT NULL DEFAULT 0
-        )
-        """)
+    try:
+        # Initialize economy database
+        async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT NOT NULL,
+                balance INTEGER NOT NULL DEFAULT 0
+            )
+            """)
+            
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_items (
+                user_id INTEGER,
+                item_id TEXT,
+                item_name TEXT NOT NULL,
+                uses_left INTEGER DEFAULT 0,
+                effect_modifier INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, item_id)
+            )
+            """)
+            await conn.commit()
         
-        await conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_items (
-            user_id INTEGER,
-            item_id TEXT,
-            item_name TEXT NOT NULL,
-            uses_left INTEGER DEFAULT 0,
-            effect_modifier INTEGER DEFAULT 0,
-            PRIMARY KEY (user_id, item_id)
-        )
-        """)
-        await conn.commit()
-    
-    # Initialize moderator database with single cases table
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        # Use an internal autoincrement id (case_id) and a per-guild case_number.
-        # case_number is generated per-guild at insert time so each server has its own counting.
-        await conn.execute("""
-        CREATE TABLE IF NOT EXISTS cases (
-            case_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            case_number INTEGER NOT NULL,
-            guild_id INTEGER NOT NULL,
-            case_number INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            username TEXT,
-            reason TEXT NOT NULL,
-            action_type TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            moderator_id INTEGER NOT NULL,
-            expiry INTEGER DEFAULT 0,
-            UNIQUE (guild_id, case_number)
-        )
-        """)
-        # Create index on guild_id for faster queries
-        await conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cases_guild_id ON cases(guild_id)
-        """)
-        await conn.commit()
-    
-    log.info("Databases initialized successfully")
+        # Initialize moderator database with single cases table
+        async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
+            # Use an internal autoincrement id (case_id) and a per-guild case_number.
+            # case_number is generated per-guild at insert time so each server has its own counting.
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS cases (
+                case_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_number INTEGER NOT NULL,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                reason TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                moderator_id INTEGER NOT NULL,
+                expiry INTEGER DEFAULT 0,
+                UNIQUE (guild_id, case_number)
+            )
+            """)
+            # Create index on guild_id for faster queries
+            await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cases_guild_id ON cases(guild_id)
+            """)
+            await conn.commit()
+        
+        log.info("Databases initialized successfully")
+    except Exception:
+        log.exception("Failed while initializing databases")
+        # Re-raise so caller (main.py) can still handle/fail, but we've logged full traceback
+        raise
 
 @log_db_call
 async def modify_robber_multiplier(user_id, change, duration=None):
@@ -704,3 +717,13 @@ async def periodic_backup(interval_hours=1):
             
         log.info("Backup task completed.")
         await asyncio.sleep(interval_hours * 3600)
+
+# Register a global uncaught-exception hook to make sure fatal crashes are logged with tracebacks
+def _log_unhandled_exception(exc_type, exc_value, exc_tb):
+    # Let KeyboardInterrupt behave normally
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    log.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+
+sys.excepthook = _log_unhandled_exception
