@@ -332,47 +332,46 @@ class ImageCommands(app_commands.Group):
         return frames, duration
 
     def _frames_to_gif_bytes(self, frames: List[Image.Image], duration_ms: int = 80, loop: int = 0) -> bytes:
-        """Save frames to GIF bytes (PIL save_all)."""
+        """
+        Saves GIF bytes. Handles the 'dirty white pixel' issue by ensuring proper 
+        background disposal and palette optimization.
+        """
+        if not frames: return b""
         bio = io.BytesIO()
+        
         if len(frames) == 1:
-            # Convert to RGB first, then quantize to ensure proper color handling
-            frame = frames[0]
-            if frame.mode == 'RGBA':
-                # Create white background for transparency
-                rgb = Image.new('RGB', frame.size, (255, 255, 255))
-                rgb.paste(frame, mask=frame.split()[3])  # Use alpha channel as mask
-                frame = rgb
-            elif frame.mode != 'RGB':
-                frame = frame.convert('RGB')
-            # Quantize with dither=0 to preserve white
-            quantized = frame.quantize(colors=256, dither=Image.Dither.NONE)
-            quantized.save(bio, format="GIF")
-        else:
-            first, rest = frames[0], frames[1:]
-            # Convert all frames to RGB with white background for transparency
-            processed_frames = []
-            for f in [first] + rest:
-                if f.mode == 'RGBA':
-                    rgb = Image.new('RGB', f.size, (255, 255, 255))
-                    rgb.paste(f, mask=f.split()[3])
-                    f = rgb
-                elif f.mode != 'RGB':
-                    f = f.convert('RGB')
-                processed_frames.append(f)
-            
-            # Quantize first frame and use it as palette for others
-            first_quantized = processed_frames[0].quantize(colors=256, dither=Image.Dither.NONE)
-            rest_quantized = [f.quantize(colors=256, palette=first_quantized, dither=Image.Dither.NONE) for f in processed_frames[1:]]
-            
-            first_quantized.save(
-                bio,
-                format="GIF",
-                save_all=True,
-                append_images=rest_quantized,
-                loop=loop,
-                duration=duration_ms,
-                disposal=2,
-            )
+            frames[0].save(bio, format="PNG") # Better quality for static
+            bio.seek(0)
+            return bio.read()
+
+        # Check for transparency
+        has_transparency = False
+        for f in frames[:5]:
+            extrema = f.getextrema()
+            if extrema[3][0] < 255:
+                has_transparency = True
+                break
+        
+        prepared = []
+        for f in frames:
+            if has_transparency:
+                prepared.append(f)
+            else:
+                # Flatten to RGB to ensure clean colors if no transparency needed
+                bg = Image.new("RGB", f.size, (255, 255, 255))
+                bg.paste(f, mask=f.split()[3])
+                prepared.append(bg)
+
+        prepared[0].save(
+            bio,
+            format="GIF",
+            save_all=True,
+            append_images=prepared[1:],
+            loop=loop,
+            duration=duration_ms,
+            disposal=2,
+            optimize=False
+        )
         bio.seek(0)
         return bio.read()
 
@@ -441,75 +440,74 @@ class ImageCommands(app_commands.Group):
             wrapped_lines.append(current_line)
         return wrapped_lines
 
-    def _draw_text_centered(
-        self,
-        img: Image.Image,
-        text: str,
-        *,
-        bottom: bool = False,
-        font_path: str = os.path.join(os.getcwd(), "resources", "impact.ttf"),
-        max_font_size: int = 64,
-        padding: int = 10,
-        bg_color: Tuple[int,int,int,int] = (255, 255, 255, 255)
-    ) -> Image.Image:
-
-        # work in RGB only to avoid GIF palette corruption later
-        img = img.convert("RGB")
-
+    def _draw_text_centered(self, img: Image.Image, text: str, bottom: bool = False) -> Image.Image:
+        """Draws text with a clean white box."""
+        img = img.convert("RGBA")
         w, h = img.size
-        font_size = max_font_size
-        wrapped_lines = []
+        
+        # Load font
+        font_path = os.path.join(os.getcwd(), "resources", "impact.ttf")
+        try:
+            font = ImageFont.truetype(font_path, 40)
+            has_font = True
+        except:
+            font = ImageFont.load_default()
+            has_font = False
 
-        # shrink until it fits
-        while font_size > 6:
-            font = ImageFont.truetype(font_path, font_size)
-            lines = []
-            for para in text.split("\n"):
-                lines.extend(self.wrap_text(para, font, w - 2 * padding))
-            lh = font.getbbox("Ay")[3]
-            box_h = len(lines) * lh + 2 * padding
-            if box_h <= h // 2:
-                wrapped_lines = lines
-                break
-            font_size -= 2
+        # Fit text
+        font_size = 60 if w > 500 else 40
+        padding = 15
+        lines = []
+        
+        if has_font:
+            while font_size > 10:
+                font = ImageFont.truetype(font_path, font_size)
+                lines = []
+                for para in text.split('\n'):
+                    line = ""
+                    for word in para.split():
+                        test = f"{line} {word}".strip()
+                        if font.getlength(test) < (w - 2 * padding):
+                            line = test
+                        else:
+                            lines.append(line)
+                            line = word
+                    lines.append(line)
+                
+                # Check height
+                lh = font.getbbox("Ay")[3]
+                if (len(lines) * lh + 2*padding) < (h * 0.6):
+                    break
+                font_size -= 4
+        else:
+            lines = [text]
 
-        if not wrapped_lines:
-            font = ImageFont.truetype(font_path, font_size)
-            wrapped_lines = self.wrap_text(text, font, w - 2 * padding)
-            lh = font.getbbox("Ay")[3]
-            box_h = len(wrapped_lines) * lh + 2 * padding
-
-        # make new RGB canvas
+        lh = font.getbbox("Ay")[3] if has_font else 15
+        box_h = (len(lines) * lh) + (padding * 3)
+        
+        # Composite
         new_h = h + box_h
-        new_img = Image.new("RGB", (w, new_h), (255, 255, 255))
+        final = Image.new("RGBA", (w, new_h), (255, 255, 255, 255))
+        paste_y = 0 if bottom else box_h
+        final.paste(img, (0, paste_y), img)
+        
+        draw = ImageDraw.Draw(final)
+        text_y = (paste_y + h + padding) if bottom else padding
+        
+        for line in lines:
+            if has_font:
+                lw = font.getlength(line)
+            else:
+                lw = draw.textlength(line, font=font)
+            draw.text(((w - lw)/2, text_y), line, font=font, fill="black")
+            text_y += lh
+            
+        return final
 
-        if bottom:
-            new_img.paste(img, (0, 0))
-            box_y = h
-        else:
-            new_img.paste(img, (0, box_h))
-            box_y = 0
-
-        draw = ImageDraw.Draw(new_img)
-        draw.rectangle([0, box_y, w, box_y + box_h], fill=(255,255,255))
-
-        # centered text
-        for i, line in enumerate(wrapped_lines):
-            tw, th = draw.textbbox((0,0), line, font=font)[2:]
-            tx = (w - tw) // 2
-            ty = box_y + padding + i * lh
-            draw.text((tx, ty), line, font=font, fill=(0, 0, 0))
-
-        return new_img
-
-    def _flip_frame(self, frame: Image.Image, axis: Literal["horizontal", "vertical", "both"]) -> Image.Image:
-        if axis == "horizontal":
-            return frame.transpose(Image.FLIP_LEFT_RIGHT)
-        elif axis == "vertical":
-            return frame.transpose(Image.FLIP_TOP_BOTTOM)
-        else:
-            # both
-            return frame.transpose(Image.FLIP_LEFT_RIGHT).transpose(Image.FLIP_TOP_BOTTOM)
+    def _flip_frame(self, frame: Image.Image, axis: str) -> Image.Image:
+        if axis == "horizontal": return frame.transpose(Image.FLIP_LEFT_RIGHT)
+        if axis == "vertical": return frame.transpose(Image.FLIP_TOP_BOTTOM)
+        return frame.transpose(Image.FLIP_LEFT_RIGHT).transpose(Image.FLIP_TOP_BOTTOM)
 
     def _jpegify_bytes(self, frames: List[Image.Image], recursions: int = 1, quality: int = 20) -> List[Image.Image]:
         """Apply jpeg artifact recursion to each frame. Returns frames (RGBA)."""
@@ -1330,6 +1328,7 @@ class ImageCommands(app_commands.Group):
         embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
 
         await interaction.followup.send(embed=embed, files=files, ephemeral=False)
+
     @app_commands.command(name="petpet", description="Pat someone's head with love!")
     @app_commands.describe(
         user="Who to pat (defaults to yourself)",

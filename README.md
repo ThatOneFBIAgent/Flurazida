@@ -37,7 +37,7 @@ This will open your browser (set by default) and open a google authorization pag
 You **MUST** have a client (OAuth2 Web app with 8080 redirect) from google's Cloud Console, replace ln 17's contents with the downloaded json.
 
 ### 3. Configure the bot
-Open config.py (found under ./src/config.py) and change bot owner id, and backup folder ID. For configuring the bot's token, head to the project root and create a folder named ".env", with a single file titled the same, this'll be where BOT_TOKEN and DRIVE_TOKEN_B64 will be stored at for safety purposes.
+Open extraconfig.py (found under ./src/config.py) and change bot owner id, and backup folder ID. For configuring the bot's token, head to the project root and create a folder named ".env", with a single file titled the same, this'll be where BOT_TOKEN and DRIVE_TOKEN_B64 will be stored at for safety purposes.
 
 ### 4. Running the bot
 When running on a VPS make sure Procfile points to the correct path, or when done locally simply do:
@@ -47,9 +47,9 @@ python src/main.py
 
 When done correctly you will see something like this:
 ```
-[000035ms] [  INFO  ] [opt.venv.lib.python3.12.site-packages.discord.client] logging in using static token
-[000344ms] [  INFO  ] [src.database] Economy DB Logging begin
-[000344ms] [  INFO  ] [src.database] Moderator DB Logging begin
+[035ms] [  INFO  ] [opt.venv.lib.python3.12.site-packages.discord.client] logging in using static token
+[344ms] [  INFO  ] [src.database] Economy DB Logging begin
+[344ms] [  INFO  ] [src.database] Moderator DB Logging begin
 ```
 
 ## CONGRATULATIONS!!

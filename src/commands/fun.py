@@ -30,8 +30,8 @@ import CloudflarePing as cf
 from config import BOT_TOKEN, cooldown
 from extraconfig import BOT_OWNER
 from logger import get_logger
-from roll_logic import execute_roll, MAX_DICE, MAX_SIDES
-from eightball_responses import EIGHTBALL_RESPONSES
+from utils.roll_logic import execute_roll, MAX_DICE, MAX_SIDES
+from utils.eightball_responses import EIGHTBALL_RESPONSES
 
 
 log = get_logger()

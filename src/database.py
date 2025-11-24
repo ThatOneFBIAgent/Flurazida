@@ -166,10 +166,20 @@ async def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: st
             service.files().create(body=meta, media_body=media, fields="id").execute()
             log.info(f"Created new backup '{zip_filename}'.")
     finally:
-        try:
-            os.remove(temp_zip_path)
-        except Exception as e:
-            log.warning(f"Couldn't remove temp zip: {e}")
+        # Force close the stream if possible (MediaFileUpload doesn't strictly require it but it helps)
+        if 'media' in locals():
+            del media 
+        
+        # Windows-safe deletion retry loop
+        for i in range(5):
+            try:
+                if os.path.exists(temp_zip_path):
+                    os.remove(temp_zip_path)
+                break
+            except OSError as e:
+                if i == 4: # Last attempt
+                    log.warning(f"Could not remove temp backup file after retries: {e}")
+                time.sleep(0.5) # Wait for Windows to release the lock
 
 def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
     """
@@ -317,9 +327,12 @@ async def init_databases():
     
     # Initialize moderator database with single cases table
     async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
+        # Use an internal autoincrement id (case_id) and a per-guild case_number.
+        # case_number is generated per-guild at insert time so each server has its own counting.
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS cases (
-            case_number INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_number INTEGER NOT NULL,
             guild_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             username TEXT NOT NULL,
@@ -327,7 +340,8 @@ async def init_databases():
             action_type TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             moderator_id INTEGER NOT NULL,
-            expiry INTEGER DEFAULT 0
+            expiry INTEGER DEFAULT 0,
+            UNIQUE (guild_id, case_number)
         )
         """)
         # Create index on guild_id for faster queries
@@ -559,11 +573,6 @@ async def use_item(user_id, item_id):
                 if "gun_defense" in effect_data:
                     effect_applied = "🔫 **You are armed. Good luck, robber.**"
 
-            # Reduce item uses
-            await conn.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = ?", (user_id, item_id))
-            await conn.commit()
-
-            return f"{last_use_warning}✅ **You used {item_data['name']}!** {effect_applied}"
 
 @log_db_call
 async def check_gun_defense(victim_id):
@@ -583,18 +592,28 @@ async def decrement_gun_use(victim_id):
 # Now using a single cases table with guild_id column instead of per-guild tables
 @log_mod_call
 async def insert_case(guild_id, user_id, username, reason, action_type, moderator_id, timestamp=None, expiry=0):
-    """Insert a case into the unified cases table"""
+    """Insert a case into the unified cases table with a per-guild case_number."""
     if timestamp is None:
         timestamp = int(time.time())
+
     async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
+        # Ensure atomicity so two concurrent inserts for the same guild can't get the same case_number
+        await conn.execute("BEGIN IMMEDIATE")
+        # Get current max case_number for the guild
+        async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
+            row = await cursor.fetchone()
+            next_case_number = (row[0] or 0) + 1
+
+        # Insert including computed per-guild case_number
         await conn.execute("""
-            INSERT INTO cases (guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
+            INSERT INTO cases (case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (next_case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
+
         await conn.commit()
-        # Get the last inserted case_number
-        async with conn.execute("SELECT last_insert_rowid()") as cursor:
-            return (await cursor.fetchone())[0]
+
+        # Return the per-guild case number so callers can reference it
+        return next_case_number
 
 @log_mod_call
 async def get_cases_for_guild(guild_id, limit=50, offset=0):
