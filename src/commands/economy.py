@@ -24,15 +24,55 @@ from database import (
     add_item_to_user
 )
 from config import cooldown
+from discord import ui
+
+class PlayAgainView(ui.View):
+    def __init__(self, callback, user_id, *args, **kwargs):
+        super().__init__(timeout=30) # adjust at your own risk people WILL spam this
+        self.callback = callback
+        self.user_id = user_id
+        self.args = args
+        self.kwargs = kwargs
+
+    @ui.button(label="🔄 Do Again", style=discord.ButtonStyle.primary)
+    async def play_again(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("🚫 This isn't your command!", ephemeral=True)
+        
+        # Disable button and stop the view to prevent further clicks
+        button.disabled = True
+        self.stop()
+        
+        # Update the message to show the button is disabled (don't respond yet!)
+        try:
+            await interaction.message.edit(view=self)
+        except:
+            pass  # Message might be deleted or inaccessible
+        
+        # Run the callback with the new interaction (callback will respond)
+        await self.callback(interaction, *self.args, **self.kwargs)
+    
+    async def on_timeout(self):
+        """Disable the button when the view times out."""
+        # Disable all buttons
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True
+        
+        # Try to edit the message to show disabled button
+        # Note: We need to store the message reference when creating the view
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except:
+            pass  # Message might be deleted or we don't have permission
 
 
 class EconomyCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="economy", description="Economy related commands")
 
-    @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
-    @cooldown(cl=600, tm=25.0, ft=3)
-    async def rob(self, interaction: discord.Interaction, target: discord.Member):
+    async def run_rob(self, interaction: discord.Interaction, target: discord.Member):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         target_id = target.id
@@ -85,7 +125,7 @@ class EconomyCommands(app_commands.Group):
                 f"🔪 You threatened {target.mention} and took `{amount}` coins!",
                 f"💵 You pickpocketed {target.mention} and made off with `{amount}` coins!",
             ]
-            await interaction.followup.send(random.choice(messages), ephemeral=False)
+            msg_content = random.choice(messages)
         else:
             penalty = random.randint(50, 400)
             await update_balance(user_id, -penalty)
@@ -95,11 +135,16 @@ class EconomyCommands(app_commands.Group):
                 f"😬 {target.mention} fought back! You lost 💰 `{penalty}` coins.",
                 f"🚓 {target.mention} made you trip and the police caught you! You lost 💰`{penalty} coins.`"
             ]
-            await interaction.followup.send(random.choice(messages), ephemeral=False)
+            msg_content = random.choice(messages)
+            
+        await interaction.followup.send(msg_content, ephemeral=False)
 
-    @app_commands.command(name="crime", description="Commit a crime for cash. Risky!")
-    @cooldown(cl=8, tm=25.0, ft=3)
-    async def crime(self, interaction: discord.Interaction):
+    @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
+    @cooldown(cl=600, tm=25.0, ft=3)
+    async def rob(self, interaction: discord.Interaction, target: discord.Member):
+        await self.run_rob(interaction, target)
+
+    async def run_crime(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         await add_user(user_id, interaction.user.name)
@@ -130,11 +175,17 @@ class EconomyCommands(app_commands.Group):
                 f"👮 You got arrested for public indecency! Lost 💰 `{abs(amount)}` coins."
             ]
 
-        await interaction.followup.send(random.choice(messages), ephemeral=False)
 
-    @app_commands.command(name="slut", description="Do some... work for quick cash.")
-    @cooldown(cl=10, tm=25.0, ft=3) # Horny bastards.
-    async def slut(self, interaction: discord.Interaction):
+        view = PlayAgainView(self.run_crime, user_id)
+        msg = await interaction.followup.send(random.choice(messages), ephemeral=False, view=view)
+        view.message = msg
+
+    @app_commands.command(name="crime", description="Commit a crime for cash. Risky!")
+    @cooldown(cl=8, tm=25.0, ft=3)
+    async def crime(self, interaction: discord.Interaction):
+        await self.run_crime(interaction)
+
+    async def run_slut(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         await add_user(user_id, interaction.user.name)
@@ -159,11 +210,16 @@ class EconomyCommands(app_commands.Group):
                 f"🤓 You were too ugly and had to spend 💰 `{abs(amount)}` coins on plastic surgery."
             ]
 
-        await interaction.followup.send(random.choice(messages), ephemeral=False)
+        view = PlayAgainView(self.run_slut, user_id)
+        msg = await interaction.followup.send(random.choice(messages), ephemeral=False, view=view)
+        view.message = msg
 
-    @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
-    @cooldown(cl=6, tm=25.0, ft=3)
-    async def work(self, interaction: discord.Interaction):
+    @app_commands.command(name="slut", description="Do some... work for quick cash.")
+    @cooldown(cl=10, tm=25.0, ft=3) # Horny bastards.
+    async def slut(self, interaction: discord.Interaction):
+        await self.run_slut(interaction)
+
+    async def run_work(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         await add_user(user_id, interaction.user.name)
@@ -189,7 +245,14 @@ class EconomyCommands(app_commands.Group):
             f"👮You got caught doing something illegal at work! You lost 💰`{abs(amount)}` coins"
             ]
 
-        await interaction.followup.send(random.choice(messages), ephemeral=False)
+        view = PlayAgainView(self.run_work, user_id)
+        msg = await interaction.followup.send(random.choice(messages), ephemeral=False, view=view)
+        view.message = msg
+
+    @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
+    @cooldown(cl=6, tm=25.0, ft=3)
+    async def work(self, interaction: discord.Interaction):
+        await self.run_work(interaction)
 
     @app_commands.command(name="balance", description="Check your current balance")
     @cooldown(cl=2, tm=25.0, ft=3)

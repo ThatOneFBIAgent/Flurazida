@@ -3,15 +3,31 @@ import inspect
 import sys
 import os
 
+# Define custom log levels
+SUCCESS_LEVEL = 25  # Between INFO (20) and WARNING (30)
+TRACE_LEVEL = 5     # Below DEBUG (10)
+EVENT_LEVEL = 15    # Below INFO (20)
+
+logging.EVENT_LEVEL = EVENT_LEVEL
+logging.SUCCESS_LEVEL = SUCCESS_LEVEL
+logging.TRACE_LEVEL = TRACE_LEVEL
+
+logging.addLevelName(SUCCESS_LEVEL, "SUCCESS")
+logging.addLevelName(TRACE_LEVEL, "TRACE")
+logging.addLevelName(EVENT_LEVEL, "EVENT")
+
 # Custom auto-context color formatter
 class ColoredFormatter(logging.Formatter):
     COLORS = {
-        logging.DEBUG: "\033[90m",    # gray
-        logging.INFO: "\033[36m",     # cyan
-        logging.WARNING: "\033[33m",  # yellow
-        logging.ERROR: "\033[31m",    # red
-        logging.CRITICAL: "\033[41m", # red bg
-    }
+        TRACE_LEVEL: "\033[90m",      # gray
+        logging.DEBUG: "\033[90m",     # gray
+        logging.INFO: "\033[36m",      # cyan
+        EVENT_LEVEL: "\033[96m",      # light blue
+        SUCCESS_LEVEL: "\033[32m",  # green text
+        logging.WARNING: "\033[33m",   # yellow
+        logging.ERROR: "\033[31m",     # red
+        logging.CRITICAL: "\033[41;97m",  # red bg with white text
+    } # you CAN have other logs with bgs, but it's only recommended for critical errors since it's eye-catching
     RESET = "\033[0m"
 
     def format(self, record: logging.LogRecord) -> str:
@@ -35,7 +51,7 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColoredFormatter())
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=EVENT_LEVEL,
     handlers=[handler],
     force=True
 )
@@ -51,7 +67,7 @@ def get_logger(name=None) -> logging.Logger:
         # Inspect call stack to find where get_logger() was invoked
         frame = inspect.stack()[1]
         module = inspect.getmodule(frame[0])
-        if module and module.__name__ != "__main__":
+        if module and hasattr(module, '__name__') and module.__name__ not in ("__main__",):
             name = module.__name__
         else:
             # fallback to file-based path like "discord.gateway.shard"
@@ -61,3 +77,24 @@ def get_logger(name=None) -> logging.Logger:
             name = ".".join(parts)
 
     return logging.getLogger(name)
+
+# Add convenience methods to Logger class
+def success(self, message, *args, **kwargs):
+    """Log a success message with green background."""
+    if self.isEnabledFor(SUCCESS_LEVEL):
+        self._log(SUCCESS_LEVEL, message, args, **kwargs)
+
+def trace(self, message, *args, **kwargs):
+    """Log a trace message (even more verbose than debug)."""
+    if self.isEnabledFor(TRACE_LEVEL):
+        self._log(TRACE_LEVEL, message, args, **kwargs)
+
+def event(self, message, *args, **kwargs):
+    """Log an event message (even more verbose than debug)."""
+    if self.isEnabledFor(EVENT_LEVEL):
+        self._log(EVENT_LEVEL, message, args, **kwargs)
+
+# Attach custom methods to Logger class
+logging.Logger.success = success
+logging.Logger.trace = trace
+logging.Logger.event = event

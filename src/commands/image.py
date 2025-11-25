@@ -453,8 +453,9 @@ class ImageCommands(app_commands.Group):
         bg_color: Tuple[int,int,int,int] = (255, 255, 255, 255)
     ) -> Image.Image:
 
-        # work in RGB only to avoid GIF palette corruption later
-        img = img.convert("RGB")
+        # work in RGB only to avoid GIF palette corruption later, UNLESS we want to preserve alpha for PNG
+        if img.mode != "RGBA" and img.mode != "RGB":
+             img = img.convert("RGB")
 
         w, h = img.size
         font_size = max_font_size
@@ -657,9 +658,19 @@ class ImageCommands(app_commands.Group):
             rgba = framed.convert('RGBA')
             out_frames.append(rgba)
 
-        # --- Save and send GIF ---
-        gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        await self._send_image_bytes(interaction, gif, "captioned.gif")
+        # --- Save and send ---
+        if len(frames) == 1:
+            # Static image -> PNG
+            # We already have the single frame in 'out_frames[0]'
+            final_img = out_frames[0]
+            bio = io.BytesIO()
+            final_img.save(bio, format="PNG")
+            bio.seek(0)
+            await self._send_image_bytes(interaction, bio.read(), "captioned.png")
+        else:
+            # Animated -> GIF
+            gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+            await self._send_image_bytes(interaction, gif, "captioned.gif")
 
     @app_commands.command(name="jpegify", description="Apply JPEG artifacting. Set recursions to repeat the effect.")
     @cooldown(cl=10, tm=25.0, ft=3)

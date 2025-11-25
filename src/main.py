@@ -30,6 +30,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 # Local Application Imports
 import CloudflarePing as cf
 import config
+from config import IS_ALPHA
 from database import (
     get_expired_cases,
     periodic_backup,
@@ -89,7 +90,7 @@ class Main(commands.AutoShardedBot):
             cog_path = f"commands.{cog_name}"
             try:
                 await self.load_extension(cog_path)
-                log.info(f"Loaded cog: {cog_name}")
+                log.success(f"Loaded cog: {cog_name}")
             except Exception as e:
                 failed.append((cog_name, e))
                 log.critical(f"Failed to load cog `{cog_name}`; continuing without it. Reason: {e}")
@@ -112,12 +113,12 @@ class Main(commands.AutoShardedBot):
                 if cog_path in self.extensions:
                     await self.reload_extension(cog_path)
                     msg = f"🔁 Reloaded `{cog_name}` successfully."
-                    log.info(msg)
+                    log.success(msg)
                     await interaction.response.send_message(msg, ephemeral=True)
                 else:
                     await self.load_extension(cog_path)
                     msg = f"📥 Loaded new cog `{cog_name}` successfully."
-                    log.info(msg)
+                    log.success(msg)
                     await interaction.response.send_message(msg, ephemeral=True)
             except Exception as e:
                 log.exception(f"Failed to load or reload `{cog_name}`")
@@ -150,30 +151,30 @@ async def on_ready():
     # Only run once, even though each shard calls on_ready
     if not bot._ready_once.is_set():
         total_shards = bot.shard_count or 1
-        log.info(f"🚀 Bot is online as {bot.user} (ID: {bot.user.id})")
-        log.info(f"Connected to {len(bot.guilds)} guilds across {total_shards} shard(s).")
-        log.info(f"Serving approximately {sum(g.member_count for g in bot.guilds)} users.")
+        log.event(f"Bot is online as {bot.user} (ID: {bot.user.id})")
+        log.event(f"Connected to {len(bot.guilds)} guilds across {total_shards} shard(s).")
+        log.event(f"Serving approximately {sum(g.member_count for g in bot.guilds)} users.")
         bot._ready_once.set()
     else:
         # Shard resumed event — bot reconnected
-        log.info(f"🔁 [Shard {bot.shard_id or '?'}] resumed session.")
+        log.info(f"[Shard {bot.shard_id or '?'}] resumed session.")
 
 @bot.event
 async def on_shard_connect(shard_id):
-    log.info(f"✅ [Shard {shard_id}] connected successfully.")
+    log.event(f"[Shard {shard_id}] connected successfully.")
 
 @bot.event
 async def on_shard_ready(shard_id):
     guilds = [g for g in bot.guilds if g.shard_id == shard_id]
-    log.info(f"🌐 [Shard {shard_id}] ready — handling {len(guilds)} guild(s).")
+    log.event(f"[Shard {shard_id}] ready — handling {len(guilds)} guild(s).")
 
 @bot.event
 async def on_shard_disconnect(shard_id):
-    log.warning(f"⚠️ [Shard {shard_id}] disconnected — waiting for resume.")
+    log.warning(f"[Shard {shard_id}] disconnected — waiting for resume.")
 
 @bot.event
 async def on_shard_resumed(shard_id):
-    log.info(f"🔄 [Shard {shard_id}] resumed connection cleanly.")
+    log.event(f"[Shard {shard_id}] resumed connection cleanly.")
 
 @bot.event
 async def on_message(message):
@@ -200,7 +201,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
     user = f"{interaction.user} ({interaction.user.id})"
 
     log.error(
-        f"🔥 Slash command failed:\n"
+        f"Slash command failed:\n"
         f" • Command: {cmd_group}\n"
         f" • User: {user}\n"
         f" • Guild: {getattr(interaction.guild, 'name', 'DM')} "
@@ -213,7 +214,7 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
     # Check if bot is shutting down/restarting
     if getattr(bot, "_is_shutting_down", False):
         await interaction.response.send_message(
-            "🚧 Bot is restarting, please wait a moment.",
+            "🚧 Bot is restarting, please try again later.",
             ephemeral=True
         )
         return False
@@ -267,13 +268,13 @@ async def cycle_paired_activities():
             if sig != last_activity_signature:
                 last_activity_signature = sig
                 await bot.change_activity_all(activity=act, status=status)
-                log.info(f"Changed presence to: {act.name} ({act.type})")
+                log.event(f"Changed presence to: {act.name} ({act.type})")
                 break
         await asyncio.sleep(900)
 
 async def moderation_expiry_task():
     await bot.wait_until_ready()
-    log.info("Moderation expiry task started.")
+    log.event("Moderation expiry task started.")
 
     while not bot.is_closed():
         try:
@@ -299,18 +300,25 @@ async def moderation_expiry_task():
                     try:
                         user = await bot.fetch_user(user_id)
                         await guild.unban(user, reason="Ban expired")
-                        log.info(f"✅ Unbanned {user} ({user_id}) from {guild.name}")
+                        log.trace(f"Unbanned {user} ({user_id}) from {guild.name}")
                     except discord.NotFound:
                         log.warning(f"User {user_id} not found when unbanning.")
                     except Exception as e:
-                        log.error(f"❌ Failed to unban {user_id} in {guild_id}: {e}")
+                        log.critical(f"Failed to unban {user_id} in {guild_id}: {e}")
 
             # sleep slightly randomized to desync ticks
             await asyncio.sleep(60 + random.randint(5, 20))
 
         except Exception as e:
-            log.error(f"💥 moderation_expiry_task crashed: {e}")
+            log.critical(f"moderation_expiry_task crashed: {e}")
             await asyncio.sleep(30) 
+
+async def kill_all_tasks():
+    current = asyncio.current_task()
+    for task in asyncio.all_tasks():
+        if task is current: continue
+        task.cancel()
+    await asyncio.sleep(1)
 
 async def graceful_shutdown():
     log.info("Shutdown signal received — performing cleanup...")
@@ -322,23 +330,26 @@ async def graceful_shutdown():
     await asyncio.sleep(1)
 
     # Final backup
-    try:
-        log.info("📦 Performing final database backup before shutdown...")
-        await asyncio.wait_for(
-            backup_all_dbs_to_gdrive_env(
-                [
-                    (ECONOMY_DB_PATH, "economy.db"),
-                    (MODERATOR_DB_PATH, "moderator.db")
-                ],
-                BACKUP_FOLDER_ID
-            ),
-            timeout=25  # must complete before Railway kills us
-        )
-        log.info("✅ Backup completed successfully.")
-    except asyncio.TimeoutError:
-        log.error("⚠️ Backup timed out — Railway may have killed us mid-upload.")
-    except Exception as e:
-        log.error(f"❌ Backup failed: {e}")
+    if not IS_ALPHA:
+        try:
+            log.info("Performing final database backup before shutdown...")
+            await asyncio.wait_for(
+                backup_all_dbs_to_gdrive_env(
+                    [
+                        (ECONOMY_DB_PATH, "economy.db"),
+                        (MODERATOR_DB_PATH, "moderator.db")
+                    ],
+                    BACKUP_FOLDER_ID
+                ),
+                timeout=25  # must complete before Railway kills us
+            )
+            log.info("Backup completed successfully.")
+        except asyncio.TimeoutError:
+            log.critical("Backup timed out — Railway may have killed us mid-upload.")
+        except Exception as e:
+            log.critical(f"Backup failed: {e}")
+    else:
+        log.warning("Skipping final backup as this is an alpha version.")
 
     # Close shared HTTP session
     if bot.http_session and not bot.http_session.closed:
@@ -346,15 +357,23 @@ async def graceful_shutdown():
         log.info("Closed shared HTTP session")
     
     # Close bot connections
+    await kill_all_tasks()
     with contextlib.suppress(Exception):
         await bot.close()
 
-    log.info("👋 Shutdown complete.")
+    log.info("Shutdown complete.")
+    log.info("Flurazide says: Goodbye!")
+
+    # if discord.py is still not closing shit, throw the interpreter (and everything) into the void
+    await asyncio.sleep(10)
+    os._exit(0)
+    
+    
 
 async def main():
     # Attempt restore and surface any problem (was being called silently)
     try:
-        restored_ok = restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
+        restored_ok = await restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
             {
                 "economy.db": ECONOMY_DB_PATH,
                 "moderator.db": MODERATOR_DB_PATH,
@@ -369,6 +388,9 @@ async def main():
     await init_databases()
     BACKUP_DELAY_HOURS = 1
     async def delayed_backup_starter(delay_hours):
+        if IS_ALPHA:
+            log.warning("Skipping backup as this is an alpha version.")
+            return
         await bot.wait_until_ready()
         await asyncio.sleep(delay_hours * 3600)
         asyncio.create_task(periodic_backup(delay_hours))
@@ -426,3 +448,4 @@ if __name__ == "__main__":
     except Exception as e:
         # Use log.exception to capture full traceback rather than only the exception string
         log.exception(f"Fatal crash as {e}")
+        sys.exit(1)

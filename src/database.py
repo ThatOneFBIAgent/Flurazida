@@ -37,7 +37,7 @@ def log_db_call(func):
     from functools import wraps
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        log.debug(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.trace(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return await func(*args, **kwargs)
     return wrapper
 
@@ -45,12 +45,12 @@ def log_mod_call(func):
     from functools import wraps
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        log.debug(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.trace(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return await func(*args, **kwargs)
     return wrapper
 
-log.info("Economy DB Logging begin")
-log.info("Moderator DB Logging begin")
+log.event("Economy DB Logging begin")
+log.event("Moderator DB Logging begin")
 
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
@@ -110,7 +110,7 @@ def build_drive_service():
 #   this is like the 6th time i had to rewrite, the entire FUCKING logic
 #   becuase service accounts dont have qouta or some shit. this is python fyi.
 
-def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
+def _backup_db_to_gdrive_sync(local_path, drive_filename, folder_id):
     log.info(f"Backing up {local_path} -> {drive_filename}")
     service = build_drive_service()
 
@@ -129,13 +129,10 @@ def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
         service.files().create(body=meta, media_body=media, fields="id").execute()
         log.info("Created new backup.")
 
-async def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: str):
-    """
-    Combine multiple .db files into one .zip and upload (overwrite) it to Drive.
-    dbs = [(local_path, drive_filename), ...]
-    """
-    # Ensure all async operations are committed before backup
-    # We'll use sync sqlite3 for the backup file operations
+async def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
+    await asyncio.to_thread(_backup_db_to_gdrive_sync, local_path, drive_filename, folder_id)
+
+def _backup_all_dbs_sync(dbs, folder_id):
     zip_filename = "Databases_Flurazide.zip"
     temp_zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
 
@@ -181,11 +178,14 @@ async def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: st
                     log.warning(f"Could not remove temp backup file after retries: {e}")
                 time.sleep(0.5) # Wait for Windows to release the lock
 
-def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
+async def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: str):
     """
-    Download a file named drive_filename from Drive (optionally inside folder_id)
-    and save it to local_path. Uses googleapiclient (same auth path as backup).
+    Combine multiple .db files into one .zip and upload (overwrite) it to Drive.
+    dbs = [(local_path, drive_filename), ...]
     """
+    await asyncio.to_thread(_backup_all_dbs_sync, dbs, folder_id)
+
+def _restore_db_sync(local_path, drive_filename, folder_id):
     log.info(f"Restoring {drive_filename} -> {local_path}")
     service = build_drive_service()
 
@@ -219,17 +219,15 @@ def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
         log.exception(f"Unexpected error while restoring {drive_filename}: {e}")
         return False
 
-
-def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str]):
+async def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None):
     """
-    Restore all databases from the fixed ZIP on Google Drive.
-
-    restore_map = {
-        "economy.db": ECONOMY_DB_PATH,
-        "moderator.db": MODERATOR_DB_PATH
-    }
+    Download a file named drive_filename from Drive (optionally inside folder_id)
+    and save it to local_path. Uses googleapiclient (same auth path as backup).
     """
+    return await asyncio.to_thread(_restore_db_sync, local_path, drive_filename, folder_id)
 
+
+def _restore_all_dbs_sync(folder_id, restore_map):
     zip_filename = "Databases_Flurazide.zip"
     service = build_drive_service()
     log.info(f"Searching for {zip_filename} in Google Drive folder {folder_id}...")
@@ -263,11 +261,11 @@ def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str]):
                     dest_path = restore_map[member]
                     zipf.extract(member, path=os.path.dirname(dest_path))
                     os.replace(os.path.join(os.path.dirname(dest_path), member), dest_path)
-                    log.info(f"Restored {member} → {dest_path}")
+                    log.success(f"Restored {member} → {dest_path}")
                 else:
                     log.warning(f"Skipping unknown file in ZIP: {member}")
 
-        log.info("✅ All databases restored successfully.")
+        log.success("All databases restored successfully.")
         # Now safe to remove the temp file since file handle is closed
         try:
             os.remove(temp_zip)
@@ -276,11 +274,22 @@ def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str]):
         return True
 
     except HttpError as e:
-        log.exception(f"❌ Failed to restore from Drive: {e}")
+        log.exception(f"Failed to restore from Drive: {e}")
         return False
     except Exception as e:
-        log.exception(f"❌ Unexpected error during restore: {e}")
+        log.exception(f"Unexpected error during restore: {e}")
         return False
+
+async def restore_all_dbs_from_gdrive_env(folder_id, restore_map: dict[str, str]):
+    """
+    Restore all databases from the fixed ZIP on Google Drive.
+
+    restore_map = {
+        "economy.db": ECONOMY_DB_PATH,
+        "moderator.db": MODERATOR_DB_PATH
+    }
+    """
+    return await asyncio.to_thread(_restore_all_dbs_sync, folder_id, restore_map)
 
 
 # the next lines of code are nasty hacks becuase windows is shit
@@ -309,57 +318,82 @@ SHOP_ITEMS = [
     {"id": 11, "name": "Watermelon", "price": 500, "effect": "Doctors approve! Does nothing", "uses_left": 500},
 ]
 
+
+class DatabaseManager:
+    def __init__(self):
+        self._economy_conn = None
+        self._moderator_conn = None
+
+    async def get_economy(self):
+        if not self._economy_conn:
+            self._economy_conn = await aiosqlite.connect(ECONOMY_DB_PATH)
+            await self._economy_conn.execute("PRAGMA foreign_keys = ON")
+        return self._economy_conn
+
+    async def get_moderator(self):
+        if not self._moderator_conn:
+            self._moderator_conn = await aiosqlite.connect(MODERATOR_DB_PATH)
+        return self._moderator_conn
+    
+    async def close(self):
+        if self._economy_conn:
+            await self._economy_conn.close()
+        if self._moderator_conn:
+            await self._moderator_conn.close()
+
+db = DatabaseManager()
+
 # Initialize database tables on startup
 async def init_databases():
     """Initialize database tables using aiosqlite"""
     try:
         # Initialize economy database
-        async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT NOT NULL,
-                balance INTEGER NOT NULL DEFAULT 0
-            )
-            """)
-            
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_items (
-                user_id INTEGER,
-                item_id TEXT,
-                item_name TEXT NOT NULL,
-                uses_left INTEGER DEFAULT 0,
-                effect_modifier INTEGER DEFAULT 0,
-                PRIMARY KEY (user_id, item_id)
-            )
-            """)
-            await conn.commit()
+        conn = await db.get_economy()
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL,
+            balance INTEGER NOT NULL DEFAULT 0
+        )
+        """)
         
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_items (
+            user_id INTEGER,
+            item_id TEXT,
+            item_name TEXT NOT NULL,
+            uses_left INTEGER DEFAULT 0,
+            effect_modifier INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, item_id)
+        )
+        """)
+        await conn.commit()
+    
         # Initialize moderator database with single cases table
-        async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-            # Use an internal autoincrement id (case_id) and a per-guild case_number.
-            # case_number is generated per-guild at insert time so each server has its own counting.
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS cases (
-                case_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                case_number INTEGER NOT NULL,
-                guild_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                username TEXT,
-                reason TEXT NOT NULL,
-                action_type TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                moderator_id INTEGER NOT NULL,
-                expiry INTEGER DEFAULT 0,
-                UNIQUE (guild_id, case_number)
-            )
-            """)
-            # Create index on guild_id for faster queries
-            await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cases_guild_id ON cases(guild_id)
-            """)
-            await conn.commit()
-        
+        mod_conn = await db.get_moderator()
+        # Use an internal autoincrement id (case_id) and a per-guild case_number.
+        # case_number is generated per-guild at insert time so each server has its own counting.
+        await mod_conn.execute("""
+        CREATE TABLE IF NOT EXISTS cases (
+            case_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_number INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            username TEXT,
+            reason TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            moderator_id INTEGER NOT NULL,
+            expiry INTEGER DEFAULT 0,
+            UNIQUE (guild_id, case_number)
+        )
+        """)
+        # Create index on guild_id for faster queries
+        await mod_conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_cases_guild_id ON cases(guild_id)
+        """)
+        await mod_conn.commit()
+    
         log.info("Databases initialized successfully")
     except Exception:
         log.exception("Failed while initializing databases")
@@ -373,10 +407,10 @@ async def modify_robber_multiplier(user_id, change, duration=None):
     new_modifier = max(min(current_modifier + change, 100), -100)  # Cap between -100% and +100%
 
     # Update the database
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
-                          (new_modifier, user_id))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
+                      (new_modifier, user_id))
+    await conn.commit()
 
     log.info(f"Updated robbery modifier for {user_id}: {new_modifier}%")
 
@@ -387,19 +421,19 @@ async def modify_robber_multiplier(user_id, change, duration=None):
 @log_db_call
 async def get_robbery_modifier(user_id):
     """Gets the total robbery modifier for a user (from items)"""
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        async with conn.execute("SELECT SUM(effect_modifier) FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
-            result = await cursor.fetchone()
-            return result[0] if result and result[0] else 0  # Default to 0 modifier
+    conn = await db.get_economy()
+    async with conn.execute("SELECT SUM(effect_modifier) FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result and result[0] else 0  # Default to 0 modifier
 
 @log_db_call
 async def schedule_effect_decay(user_id, original_value, duration):
     """Waits for the effect duration to expire and then reverts the modifier"""
     await asyncio.sleep(duration)  # Wait X seconds
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
-                          (original_value, user_id))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
+                      (original_value, user_id))
+    await conn.commit()
 
     log.info(f"Restored robbery modifier for {user_id} to {original_value}%")
 
@@ -408,115 +442,115 @@ async def schedule_effect_decay(user_id, original_value, duration):
 @log_db_call
 async def update_balance(user_id, amount):
     """Updates user balance, clamped to DEBT_FLOOR and synced to backup."""
-    log.info(f"Updating balance for {user_id}: {amount} coins")
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("""
-            UPDATE users
-            SET balance = CASE
-                WHEN balance + ? < ?
-                    THEN ?
-                ELSE balance + ?
-            END
-            WHERE user_id = ?
-        """, (amount, DEBT_FLOOR, DEBT_FLOOR, amount, user_id))
-        await conn.commit()
+    log.trace(f"Updating balance for {user_id}: {amount} coins")
+    conn = await db.get_economy()
+    await conn.execute("""
+        UPDATE users
+        SET balance = CASE
+            WHEN balance + ? < ?
+                THEN ?
+            ELSE balance + ?
+        END
+        WHERE user_id = ?
+    """, (amount, DEBT_FLOOR, DEBT_FLOOR, amount, user_id))
+    await conn.commit()
 
 @log_db_call
 async def get_balance(user_id):
     """ Fetches user balance """
-    log.info(f"Getting balance for {user_id}")
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            result = await cursor.fetchone()
-            return result[0] if result else 0
+    log.trace(f"Getting balance for {user_id}")
+    conn = await db.get_economy()
+    async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result else 0
 
 @log_db_call
 async def add_user(user_id, username):
     """ Adds a user to the economy database if they don't exist """
-    log.info(f"Adding user {user_id} in economy database, {username}")
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 0)", (user_id, username))
-        await conn.commit()
+    log.trace(f"Adding user {user_id} in economy database, {username}")
+    conn = await db.get_economy()
+    await conn.execute("INSERT OR IGNORE INTO users (user_id, username, balance) VALUES (?, ?, 0)", (user_id, username))
+    await conn.commit()
 
 # ----------- Item Handling Functions -----------
 
 @log_db_call
 async def add_user_item(user_id, item_id, item_name, uses_left=1, effect_modifier=0):
     """ Adds an item to the user's inventory """
-    log.info(f"Adding item {item_name} (ID: {item_id}) to {user_id}'s inventory")
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("""
-            INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier) 
-            VALUES (?, ?, ?, ?, ?) 
-            ON CONFLICT(user_id, item_id) DO UPDATE 
-            SET uses_left = uses_left + ?""",
-            (user_id, item_id, item_name, uses_left, effect_modifier, uses_left)
-        )
-        await conn.commit()
+    log.trace(f"Adding item {item_name} (ID: {item_id}) to {user_id}'s inventory")
+    conn = await db.get_economy()
+    await conn.execute("""
+        INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier) 
+        VALUES (?, ?, ?, ?, ?) 
+        ON CONFLICT(user_id, item_id) DO UPDATE 
+        SET uses_left = uses_left + ?""",
+        (user_id, item_id, item_name, uses_left, effect_modifier, uses_left)
+    )
+    await conn.commit()
 
 @log_db_call
 async def get_user_items(user_id):
     """ Fetches all items a user owns """
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        async with conn.execute("SELECT item_id, item_name, uses_left FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
-            items = await cursor.fetchall()
-            return [{"item_id": row[0], "item_name": row[1], "uses_left": row[2]} for row in items] if items else []
+    conn = await db.get_economy()
+    async with conn.execute("SELECT item_id, item_name, uses_left FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
+        items = await cursor.fetchall()
+        return [{"item_id": row[0], "item_name": row[1], "uses_left": row[2]} for row in items] if items else []
 
 @log_db_call
 async def remove_item_from_user(user_id, item_id):
     """Removes an item completely from the user's inventory."""
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
+    await conn.commit()
 
 @log_db_call
 async def update_item_uses(user_id, item_id, uses_left):
     """Updates the number of uses left for a user's item."""
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?", (uses_left, user_id, item_id))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?", (uses_left, user_id, item_id))
+    await conn.commit()
 
 @log_db_call
 async def add_item_to_user(user_id, item_id, item_name, uses_left=1, effect_modifier=0):
     """Adds an item to the user's inventory or updates uses if it exists."""
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("""
-            INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
-        """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("""
+        INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
+    """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
+    await conn.commit()
 
 # ----------- Shop Functions -----------
 
 @log_db_call
 async def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0):
     """Buys an item from the shop and deducts balance, using aiosqlite for all operations."""
-    log.info(f"User {user_id} is buying {item_name} for {price} coins")
+    log.trace(f"User {user_id} is buying {item_name} for {price} coins")
 
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        # Check if user exists
-        async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            user = await cursor.fetchone()
-            if not user:
-                return False  # User does not exist
+    conn = await db.get_economy()
+    # Check if user exists
+    async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        user = await cursor.fetchone()
+        if not user:
+            return False  # User does not exist
 
-        current_balance = user[0]
-        if current_balance < price:
-            return False  # Not enough money
+    current_balance = user[0]
+    if current_balance < price:
+        return False  # Not enough money
 
-        # Deduct balance
-        await conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (price, user_id))
+    # Deduct balance
+    await conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (price, user_id))
 
-        # Add or update item in inventory
-        await conn.execute("""
-            INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
-        """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
+    # Add or update item in inventory
+    await conn.execute("""
+        INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
+    """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left))
 
-        await conn.commit()
-        return True
+    await conn.commit()
+    return True
 
 
 # ----------- Special Item Effects -----------
@@ -524,82 +558,82 @@ async def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modif
 @log_db_call
 async def use_item(user_id, item_id):
     """Handles item use and applies effects dynamically."""
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        # Fetch user items
-        async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)) as cursor:
-            result = await cursor.fetchone()
+    conn = await db.get_economy()
+    # Fetch user items
+    async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)) as cursor:
+        result = await cursor.fetchone()
+        
+        if not result:
+            return f"❌ You don't have this item!"
+
+        uses_left = result[0]
+        if uses_left <= 0:
+            return f"❌ You have no uses left for this item!"
+
+        # Fetch item details from hardcoded shop list
+        item_data = next((item for item in SHOP_ITEMS if item["id"] == item_id), None)
+        if not item_data:
+            return f"❌ Item does not exist!"
+
+        # Handle last use case
+        last_use_warning = ""
+        if uses_left == 1:
+            last_use_warning = f"⚠️ **This is the last use of your {item_data['name']}!**\n"
+
+        # Define item effects dynamically
+        item_effects = {
+            1: {"robbery_modifier": 0, "uses": 1},        # Bragging Rights: no effect, 1 use
+            2: {"robbery_modifier": 20, "uses": 3},      # Robber's Mask: +20% robbery, 3 uses
+            3: {"robbery_modifier": 50, "uses": 4},      # Bolt Cutters: +50% robbery, 4 uses
+            4: {"robbery_modifier": -40, "uses": 10},    # Padlocked Wallet: -40% robbery, 10 uses
+            5: {"robbery_modifier": -90, "taser": True, "uses": 2},               # Taser: blocks robbery, 2 uses
+            6: {"Gambling_odds_mul": 0, "uses": 4},      # Lucky coin: placebo effect goes insane, 4 uses
+            8: {"robbery_modifier": 75, "uses": 5},      # Hackatron 9900™: +75% robbery, 5 uses
+            9: {  # Resin Sample: +100% robbery, then -40% after effect wears off
+                "robbery_modifier": 100,
+                "temporary_effect": -40,
+                "duration": 3600,  # 1 hour in seconds
+                "uses": 1
+            },
+            10: {"gun_defense": True, "uses": 8},        # Loaded Gun: blocks robbery, 8 uses
+            11: {"uses": 500}                            # Watermelon: no effect, 500 uses
+        }
+
+        # Apply effect if item has one
+        effect_applied = ""
+        if item_id in item_effects:
+            effect_data = item_effects[item_id]
+
+            # Apply Robbery Modifiers
+            if "robbery_modifier" in effect_data:
+                await modify_robber_multiplier(user_id, effect_data["robbery_modifier"])
+                effect_applied = f"🔧 **Your robbery success rate changed by {effect_data['robbery_modifier']}%!**"
+
+            # Apply temporary effects (like Resin Sample)
+            if "temporary_effect" in effect_data:
+                await schedule_effect_decay(user_id, effect_data["temporary_effect"], effect_data["duration"])
+
+            # Apply defensive effects
+            if "taser" in effect_data:
+                await modify_robber_multiplier(user_id, effect_data["robbery_modifier"])
+                effect_applied = "⚡ **You are now protected from robbery for one attempt!**"
             
-            if not result:
-                return f"❌ You don't have this item!"
-
-            uses_left = result[0]
-            if uses_left <= 0:
-                return f"❌ You have no uses left for this item!"
-
-            # Fetch item details from hardcoded shop list
-            item_data = next((item for item in SHOP_ITEMS if item["id"] == item_id), None)
-            if not item_data:
-                return f"❌ Item does not exist!"
-
-            # Handle last use case
-            last_use_warning = ""
-            if uses_left == 1:
-                last_use_warning = f"⚠️ **This is the last use of your {item_data['name']}!**\n"
-
-            # Define item effects dynamically
-            item_effects = {
-                1: {"robbery_modifier": 0, "uses": 1},        # Bragging Rights: no effect, 1 use
-                2: {"robbery_modifier": 20, "uses": 3},      # Robber's Mask: +20% robbery, 3 uses
-                3: {"robbery_modifier": 50, "uses": 4},      # Bolt Cutters: +50% robbery, 4 uses
-                4: {"robbery_modifier": -40, "uses": 10},    # Padlocked Wallet: -40% robbery, 10 uses
-                5: {"robbery_modifier": -90, "taser": True, "uses": 2},               # Taser: blocks robbery, 2 uses
-                6: {"Gambling_odds_mul": 0, "uses": 4},      # Lucky coin: placebo effect goes insane, 4 uses
-                8: {"robbery_modifier": 75, "uses": 5},      # Hackatron 9900™: +75% robbery, 5 uses
-                9: {  # Resin Sample: +100% robbery, then -40% after effect wears off
-                    "robbery_modifier": 100,
-                    "temporary_effect": -40,
-                    "duration": 3600,  # 1 hour in seconds
-                    "uses": 1
-                },
-                10: {"gun_defense": True, "uses": 8},        # Loaded Gun: blocks robbery, 8 uses
-                11: {"uses": 500}                            # Watermelon: no effect, 500 uses
-            }
-
-            # Apply effect if item has one
-            effect_applied = ""
-            if item_id in item_effects:
-                effect_data = item_effects[item_id]
-
-                # Apply Robbery Modifiers
-                if "robbery_modifier" in effect_data:
-                    await modify_robber_multiplier(user_id, effect_data["robbery_modifier"])
-                    effect_applied = f"🔧 **Your robbery success rate changed by {effect_data['robbery_modifier']}%!**"
-
-                # Apply temporary effects (like Resin Sample)
-                if "temporary_effect" in effect_data:
-                    await schedule_effect_decay(user_id, effect_data["temporary_effect"], effect_data["duration"])
-
-                # Apply defensive effects
-                if "taser" in effect_data:
-                    await modify_robber_multiplier(user_id, effect_data["robbery_modifier"])
-                    effect_applied = "⚡ **You are now protected from robbery for one attempt!**"
-                
-                if "gun_defense" in effect_data:
-                    effect_applied = "🔫 **You are armed. Good luck, robber.**"
+            if "gun_defense" in effect_data:
+                effect_applied = "🔫 **You are armed. Good luck, robber.**"
 
 
 @log_db_call
 async def check_gun_defense(victim_id):
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)) as cursor:
-            result = await cursor.fetchone()
-            return result[0] if result and result[0] > 0 else 0
+    conn = await db.get_economy()
+    async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result and result[0] > 0 else 0
 
 @log_db_call
 async def decrement_gun_use(victim_id):
-    async with aiosqlite.connect(ECONOMY_DB_PATH) as conn:
-        await conn.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = 10 AND uses_left > 0", (victim_id,))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = 10 AND uses_left > 0", (victim_id,))
+    await conn.commit()
 
 # ----------- Moderator logging functions -----------
 
@@ -610,96 +644,96 @@ async def insert_case(guild_id, user_id, username, reason, action_type, moderato
     if timestamp is None:
         timestamp = int(time.time())
 
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        # Ensure atomicity so two concurrent inserts for the same guild can't get the same case_number
-        await conn.execute("BEGIN IMMEDIATE")
-        # Get current max case_number for the guild
-        async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
-            row = await cursor.fetchone()
-            next_case_number = (row[0] or 0) + 1
+    conn = await db.get_moderator()
+    # Ensure atomicity so two concurrent inserts for the same guild can't get the same case_number
+    await conn.execute("BEGIN IMMEDIATE")
+    # Get current max case_number for the guild
+    async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
+        row = await cursor.fetchone()
+        next_case_number = (row[0] or 0) + 1
 
-        # Insert including computed per-guild case_number
-        await conn.execute("""
-            INSERT INTO cases (case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (next_case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
+    # Insert including computed per-guild case_number
+    await conn.execute("""
+        INSERT INTO cases (case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (next_case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
 
-        await conn.commit()
+    await conn.commit()
 
-        # Return the per-guild case number so callers can reference it
-        return next_case_number
+    # Return the per-guild case number so callers can reference it
+    return next_case_number
 
 @log_mod_call
 async def get_cases_for_guild(guild_id, limit=50, offset=0):
     """Get cases for a specific guild"""
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        async with conn.execute("""
-            SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry
-            FROM cases
-            WHERE guild_id = ?
-            ORDER BY case_number DESC
-            LIMIT ? OFFSET ?
-        """, (guild_id, limit, offset)) as cursor:
-            return await cursor.fetchall()
+    conn = await db.get_moderator()
+    async with conn.execute("""
+        SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry
+        FROM cases
+        WHERE guild_id = ?
+        ORDER BY case_number DESC
+        LIMIT ? OFFSET ?
+    """, (guild_id, limit, offset)) as cursor:
+        return await cursor.fetchall()
 
 @log_mod_call
 async def get_cases_for_user(guild_id, user_id):
     """Get cases for a specific user in a guild"""
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        async with conn.execute("""
-            SELECT case_number, reason, action_type, timestamp, moderator_id, expiry
-            FROM cases
-            WHERE guild_id = ? AND user_id = ?
-            ORDER BY case_number DESC
-        """, (guild_id, user_id)) as cursor:
-            return await cursor.fetchall()
+    conn = await db.get_moderator()
+    async with conn.execute("""
+        SELECT case_number, reason, action_type, timestamp, moderator_id, expiry
+        FROM cases
+        WHERE guild_id = ? AND user_id = ?
+        ORDER BY case_number DESC
+    """, (guild_id, user_id)) as cursor:
+        return await cursor.fetchall()
 
 @log_mod_call
 async def get_case(guild_id, case_number):
     """Get a specific case by case_number and guild_id"""
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        async with conn.execute("""
-            SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry
-            FROM cases
-            WHERE guild_id = ? AND case_number = ?
-        """, (guild_id, case_number)) as cursor:
-            return await cursor.fetchone()
+    conn = await db.get_moderator()
+    async with conn.execute("""
+        SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry
+        FROM cases
+        WHERE guild_id = ? AND case_number = ?
+    """, (guild_id, case_number)) as cursor:
+        return await cursor.fetchone()
 
 @log_mod_call
 async def remove_case(guild_id, case_number):
     """Remove a case by case_number and guild_id"""
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        await conn.execute("DELETE FROM cases WHERE guild_id = ? AND case_number = ?", (guild_id, case_number))
-        await conn.commit()
+    conn = await db.get_moderator()
+    await conn.execute("DELETE FROM cases WHERE guild_id = ? AND case_number = ?", (guild_id, case_number))
+    await conn.commit()
 
 @log_mod_call
 async def edit_case_reason(guild_id, case_number, new_reason):
     """Edit the reason of a specific case"""
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        await conn.execute("UPDATE cases SET reason = ? WHERE guild_id = ? AND case_number = ?",
-                          (new_reason, guild_id, case_number))
-        await conn.commit()
+    conn = await db.get_moderator()
+    await conn.execute("UPDATE cases SET reason = ? WHERE guild_id = ? AND case_number = ?",
+                      (new_reason, guild_id, case_number))
+    await conn.commit()
 
 # Do not log because it spams terminal like hell
 async def get_expired_cases(guild_id, action_type, now=None):
     """Get expired cases for a guild and action type. If guild_id is None, returns all expired cases."""
     if now is None:
         now = int(time.time())
-    async with aiosqlite.connect(MODERATOR_DB_PATH) as conn:
-        if guild_id is None:
-            # Get all expired cases across all guilds - return (guild_id, user_id)
-            async with conn.execute("""
-                SELECT guild_id, user_id FROM cases
-                WHERE action_type = ? AND expiry > 0 AND expiry <= ?
-            """, (action_type, now)) as cursor:
-                return await cursor.fetchall()
-        else:
-            # Return (case_number, user_id) for specific guild
-            async with conn.execute("""
-                SELECT case_number, user_id FROM cases
-                WHERE guild_id = ? AND action_type = ? AND expiry > 0 AND expiry <= ?
-            """, (guild_id, action_type, now)) as cursor:
-                return await cursor.fetchall()
+    conn = await db.get_moderator()
+    if guild_id is None:
+        # Get all expired cases across all guilds - return (guild_id, user_id)
+        async with conn.execute("""
+            SELECT guild_id, user_id FROM cases
+            WHERE action_type = ? AND expiry > 0 AND expiry <= ?
+        """, (action_type, now)) as cursor:
+            return await cursor.fetchall()
+    else:
+        # Return (case_number, user_id) for specific guild
+        async with conn.execute("""
+            SELECT case_number, user_id FROM cases
+            WHERE guild_id = ? AND action_type = ? AND expiry > 0 AND expiry <= ?
+        """, (guild_id, action_type, now)) as cursor:
+            return await cursor.fetchall()
 
 BACKUP_FOLDER_ID = BACKUP_GDRIVE_FOLDER_ID
 

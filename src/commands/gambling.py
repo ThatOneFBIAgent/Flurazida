@@ -1,10 +1,6 @@
 # Standard Library Imports
 import asyncio
-import io
 import random
-import re
-import time
-
 
 # Third-Party Imports
 import discord
@@ -12,16 +8,128 @@ from discord.ext import commands
 from discord import app_commands, Interaction, ui
 from discord.ui import Button, View
 
-
 # Local Imports
 from database import update_balance, get_balance
 from config import cooldown
 from logger import get_logger
 
-
 log = get_logger()
 
 DEBT_FLOOR = -1000  # Minimum allowed balance
+
+class CrashBetModal(ui.Modal, title="Place your bet"):
+    def __init__(self, players_dict, user_id):
+        super().__init__()
+        self.players = players_dict
+        self.user_id = user_id
+        self.bet = ui.TextInput(label="Bet Amount", placeholder="Enter how many coins you want to wager", required=True)
+        self.add_item(self.bet)
+
+    async def on_submit(self, interaction: Interaction):
+        user_id = interaction.user.id
+        balance = await get_balance(user_id)
+        
+        # Check if user already joined
+        if user_id in self.players:
+            return await interaction.response.send_message("❌ You have already placed a bet!", ephemeral=True)
+
+        bet_val = await resolve_bet_input(self.bet.value, user_id)
+        
+        if bet_val is None or bet_val <= 0:
+            return await interaction.response.send_message("❌ Invalid bet amount!", ephemeral=True)
+
+        if bet_val > balance:
+             return await interaction.response.send_message(f"❌ You don't have enough coins! (Balance: {balance})", ephemeral=True)
+
+        await update_balance(user_id, -bet_val)
+        self.players[user_id] = bet_val
+        await interaction.response.send_message(f"✅ Bet of `{bet_val}` coins accepted!", ephemeral=True)
+
+class PlayAgainView(ui.View):
+    def __init__(self, callback, user_id, *args, **kwargs):
+        super().__init__(timeout=90)
+        self.callback = callback
+        self.user_id = user_id
+        self.args = args
+        self.kwargs = kwargs
+
+    @ui.button(label="🔄 Play Again", style=discord.ButtonStyle.primary)
+    async def play_again(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("🚫 This isn't your game!", ephemeral=True)
+        
+        # Disable button and stop the view to prevent further clicks
+        button.disabled = True
+        self.stop()
+        
+        # Update the message to show the button is disabled (don't respond yet!)
+        try:
+            await interaction.message.edit(view=self)
+        except:
+            pass  # Message might be deleted or inaccessible
+        
+        # Run the callback with the new interaction (callback will respond)
+        await self.callback(interaction, *self.args, **self.kwargs)
+    
+    async def on_timeout(self):
+        """Disable the button when the view times out."""
+        # Disable all buttons
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True
+        
+        # Try to edit the message to show disabled button
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except:
+            pass  # Message might be deleted or we don't have permission
+
+class HighLowView(ui.View):
+    def __init__(self, user_id, bet, current_card, callback):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.bet = bet
+        self.current_card = current_card
+        self.callback = callback
+
+    async def end_game(self, interaction, won, next_card):
+        if won:
+            win = self.bet
+            await update_balance(self.user_id, win)
+            result = f"✨ **Correct!** Next card was **{next_card}**. You won `{win}` coins! ✨"
+            color = 0x00FF00
+        else:
+            await update_balance(self.user_id, -self.bet)
+            result = f"❌ **Wrong!** Next card was **{next_card}**. You lost `{self.bet}` coins."
+            color = 0xFF0000
+            
+        embed = interaction.message.embeds[0]
+        embed.description = f"Card was **{self.current_card}**. Next was **{next_card}**.\n\n{result}"
+        embed.color = color
+        
+        # Add Play Again button
+        self.clear_items()
+        self.add_item(PlayAgainView(self.callback, self.user_id, self.bet).children[0])
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @ui.button(label="Higher ⬆️", style=discord.ButtonStyle.success)
+    async def higher(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("🚫 Not your game!", ephemeral=True)
+        
+        next_card = random.randint(1, 13)
+        won = next_card >= self.current_card
+        await self.end_game(interaction, won, next_card)
+
+    @ui.button(label="Lower ⬇️", style=discord.ButtonStyle.danger)
+    async def lower(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("🚫 Not your game!", ephemeral=True)
+        
+        next_card = random.randint(1, 13)
+        won = next_card <= self.current_card
+        await self.end_game(interaction, won, next_card)
 
 async def resolve_bet_input(bet_input, user_id):
     """
@@ -51,52 +159,188 @@ async def resolve_bet_input(bet_input, user_id):
         return None
     return b
 
-#class CrashBetModal(commands.ui.Modal):
-#    def __init__(self, players_dict, user_id):
-#        super().__init__(title="Place your bet")
-#        self.players = players_dict
-#        self.user_id = user_id
-#        self.bet = commands.ui.TextInput(label="Bet Amount", placeholder="Enter how many coins you want to wager", required=True)
-#        self.add_item(self.bet)
-#
-#    async def on_submit(self, interaction: Interaction):
-#        bet_amount = int(self.bet.value)
-#        balance = get_balance(interaction.user.id)
-#        if bet_amount > balance:
-#            return await interaction.response.send_message("❌ You don't have enough coins!", ephemeral=True)
-#        update_balance(interaction.user.id, -bet_amount)
-#        self.players[self.user_id] = bet_amount
-#        await interaction.response.send_message(f"✅ Bet of {bet_amount} coins accepted!", ephemeral=True)
-
-class HighLowView(ui.View):
-    def __init__(self, timeout=30):
-        super().__init__(timeout=timeout)
-        self.choice = None
-
-    @ui.button(label="Low (1-49)", style=discord.ButtonStyle.primary)
-    async def low(self, interaction: discord.Interaction, button: ui.Button):
-        self.choice = "low"
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(view=self)
-        self.stop()
-
-    @ui.button(label="High (50-100)", style=discord.ButtonStyle.success)
-    async def high(self, interaction: discord.Interaction, button: ui.Button):
-        self.choice = "high"
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(view=self)
-        self.stop()
-
 class GamblingCommands(app_commands.Group):
-    def __init__(self):
-        super().__init__(name="gambling", description="Gambling related commands")
+    def __init__(self, bot):
+        super().__init__(name="gambling", description="Gambling commands")
+        self.bot = bot
+        self.active_crash_games = {}
 
-    @app_commands.command(name='slots', description='Spin the slot machine and test your luck!')
-    @cooldown(cl=15, tm=35.0, ft=3)
-    async def slots(self, interaction: discord.Interaction, bet_input: str):
+    class BlackjackView(ui.View):
+        def __init__(self, user_id, bet, deck, player_hand, dealer_hand, embed, message):
+            super().__init__(timeout=180)
+            self.user_id = user_id
+            self.bet = bet
+            self.deck = deck
+            self.player = player_hand
+            self.dealer = dealer_hand
+            self.embed = embed
+            self.message = message
+            self.ended = False
+
+        def card_value(self, card):
+            if card in ('J', 'Q', 'K'): return 10
+            if card == 'A': return 11
+            return int(card)
+
+        def hand_value(self, hand):
+            value = sum(self.card_value(c) for c in hand)
+            aces = sum(1 for c in hand if c == 'A')
+            while value > 21 and aces:
+                value -= 10
+                aces -= 1
+            return value
+
+        def card_display(self, card):
+            if card in ('J', 'Q', 'K'): return f"10 ({card})"
+            if card == 'A': return "11/1 (A)"
+            return str(card)
+
+        def hand_str(self, hand):
+            return ', '.join(self.card_display(card) for card in hand)
+
+        async def update_embed(self, result=None):
+            player_val = self.hand_value(self.player)
+            dealer_val = self.hand_value(self.dealer)
+            
+            desc = f"**Your hand:** {self.hand_str(self.player)} (Total: {player_val})\n"
+            if result:
+                desc += f"**Dealer's hand:** {self.hand_str(self.dealer)} (Total: {dealer_val})\n\n{result}"
+            else:
+                desc += f"**Dealer's hand:** {self.card_display(self.dealer[0])}, ?\n\nType `hit` or `stand` via buttons."
+
+            self.embed.description = desc
+            if result:
+                self.embed.color = 0xFF0000 if "lost" in result or "busted" in result else (0x00FF00 if "win" in result else 0xFFFF00)
+                self.clear_items()
+                # Add Play Again button
+                self.add_item(PlayAgainView(self.start_new_game, self.user_id, self.bet).children[0])
+            
+            await self.message.edit(embed=self.embed, view=self)
+
+        async def start_new_game(self, interaction, bet):
+            pass 
+
+        @ui.button(label="Hit", style=discord.ButtonStyle.success)
+        async def hit(self, interaction: discord.Interaction, button: ui.Button):
+            if interaction.user.id != self.user_id:
+                return await interaction.response.send_message("🚫 This isn't your game!", ephemeral=True)
+            
+            await interaction.response.defer()
+            self.player.append(self.deck.pop())
+            if self.hand_value(self.player) > 21:
+                self.ended = True
+                await update_balance(self.user_id, -self.bet)
+                await self.update_embed("💀 **You busted! Dealer wins.**")
+                self.stop()
+            else:
+                await self.update_embed()
+
+        @ui.button(label="Stand", style=discord.ButtonStyle.danger)
+        async def stand(self, interaction: discord.Interaction, button: ui.Button):
+            if interaction.user.id != self.user_id:
+                return await interaction.response.send_message("🚫 This isn't your game!", ephemeral=True)
+            
+            await interaction.response.defer()
+            self.ended = True
+            
+            # Dealer turn
+            while self.hand_value(self.dealer) < 17:
+                self.dealer.append(self.deck.pop())
+            
+            player_val = self.hand_value(self.player)
+            dealer_val = self.hand_value(self.dealer)
+
+            if dealer_val > 21 or player_val > dealer_val:
+                await update_balance(self.user_id, self.bet)
+                result = f"✨ **You win `{self.bet * 2}` coins!** ✨"
+            elif player_val < dealer_val:
+                await update_balance(self.user_id, -self.bet)
+                result = "💀 **Dealer wins!**"
+            else:
+                await update_balance(self.user_id, 0)
+                result = "⚖️ **It's a tie! You get your bet back.**"
+                
+            await self.update_embed(result)
+            self.stop()
+
+        async def on_timeout(self):
+            if not self.ended:
+                try:
+                    await update_balance(self.user_id, self.bet) 
+                except: pass
+                self.embed.description = f"⏰ **Floor! Clock on {self.user_id}.** (Timed out)"
+                self.embed.color = 0xFF0000
+                self.clear_items()
+                await self.message.edit(embed=self.embed, view=None)
+
+    @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
+    @cooldown(cl=20, tm=200.0, ft=3)
+    async def blackjack(self, interaction: discord.Interaction, bet_input: str):
+        user_id = interaction.user.id
+        bet = await resolve_bet_input(bet_input, user_id)
+        if bet is None or bet <= 0:
+            return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+        
+        await self.run_blackjack(interaction, bet)
+
+    async def run_blackjack(self, interaction: discord.Interaction, bet: int):
         await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        
+        balance = await get_balance(user_id)
+        if balance <= DEBT_FLOOR:
+             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+        if bet > max(0, balance):
+             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+
+        # Deck setup
+        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+        deck = ranks * 4
+        random.shuffle(deck)
+        player = [deck.pop(), deck.pop()]
+        dealer = [deck.pop(), deck.pop()]
+
+        def card_display(card):
+            if card in ('J', 'Q', 'K'): return f"10 ({card})"
+            if card == 'A': return "11/1 (A)"
+            return str(card)
+        
+        def hand_value(hand):
+            def val(c):
+                if c in ('J', 'Q', 'K'): return 10
+                if c == 'A': return 11
+                return int(c)
+            value = sum(val(c) for c in hand)
+            aces = sum(1 for c in hand if c == 'A')
+            while value > 21 and aces:
+                value -= 10
+                aces -= 1
+            return value
+
+        embed = discord.Embed(
+            title="🃏 Blackjack",
+            description=(
+                f"**Your hand:** {', '.join(card_display(c) for c in player)} (Total: {hand_value(player)})\n"
+                f"**Dealer's hand:** {card_display(dealer[0])}, ?\n\n"
+                "Type `hit` or `stand` via buttons."
+            ),
+            color=0x008000
+        )
+        
+        # Send initial message with embed but no view yet
+        await interaction.followup.send(embed=embed)
+        message = await interaction.original_response()
+        
+        # Instantiate the view and link it to the message
+        view = self.BlackjackView(user_id, bet, deck, player, dealer, embed, message)
+        # Hacky way to pass the callback for Play Again
+        view.start_new_game = self.run_blackjack
+        
+        await message.edit(view=view)
+
+    async def run_slots(self, interaction: discord.Interaction, bet: int):
+        await interaction.response.defer(ephemeral=False)
+
         user_id = interaction.user.id
         balance = await get_balance(user_id)
 
@@ -106,498 +350,285 @@ class GamblingCommands(app_commands.Group):
                 ephemeral=True
             )
 
+        if bet > max(0, balance):
+            return await interaction.followup.send(
+                f'❌ You don\'t have enough coins for this bet! (Balance: {balance})',
+                ephemeral=True
+            )
+
+        PAYOUT = {
+            # commons
+            "🍒": {"3": 1.2, "2": 0.8},
+            "🍋": {"3": 1.2, "2": 0.8},
+            "🍇": {"3": 1.2, "2": 0.8},
+
+            # rares
+            "🍉": {"3": 3.0, "2": 1.2},
+            "🍓": {"3": 3.0, "2": 1.2},
+            "🍍": {"3": 3.0, "2": 1.2},
+
+            # epics
+            "🔔": {"3": 10, "2": 3},
+            "7️⃣": {"3": 10, "2": 3},
+
+            # legendaries
+            "💎": {"3": 50, "2": 10},
+
+            # how the FUCK
+            "🗿": {"3": 100, "2": 25}
+        }
+
+        # Weighted emojis
+        emojis = ["🍒","🍋","🍇","🍉","🍓","🍍","7️⃣","🔔","💎","🗿"]
+        weights = [100, 100, 100, 35, 35, 35, 8, 8, 2, 1] # numbers are big because of the way the random.choices() works
+
+        # Build a fresh 3x3 grid
+        def generate_grid():
+            return [
+                [random.choices(emojis, weights)[0] for _ in range(3)]
+                for _ in range(3)
+            ]
+
+        # suspense baby
+        suspense_msg = await interaction.followup.send("🎰 Spinning...")
+        await asyncio.sleep(1.2)
+        await suspense_msg.edit(content="🎰 Spinning... *click*")
+        await asyncio.sleep(1)
+        await suspense_msg.edit(content="🎰 Spinning... *click click*")
+        await asyncio.sleep(1)
+
+        grid = generate_grid()
+
+        # check matches
+        three_match_bonus = 0
+        two_match_bonus = 0
+
+        def evaluate_spin(grid):
+            payouts = {}  # symbol -> best multiplier
+
+            lines = [
+                grid[0], grid[1], grid[2], # rows
+                [grid[0][0], grid[1][0], grid[2][0]], # col 1
+                [grid[0][1], grid[1][1], grid[2][1]], # col 2
+                [grid[0][2], grid[1][2], grid[2][2]]  # col 3
+            ]
+            lines.append([grid[0][0], grid[1][1], grid[2][2]])
+            lines.append([grid[0][2], grid[1][1], grid[2][0]])
+
+            for line in lines:
+                a, b, c = line
+                symbols = [a, b, c]
+
+                # triple
+                if a == b == c:
+                    mult = PAYOUT[a]["3"]
+                    payouts[a] = max(payouts.get(a, 0), mult)
+                    continue
+
+                # double (if allowed)
+                for sym in set(symbols):
+                    if symbols.count(sym) == 2:
+                        mult = PAYOUT[sym]["2"]
+                        payouts[sym] = max(payouts.get(sym, 0), mult)
+
+            # sum only best payouts
+            total = sum(payouts.values())
+            return total
+
+        # payout logic
+        win_amount = 0
+        lose_amount = bet
+
+        # final balance update
+        total_multiplier = evaluate_spin(grid)
+
+        win_amount = int(bet * total_multiplier)
+        net = win_amount - bet
+        await update_balance(user_id, net)
+
+        # build lines for display
+        formatted_grid = "\n".join(
+            f"| {grid[r][0]} | {grid[r][1]} | {grid[r][2]} |"
+            for r in range(3)
+        )
+
+        # fancy result message
+        if net > 0:
+            msg = f"🎉 You netted `+{abs(net)}` coins!"
+            color = 0xF1C40F
+        elif net == 0:
+            msg = f"😐 You broke even. Not bad, not great."
+            color = 0x7289DA
+        else:
+            msg = f"❌ You lost `{abs(net)}` coins."
+            color = 0xFF0000
+
+        embed = discord.Embed(
+            title="🎰 Slots",
+            description=f"```\n{formatted_grid}\n```\n{msg}",
+            color=color
+        )
+
+        view = PlayAgainView(self.run_slots, user_id, bet)
+        await suspense_msg.edit(content=None, embed=embed, view=view)
+
+    @app_commands.command(name="slots", description="Spin the slots!")
+    @cooldown(cl=5, tm=200.0, ft=3)
+    async def slots(self, interaction: discord.Interaction, bet_input: str):
+        user_id = interaction.user.id
         bet = await resolve_bet_input(bet_input, user_id)
         if bet is None or bet <= 0:
-            return await interaction.followup.send(
-                '❌ Invalid bet amount.',
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+        await self.run_slots(interaction, bet)
 
-        symbol_pool = ['🍒','🍋','🍉','⭐','🍌','🍑','🥭','7️⃣','🗿']
-        weights = [10,10,10,8,8,8,8,3,1]
-        empty = '<:empty:1388238752295555162>'
-
-        # Final results
-        top_final = random.choices(symbol_pool, weights=weights, k=3)
-        mid_final = random.choices(symbol_pool, weights=weights, k=3)
-        bot_final = random.choices(symbol_pool, weights=weights, k=3)
-
-        embed = discord.Embed(
-            title='🎰 Slot Machine',
-            description='*Spinning...*',
-            color=0xFFD700
-        )
-        await interaction.followup.send(embed=embed)
-        msg = await interaction.original_response()
-
-        # Fake spin
-        for _ in range(3):
-            temp = [[random.choice(symbol_pool) for _ in range(3)] for _ in range(3)]
-            spin_display = (
-                f'{empty} {temp[0][0]} {temp[0][1]} {temp[0][2]} {empty}\n'
-                f'➡️ {temp[1][0]} {temp[1][1]} {temp[1][2]} ⬅️\n'
-                f'{empty} {temp[2][0]} {temp[2][1]} {temp[2][2]} {empty}'
-            )
-            embed.description = f'🎰{empty}🎰{empty}🎰\n{spin_display}\n🎰{empty}🎰{empty}🎰\n*Spinning...*'
-            await msg.edit(embed=embed)
-            await asyncio.sleep(0.7 + random.uniform(0,0.3))
-
-        # Build final grid
-        matrix = (
-            f'{empty} {top_final[0]} {top_final[1]} {top_final[2]} {empty}\n'
-            f'➡️ {mid_final[0]} {mid_final[1]} {mid_final[2]} ⬅️\n'
-            f'{empty} {bot_final[0]} {bot_final[1]} {bot_final[2]} {empty}'
-        )
-
-        grid = [top_final, mid_final, bot_final]
-
-        lines = [
-            # rows
-            [(0,0),(0,1),(0,2)],
-            [(1,0),(1,1),(1,2)],
-            [(2,0),(2,1),(2,2)],
-            # columns
-            [(0,0),(1,0),(2,0)],
-            [(0,1),(1,1),(2,1)],
-            [(0,2),(1,2),(2,2)],
-            # diagonals (2-match not allowed)
-            [(0,0),(1,1),(2,2)],
-            [(0,2),(1,1),(2,0)],
-        ]
-
-        def reward_for(symbol):
-            if symbol == '🗿': return 100
-            if symbol == '7️⃣': return 25
-            return 3
-
-        total_winnings = 0
-
-        for line in lines:
-            (r1,c1),(r2,c2),(r3,c3) = line
-            s1, s2, s3 = grid[r1][c1], grid[r2][c2], grid[r3][c3]
-
-            # 3 match
-            if s1 == s2 == s3:
-                total_winnings += int(bet * reward_for(s1))
-                continue
-
-            # 2-match only if horizontal or vertical
-            is_row = r1 == r2 == r3
-            is_col = c1 == c2 == c3
-
-            if (is_row or is_col) and (s1 == s2 or s2 == s3):
-                total_winnings += int(bet * 0.6)
-
-        net_gain = total_winnings - bet
-        await update_balance(user_id, net_gain)
-
-        # Build final result
-        result = f'🎰{empty}🎰{empty}🎰\n{matrix}\n🎰{empty}🎰{empty}🎰\n'
-
-        if net_gain > 0:
-            result += f'✨ You profited `{net_gain}` coins! ✨'
-        elif net_gain == 0:
-            result += f'💫 You broke even! (`±0`)'
-        elif total_winnings > 0:
-            result += f'😬 Partial win but still lost `{abs(net_gain)}` coins.'
-        else:
-            result += f'💀 You lost your bet of `{bet}` coins.'
-
-        embed.description = result
-        await msg.edit(embed=embed)
-
-    @app_commands.command(name="blackjack", description="Play a game of Blackjack!")
-    @cooldown(cl=20, tm=200.0, ft=3)
-    async def blackjack(self, interaction: discord.Interaction, bet_input: str):
+    async def run_coinflip(self, interaction: discord.Interaction, bet: int, choice: str):
         await interaction.response.defer(ephemeral=False)
-        if Interaction.guild is None:
-            return await interaction.response.send_message(
-                "💬 This command can only be used in servers with an active text channel! (And appropiate permissions).",
-                ephemeral=True
-            )
         user_id = interaction.user.id
+        
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
-            return await interaction.followup.send(
-                f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
-                ephemeral=True
-            )
+             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+        if bet > max(0, balance):
+             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
-        bet_amount = await resolve_bet_input(bet_input, user_id)
-        if bet_amount is None or bet_amount <= 0:
-            return await interaction.followup.send(
-                "❌ Invalid bet amount (must be a positive integer within your available balance).",
-                ephemeral=True
-            )
-        bet = bet_amount
-        balance = await get_balance(user_id)
-
-        # Deck using ranks so we can display face cards as "10 (J/Q/K)" and Ace as "11 or 1 (A)"
-        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-        deck = ranks * 4
-        random.shuffle(deck)
-        player = [deck.pop(), deck.pop()]
-        dealer = [deck.pop(), deck.pop()]
-
-        def card_value(card):
-            if card in ('J', 'Q', 'K'):
-                return 10
-            if card == 'A':
-                return 11
-            return int(card)
-
-        def hand_value(hand):
-            value = sum(card_value(c) for c in hand)
-            aces = sum(1 for c in hand if c == 'A')
-            while value > 21 and aces:
-                value -= 10
-                aces -= 1
-            return value
-
-        def card_display(card):
-            if card in ('J', 'Q', 'K'):
-                return f"10 ({card})"
-            if card == 'A':
-                return "11/1 (A)"
-            return card
-
-        def hand_str(hand):
-            return ', '.join(card_display(card) for card in hand)
-
-        # Show initial hands
-        embed = discord.Embed(
-            title="🃏 Blackjack",
-            description=(
-                f"**Your hand:** {hand_str(player)} (Total: {hand_value(player)})\n"
-                f"**Dealer's hand:** {card_display(dealer[0])}, ?\n\n"
-                "Type `hit` to draw another card or `stand` to hold. (3 min timeout)"
-            ),
-            color=0x008000
-        )
-        await interaction.followup.send(embed=embed, ephemeral=False)
-        message = await interaction.original_response()
-
-        # Player turn loop
-        timed_out = False
-        while True:
-            def check(m):
-                return (
-                    m.author.id == user_id and
-                    m.channel == interaction.channel and
-                    m.content.lower() in ["hit", "stand"]
-                )
-            try:
-                reply = await interaction.client.wait_for("message", timeout=180, check=check)
-            except asyncio.TimeoutError:
-                timed_out = True
-                break
-
-            if reply.content.lower() == "hit":
-                player.append(deck.pop())
-                if hand_value(player) > 21:
-                    break
-                # Update hand after hit
-                embed = discord.Embed(
-                    title="🃏 Blackjack",
-                    description=(
-
-                        f"**Your hand:** {hand_str(player)} (Total: {hand_value(player)})\n"
-                        f"**Dealer's hand:** {card_display(dealer[0])}, ?\n\n"
-                        "Type `hit` to draw another card or `stand` to hold. (3 min timeout)"
-                    ),
-                    color=0x008000
-                )
-                await interaction.followup.send(embed=embed)
-            elif reply.content.lower() == "stand":
-                break
-
-        # If timed out
-        if timed_out:
-            try:
-                await update_balance(user_id, bet)
-            except Exception:
-                pass
-
-            embed = discord.Embed(
-                title="🃏 Blackjack",
-                description=f"⏰ **Floor! Clock on {interaction.user}.** (Timed out)",
-                color=0xFF0000
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
-        player_val = hand_value(player)
-
-        # Dealer turn (standard: hit until 17 or more)
-        while hand_value(dealer) < 17:
-            dealer.append(deck.pop())
-        dealer_val = hand_value(dealer)
-
-        # Determine result
-        if player_val > 21:
-            result = "💀 **You busted! Dealer wins.**"
+        outcome = random.choice(["heads", "tails"])
+        won = choice.lower() == outcome
+        
+        if won:
+            win = bet
+            result = f"✨ It was **{outcome.title()}**! You won `{win}` coins! ✨"
+            await update_balance(user_id, win)
+        else:
+            result = f"❌ It was **{outcome.title()}**. You lost `{bet}` coins."
             await update_balance(user_id, -bet)
-        elif dealer_val > 21 or player_val > dealer_val:
-            result = f"✨ **You win `{bet * 2}` coins!** ✨"
-            await update_balance(user_id, bet)  # Net gain is bet (total returned is 2x bet)
-        elif player_val < dealer_val:
-            result = "💀 **Dealer wins!**"
-            await update_balance(user_id, -bet)
-        else:
-            result = "⚖️ **It's a tie! You get your bet back.**"
-            await update_balance(user_id, 0)  # No change, bet returned
-
+            
         embed = discord.Embed(
-            title="🃏 Blackjack",
-            description=(
-
-                f"**Your hand:** {hand_str(player)} (Total: {player_val})\n"
-                f"**Dealer's hand:** {hand_str(dealer)} (Total: {dealer_val})\n\n"
-                f"{result}"
-            ),
-            color=0x008000
+            title="🪙 Coinflip",
+            description=result,
+            color=0xF1C40F if won else 0xFF0000
         )
-        await interaction.followup.send(embed=embed, ephemeral=False)
+        
+        view = PlayAgainView(self.run_coinflip, user_id, bet, choice)
+        await interaction.followup.send(embed=embed, view=view)
 
-    @app_commands.command(name="coinflip", description="Flip a coin and guess the outcome!")
-    @cooldown(cl=5, tm=20.0, ft=3)
-    async def coinflip(self, interaction: discord.Interaction, bet_input: str, guess: str):
+    @app_commands.command(name="coinflip", description="Flip a coin!")
+    @app_commands.describe(choice="Heads or Tails")
+    @cooldown(cl=5, tm=200.0, ft=3)
+    async def coinflip(self, interaction: discord.Interaction, bet_input: str, choice: str):
+        if choice.lower() not in ["heads", "tails"]:
+            return await interaction.response.send_message("❌ Choice must be 'heads' or 'tails'.", ephemeral=True)
+            
+        user_id = interaction.user.id
+        bet = await resolve_bet_input(bet_input, user_id)
+        if bet is None or bet <= 0:
+            return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+        await self.run_coinflip(interaction, bet, choice)
+
+    async def run_war(self, interaction: discord.Interaction, bet: int):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
-            return await interaction.followup.send(
-                f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
-                ephemeral=True
-            )
-        bet_amount = await resolve_bet_input(bet_input, user_id)
-        if bet_amount is None or bet_amount <= 0:
-            return await interaction.followup.send(
-                "❌ Invalid bet amount (must be a positive integer within your available balance).",
-                ephemeral=True
-            )
+             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+        if bet > max(0, balance):
+             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+
+        player_card = random.randint(1, 13)
+        dealer_card = random.randint(1, 13)
         
-        bet = bet_amount
-
-        if guess.lower() not in ["heads", "tails"]:
-            return await interaction.followup.send("❌ Invalid guess! Choose 'heads' or 'tails'.", ephemeral=True)
-
-        result = random.choice(["heads", "tails"])
-        winnings = bet * 2 if guess.lower() == result else -bet
-        await update_balance(user_id, winnings)
-
-        embed = discord.Embed(
-            title="🪙 Coin Flip",
-            description=f"**You guessed:** {guess.capitalize()}\n**Result:** {result.capitalize()}\n",
-            color=0xFFD700
-        )
-        
-        if winnings > 0:
-            embed.description += f"✨ **You won `{winnings}` coins!** ✨"
-        else:
-            embed.description += "💀 **You lost your bet...**"
-
-        await interaction.followup.send(embed=embed, ephemeral=False)
-
-    @app_commands.command(name="war", description="Play War! Higher card wins.")
-    @cooldown(cl=5, tm=20.0, ft=3)
-    async def war(self, interaction: discord.Interaction, bet_input: str):
-        await interaction.response.defer(ephemeral=False)
-        user_id = interaction.user.id
-        balance = await get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-            return await interaction.followup.send(
-                f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
-                ephemeral=True
-            )
-        bet_amount = await resolve_bet_input(bet_input, user_id)
-        if bet_amount is None or bet_amount <= 0:
-            return await interaction.followup.send(
-                "❌ Invalid bet amount (must be a positive integer within your available balance).",
-                ephemeral=True
-            )
-        
-        bet = bet_amount
-
-        deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]  # 11=J, 12=Q, 13=K, 14=A
-        player_card = random.choice(deck)
-        dealer_card = random.choice(deck)
-
-        card_names = {11: "J", 12: "Q", 13: "K", 14: "A"}
-        def card_str(val):
-            return card_names.get(val, str(val))
-
-        embed = discord.Embed(
-            title="🃏 War!",
-            description="Drawing cards...",
-            color=0x8B0000
-        )
-        await interaction.followup.send(embed=embed, ephemeral=False)
-        msg = await interaction.original_response()
-
-        await asyncio.sleep(1.5)
-        embed.description = f"**You drew:** {card_str(player_card)}\n**Dealer drew:** ..."
-
-        await msg.edit(embed=embed)
-        await asyncio.sleep(1.5)
-        embed.description = f"**You drew:** {card_str(player_card)}\n**Dealer drew:** {card_str(dealer_card)}"
-        await msg.edit(embed=embed)
-        await asyncio.sleep(0.8)
+        def card_name(val):
+            if val == 1: return "Ace"
+            if val == 11: return "Jack"
+            if val == 12: return "Queen"
+            if val == 13: return "King"
+            return str(val)
 
         if player_card > dealer_card:
-            winnings = bet
-            result = f"✨ **You win `{bet * 2}` coins!** ✨"
+            win = bet
+            result = f"✨ **You won!** `{win}` coins! ✨"
+            color = 0x00FF00
+            await update_balance(user_id, win)
         elif player_card < dealer_card:
-            winnings = -bet
-            result = "💀 **Dealer wins!**"
+            result = f"❌ **You lost!** `{bet}` coins."
+            color = 0xFF0000
+            await update_balance(user_id, -bet)
         else:
-            winnings = 0
-            result = "⚖️ **It's a tie! Your bet is returned.**"
+            result = "⚖️ **It's a tie!** Bet returned."
+            color = 0xFFFF00
+            await update_balance(user_id, 0)
+            
+        embed = discord.Embed(
+            title="⚔️ War",
+            description=f"Your Card: **{card_name(player_card)}**\nDealer's Card: **{card_name(dealer_card)}**\n\n{result}",
+            color=color
+        )
+        
+        view = PlayAgainView(self.run_war, user_id, bet)
+        await interaction.followup.send(embed=embed, view=view)
 
-        await update_balance(user_id, winnings)
-        embed.description += f"\n\n{result}"
-        await msg.edit(embed=embed)
+    @app_commands.command(name="war", description="Play a game of War (High card wins)")
+    @cooldown(cl=5, tm=200.0, ft=3)
+    async def war(self, interaction: discord.Interaction, bet_input: str):
+        user_id = interaction.user.id
+        bet = await resolve_bet_input(bet_input, user_id)
+        if bet is None or bet <= 0:
+            return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+        await self.run_war(interaction, bet)
 
-    @app_commands.command(name="highlow", description="Bet on high (50-100) or low (1-49)!")
-    @cooldown(cl=5, tm=20.0, ft=3)
-    async def dice(self, interaction: discord.Interaction, bet_input: str):
+    async def run_highlow(self, interaction: discord.Interaction, bet: int):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
+        
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
-            return await interaction.followup.send(
-                f"💸 You're too deep in debt ({balance} coins)! You can't gamble right now.",
-                ephemeral=True
-            )
-        bet_amount = await resolve_bet_input(bet_input, user_id)
-        if bet_amount is None or bet_amount <= 0:
-            return await interaction.followup.send(
-                "❌ Invalid bet amount (must be a positive integer within your available balance).",
-                ephemeral=True
-            )
+             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+        if bet > max(0, balance):
+             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+
+        first_card = random.randint(1, 13)
         
-        bet = bet_amount
-
         embed = discord.Embed(
-            title="🎲 High/Low Dice",
-            description="Choose **Low (1-49)** or **High (50-100)**!",
-            color=0x7289DA
+            title="⬆️ High or Low ⬇️",
+            description=f"Card is **{first_card}**. Will the next one be Higher or Lower?",
+            color=0x3498DB
         )
-        view = HighLowView()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-        msg = await interaction.original_response()
+        
+        view = HighLowView(user_id, bet, first_card, self.run_highlow)
+        await interaction.followup.send(embed=embed, view=view)
+        if balance <= DEBT_FLOOR:
+             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+        if bet > max(0, balance):
+             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
-        timeout = await view.wait()
-        if view.choice is None:
-            try:
-                await update_balance(user_id, bet)
-            except Exception:
-                pass
+        first_card = random.randint(1, 13)
+        
+        embed = discord.Embed(
+            title="⬆️ High or Low ⬇️",
+            description=f"Card is **{first_card}**. Will the next one be Higher or Lower?",
+            color=0x3498DB
+        )
+        
+        view = HighLowView(user_id, bet, first_card, self.run_highlow)
+        await interaction.followup.send(embed=embed, view=view)
 
-            embed.description = f"⏰ Floor! Clock on {interaction.user} (Timed out) - Your bet returned."
-            await msg.edit(embed=embed, view=None)
-            return
+    @app_commands.command(name="highlow", description="Guess if the next card is higher or lower!")
+    @cooldown(cl=5, tm=200.0, ft=3)
+    async def highlow(self, interaction: discord.Interaction, bet_input: str):
+        user_id = interaction.user.id
+        bet = await resolve_bet_input(bet_input, user_id)
+        if bet is None or bet <= 0:
+            return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+        await self.run_highlow(interaction, bet)
 
-        await asyncio.sleep(0.6)
-        rolled = random.randint(1, 100)
-        if (view.choice == "low" and rolled <= 49) or (view.choice == "high" and rolled >= 50):
-            winnings = bet
-            result = f"🎲 You rolled **{rolled}**!\n✨ **You win `{bet * 2}` coins!** ✨"
-        else:
-            winnings = -bet
-            result = f"🎲 You rolled **{rolled}**!\n💀 **You lost your bet...**"
-
-        await update_balance(user_id, winnings)
-        embed.description = result
-        await msg.edit(embed=embed, view=None)
 
 class GamblingCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-    
+        self.active_crash_games = {}
+
     async def cog_load(self):
-        self.bot.tree.add_command(GamblingCommands())
+        self.bot.tree.add_command(GamblingCommands(self.bot))
 
 async def setup(bot):
     await bot.add_cog(GamblingCog(bot))
-
-
-# wip stuff down here.
-#        @app_commands.command(name="crash", description="Play the Crash game!")
-#        @app_commands.describe(starting_balance="Your starting bet")
-#        async def crash(self, interaction: Interaction):
-#            await interaction.response.defer(ephemeral=False)
-#            channel_id = interaction.channel_id
-#
-#            if channel_id in self.active_crash_games:
-#                return await interaction.followup.send("🚫 A crash game is already running here!", ephemeral=True)
-#
-#            self.active_crash_games[channel_id] = {"players": {}, "running": False}
-#
-#            # Join phase for 20 seconds
-#            join_embed = f"🎰 Crash game starting!\nClick the button to join. You have 60s to place your bet."
-#            join_view = View(timeout=60)
-#
-#            async def join_callback(i: Interaction, view=self):
-#                await i.response.send_modal(CrashBetModal(self.active_crash_games[channel_id]["players"], i.user.id))
-#
-#            join_btn = Button(label="Join Game", style=discord.ButtonStyle.green)
-#            join_btn.callback = join_callback
-#            join_view.add_item(join_btn)
-#
-#            msg = await interaction.followup.send(join_embed, view=join_view)
-#            await join_view.wait()
-#
-#            players = self.active_crash_games[channel_id]["players"]
-#            if not players:
-#                del self.active_crash_games[channel_id]
-#                return await interaction.followup.send("❌ No one joined the game!", ephemeral=False)
-#
-#            # Generate a random crash multiplier
-#            crash_multiplier = round(random.uniform(1.2, 5.0), 2)
-#
-#            # Generate crash curve (15 points max, update every 3 seconds)
-#            curve_points = min(15, int(crash_multiplier * 3))
-#            multipliers = [round(1 + (crash_multiplier - 1) * (i / curve_points), 2) for i in range(1, curve_points + 1)]
-#
-#            # Cashout button
-#            cashout_view = View()
-#            cashouts = {}
-#
-#            async def cashout_callback(i: Interaction):
-#                user_id = i.user.id
-#                if user_id not in players:
-#                    await i.response.send_message("🚫 You didn't join this game!", ephemeral=True)
-#                    return
-#                if user_id in cashouts:
-#                    await i.response.send_message("✅ Already cashed out!", ephemeral=True)
-#                    return
-#                bet = players[user_id]
-#                multiplier = multipliers[min(len(cashouts), len(multipliers)-1)]
-#                win_amount = int(bet * multiplier)
-#                update_balance(user_id, win_amount)  # add winnings
-#                cashouts[user_id] = win_amount
-#                await i.response.send_message(f"💰 You cashed out at {multiplier}x for {win_amount} coins!", ephemeral=True)
-#
-#            cashout_btn = Button(label="💸 Cashout", style=discord.ButtonStyle.blurple)
-#            cashout_btn.callback = cashout_callback
-#            cashout_view.add_item(cashout_btn)
-#
-#            # Animate the curve and update message
-#            for idx, val in enumerate(multipliers):
-#                plt.figure(figsize=(4, 2))
-#                plt.plot(range(1, idx+2), multipliers[:idx+1], color="green")
-#                plt.ylim(0, max(multipliers)*1.1)
-#                plt.xlabel("Time")
-#                plt.ylabel("Multiplier")
-#                buf = io.BytesIO()
-#                plt.savefig(buf, format="png")
-#                plt.close()
-#                buf.seek(0)
-#                await msg.edit(content=f"🚀 Crash Game Progress: {val}x", attachments=[], view=cashout_view)
-#                await asyncio.sleep(3)
-#
-#            # End game
-#            results = "\n".join([f"<@{uid}> won {amt} coins" for uid, amt in cashouts.items()]) or "No one cashed out in time!"
-#            await msg.edit(content=f"💥 Game over! Crash hit {crash_multiplier}x\n{results}", attachments=[], view=None)
-#            del self.active_crash_games[channel_id]

@@ -22,7 +22,14 @@ from logger import get_logger
 # Correctly load .env from project root's .env folder (project_root/.env/.env)
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env", ".env"))
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+IS_ALPHA = False  # Set to False when you're ready to switch to the main bot
+
+
+if IS_ALPHA:
+    BOT_TOKEN = os.getenv("BOT_TOKEN_ALPHA")
+else:
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+
 
 # Import global config from extraconfig
 from extraconfig import (
@@ -44,18 +51,18 @@ from extraconfig import (
 # still doesn't stop me from putting code here.
 
 log = get_logger()
-log.setLevel(logging.INFO)
+log.setLevel(logging.EVENT_LEVEL)
 
 # Console handler
 ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
+ch.setLevel(logging.EVENT_LEVEL)
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 ch.setFormatter(formatter)
 log.addHandler(ch)
 
 # File handler for errors
 fh = logging.FileHandler("errors.log", encoding="utf-8")
-fh.setLevel(logging.INFO)
+fh.setLevel(logging.EVENT_LEVEL)
 fh.setFormatter(formatter)
 log.addHandler(fh)
 

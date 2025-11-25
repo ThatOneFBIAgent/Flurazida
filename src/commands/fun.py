@@ -28,7 +28,7 @@ from discord import app_commands, Interaction, Embed
 # Local Imports
 import CloudflarePing as cf
 import config
-from config import BOT_TOKEN, cooldown
+from config import BOT_TOKEN, cooldown, IS_ALPHA
 from extraconfig import BOT_OWNER
 from logger import get_logger
 from utils.roll_logic import execute_roll
@@ -297,7 +297,7 @@ class FunCommands(app_commands.Group):
         fake_passwords = ["hunter2", "ilovepizza", "correcthorsebatterystaple", "123456789", "letmeinpls"]
         fake_ips = [f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
                     f"172.1{random.randint(6,31)}.{random.randint(0,255)}.{random.randint(0,255)}"]
-        fake_files = ["mildly_awkward_meme.png", "favorite_thanksgiving_dish.txt", "guitar_solo.mid", "shopping_list.xlsx"]
+        fake_files = ["mildly_awkward_meme.png", "favorite_thanksgiving_dish.txt", "guitar_solo.mid", "shopping_list.xlsx", "super_duper_secret.py"]
 
         progress = 0
         bar_len = 20
@@ -356,9 +356,6 @@ class FunCommands(app_commands.Group):
         except Exception:
             # fallback: send as a new message
             await interaction.followup.send(embed=embed)
-
-        # playfully log to console (dev-only)
-        log.info(f"[FAKE HACK] {interaction.user} simulated hack of {target} — backfire={backfire}")
 
         return
 
@@ -904,8 +901,14 @@ class FunCommands(app_commands.Group):
             value="\n".join(shard_stats),
             inline=False
         )
+        footer_note = []
+        if IS_ALPHA:
+            footer_note.append("Alpha version")
+        else:
+            footer_note.append("Stable version")
+        footer_note = " | ".join(footer_note)
 
-        embed.set_footer(text=f"Process ID {self.process.pid} | {interaction.client.user.name}")
+        embed.set_footer(text=f"{footer_note} | {interaction.client.user.name}")
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="base64", description="Encode or decode a message in Base64.")
