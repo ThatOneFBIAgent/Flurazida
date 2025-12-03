@@ -24,7 +24,7 @@ EIGHTBALL_RESPONSES = [
     "The Council has denied your request", "It is what it is", "Try Alt+F4",
     "Your chances are as good as Genshin gacha rates", "lmao no",
     "This message will self-destruct", "Roll a D20 and get back to me", "Ask again after a nap",
-    "I'm not a therapist, but yes", "404: Answer not found",
+    "I'm not a therapist, but yes", "404: Answer not found", "ermmm what the sigma?",
 
     # Cryptic & cursed
     "The void whispers yes", "The answer lies beneath your bed",

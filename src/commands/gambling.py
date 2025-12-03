@@ -36,13 +36,16 @@ class CrashBetModal(ui.Modal, title="Place your bet"):
         bet_val = await resolve_bet_input(self.bet.value, user_id)
         
         if bet_val is None or bet_val <= 0:
+            log.warningtrace(f"Invalid crash bet by {user_id}: {self.bet.value}")
             return await interaction.response.send_message("❌ Invalid bet amount!", ephemeral=True)
 
         if bet_val > balance:
+             log.warningtrace(f"Insufficient funds for crash bet by {user_id}: {bet_val} > {balance}")
              return await interaction.response.send_message(f"❌ You don't have enough coins! (Balance: {balance})", ephemeral=True)
 
         await update_balance(user_id, -bet_val)
         self.players[user_id] = bet_val
+        log.successtrace(f"Crash bet accepted for {user_id}: {bet_val}")
         await interaction.response.send_message(f"✅ Bet of `{bet_val}` coins accepted!", ephemeral=True)
 
 class PlayAgainView(ui.View):
@@ -97,10 +100,12 @@ class HighLowView(ui.View):
         if won:
             win = self.bet
             await update_balance(self.user_id, win)
+            log.successtrace(f"HighLow win for {self.user_id}: {win}")
             result = f"✨ **Correct!** Next card was **{next_card}**. You won `{win}` coins! ✨"
             color = 0x00FF00
         else:
             await update_balance(self.user_id, -self.bet)
+            log.successtrace(f"HighLow loss for {self.user_id}: {self.bet}")
             result = f"❌ **Wrong!** Next card was **{next_card}**. You lost `{self.bet}` coins."
             color = 0xFF0000
             
@@ -230,6 +235,7 @@ class GamblingCommands(app_commands.Group):
             if self.hand_value(self.player) > 21:
                 self.ended = True
                 await update_balance(self.user_id, -self.bet)
+                log.successtrace(f"Blackjack bust for {self.user_id}: {self.bet}")
                 await self.update_embed("💀 **You busted! Dealer wins.**")
                 self.stop()
             else:
@@ -252,12 +258,15 @@ class GamblingCommands(app_commands.Group):
 
             if dealer_val > 21 or player_val > dealer_val:
                 await update_balance(self.user_id, self.bet)
+                log.successtrace(f"Blackjack win for {self.user_id}: {self.bet}")
                 result = f"✨ **You win `{self.bet * 2}` coins!** ✨"
             elif player_val < dealer_val:
                 await update_balance(self.user_id, -self.bet)
+                log.successtrace(f"Blackjack loss for {self.user_id}: {self.bet}")
                 result = "💀 **Dealer wins!**"
             else:
                 await update_balance(self.user_id, 0)
+                log.successtrace(f"Blackjack push for {self.user_id}")
                 result = "⚖️ **It's a tie! You get your bet back.**"
                 
             await self.update_embed(result)
@@ -284,13 +293,16 @@ class GamblingCommands(app_commands.Group):
         await self.run_blackjack(interaction, bet)
 
     async def run_blackjack(self, interaction: discord.Interaction, bet: int):
+        log.info(f"Blackjack started by {interaction.user.id} with bet {bet}")
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
+             log.warningtrace(f"Blackjack blocked (debt) for {user_id}: {balance}")
              return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
         if bet > max(0, balance):
+             log.warningtrace(f"Blackjack blocked (funds) for {user_id}: {bet} > {balance}")
              return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         # Deck setup
@@ -339,18 +351,21 @@ class GamblingCommands(app_commands.Group):
         await message.edit(view=view)
 
     async def run_slots(self, interaction: discord.Interaction, bet: int):
+        log.info(f"Slots started by {interaction.user.id} with bet {bet}")
         await interaction.response.defer(ephemeral=False)
 
         user_id = interaction.user.id
         balance = await get_balance(user_id)
 
         if balance <= DEBT_FLOOR:
+            log.warningtrace(f"Slots blocked (debt) for {user_id}: {balance}")
             return await interaction.followup.send(
                 f'💸 You are too deep in debt ({balance} coins)! No gambling.',
                 ephemeral=True
             )
 
         if bet > max(0, balance):
+            log.warningtrace(f"Slots blocked (funds) for {user_id}: {bet} > {balance}")
             return await interaction.followup.send(
                 f'❌ You don\'t have enough coins for this bet! (Balance: {balance})',
                 ephemeral=True
@@ -391,11 +406,11 @@ class GamblingCommands(app_commands.Group):
 
         # suspense baby
         suspense_msg = await interaction.followup.send("🎰 Spinning...")
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(0.8)
         await suspense_msg.edit(content="🎰 Spinning... *click*")
-        await asyncio.sleep(1)
-        await suspense_msg.edit(content="🎰 Spinning... *click click*")
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
+        await suspense_msg.edit(content="🎰 Spinning... *click... click*")
+        await asyncio.sleep(0.5)
 
         grid = generate_grid()
 
@@ -412,8 +427,6 @@ class GamblingCommands(app_commands.Group):
                 [grid[0][1], grid[1][1], grid[2][1]], # col 2
                 [grid[0][2], grid[1][2], grid[2][2]]  # col 3
             ]
-            lines.append([grid[0][0], grid[1][1], grid[2][2]])
-            lines.append([grid[0][2], grid[1][1], grid[2][0]])
 
             for line in lines:
                 a, b, c = line
@@ -445,6 +458,7 @@ class GamblingCommands(app_commands.Group):
         win_amount = int(bet * total_multiplier)
         net = win_amount - bet
         await update_balance(user_id, net)
+        log.successtrace(f"Slots result for {user_id}: net {net}")
 
         # build lines for display
         formatted_grid = "\n".join(
@@ -482,13 +496,16 @@ class GamblingCommands(app_commands.Group):
         await self.run_slots(interaction, bet)
 
     async def run_coinflip(self, interaction: discord.Interaction, bet: int, choice: str):
+        log.info(f"Coinflip started by {interaction.user.id} with bet {bet} on {choice}")
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
+             log.warningtrace(f"Coinflip blocked (debt) for {user_id}: {balance}")
              return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
         if bet > max(0, balance):
+             log.warningtrace(f"Coinflip blocked (funds) for {user_id}: {bet} > {balance}")
              return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         outcome = random.choice(["heads", "tails"])
@@ -498,9 +515,11 @@ class GamblingCommands(app_commands.Group):
             win = bet
             result = f"✨ It was **{outcome.title()}**! You won `{win}` coins! ✨"
             await update_balance(user_id, win)
+            log.successtrace(f"Coinflip win for {user_id}: {win}")
         else:
             result = f"❌ It was **{outcome.title()}**. You lost `{bet}` coins."
             await update_balance(user_id, -bet)
+            log.successtrace(f"Coinflip loss for {user_id}: {bet}")
             
         embed = discord.Embed(
             title="🪙 Coinflip",
@@ -525,13 +544,16 @@ class GamblingCommands(app_commands.Group):
         await self.run_coinflip(interaction, bet, choice)
 
     async def run_war(self, interaction: discord.Interaction, bet: int):
+        log.info(f"War started by {interaction.user.id} with bet {bet}")
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
+             log.warningtrace(f"War blocked (debt) for {user_id}: {balance}")
              return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
         if bet > max(0, balance):
+             log.warningtrace(f"War blocked (funds) for {user_id}: {bet} > {balance}")
              return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         player_card = random.randint(1, 13)
@@ -549,14 +571,17 @@ class GamblingCommands(app_commands.Group):
             result = f"✨ **You won!** `{win}` coins! ✨"
             color = 0x00FF00
             await update_balance(user_id, win)
+            log.successtrace(f"War win for {user_id}: {win}")
         elif player_card < dealer_card:
             result = f"❌ **You lost!** `{bet}` coins."
             color = 0xFF0000
             await update_balance(user_id, -bet)
+            log.successtrace(f"War loss for {user_id}: {bet}")
         else:
             result = "⚖️ **It's a tie!** Bet returned."
             color = 0xFFFF00
             await update_balance(user_id, 0)
+            log.successtrace(f"War tie for {user_id}")
             
         embed = discord.Embed(
             title="⚔️ War",
@@ -577,13 +602,16 @@ class GamblingCommands(app_commands.Group):
         await self.run_war(interaction, bet)
 
     async def run_highlow(self, interaction: discord.Interaction, bet: int):
+        log.info(f"HighLow started by {interaction.user.id} with bet {bet}")
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
         balance = await get_balance(user_id)
         if balance <= DEBT_FLOOR:
+             log.warningtrace(f"HighLow blocked (debt) for {user_id}: {balance}")
              return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
         if bet > max(0, balance):
+             log.warningtrace(f"HighLow blocked (funds) for {user_id}: {bet} > {balance}")
              return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         first_card = random.randint(1, 13)
@@ -620,6 +648,123 @@ class GamblingCommands(app_commands.Group):
         if bet is None or bet <= 0:
             return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
         await self.run_highlow(interaction, bet)
+
+    def get_roulette_color(self, number):
+        if number == 0:
+            return "green"
+        if number in [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]:
+            return "red"
+        return "black"
+
+    async def run_roulette(self, interaction: discord.Interaction, bet: int, choice_str: str):
+        log.info(f"Roulette started by {interaction.user.id} with bet {bet} on {choice_str}")
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        
+        balance = await get_balance(user_id)
+        if balance <= DEBT_FLOOR:
+             log.warningtrace(f"Roulette blocked (debt) for {user_id}: {balance}")
+             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+        if bet > max(0, balance):
+             log.warningtrace(f"Roulette blocked (funds) for {user_id}: {bet} > {balance}")
+             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+
+        # Parse choice
+        choice = choice_str.lower().strip()
+        bet_type = None # "color", "parity", "dozen", "number"
+        target = None
+
+        if choice in ["red", "black"]:
+            bet_type = "color"
+            target = choice
+            multiplier = 2
+        elif choice in ["odd", "even"]:
+            bet_type = "parity"
+            target = choice
+            multiplier = 2
+        elif choice in ["1st", "2nd", "3rd"]:
+            bet_type = "dozen"
+            target = choice
+            multiplier = 3
+        else:
+            try:
+                val = int(choice)
+                if 0 <= val <= 36:
+                    bet_type = "number"
+                    target = val
+                    multiplier = 36
+                else:
+                    log.warningtrace(f"Roulette invalid number by {user_id}: {val}")
+                    return await interaction.followup.send("❌ Number must be between 0 and 36.", ephemeral=True)
+            except ValueError:
+                log.warningtrace(f"Roulette invalid choice by {user_id}: {choice}")
+                return await interaction.followup.send("❌ Invalid bet choice! Use: red/black, odd/even, 1st/2nd/3rd, or 0-36.", ephemeral=True)
+
+        # Spin animation
+        msg = await interaction.followup.send(f"🎰 Placing bet on **{choice.title()}**... Wheel spinning...")
+        
+        # Suspense
+        fake_spins = [random.randint(0, 36) for _ in range(2)]
+        for num in fake_spins:
+            color = self.get_roulette_color(num)
+            await asyncio.sleep(1.0)
+            await msg.edit(content=f"🎰 *thud*... almost on {color.title()} {num}...")
+        
+        await asyncio.sleep(1.0)
+        
+        # Final result
+        result_num = random.randint(0, 36)
+        result_color = self.get_roulette_color(result_num)
+        
+        # Determine win
+        won = False
+        if bet_type == "color":
+            won = (result_color == target)
+        elif bet_type == "parity":
+            if result_num != 0:
+                is_even = (result_num % 2 == 0)
+                won = (target == "even" and is_even) or (target == "odd" and not is_even)
+        elif bet_type == "dozen":
+            if result_num != 0:
+                if target == "1st": won = (1 <= result_num <= 12)
+                elif target == "2nd": won = (13 <= result_num <= 24)
+                elif target == "3rd": won = (25 <= result_num <= 36)
+        elif bet_type == "number":
+            won = (result_num == target)
+
+        if won:
+            win_amount = bet * multiplier
+            net_win = win_amount - bet
+            
+            payout = bet * (multiplier - 1)
+            await update_balance(user_id, payout)
+            
+            result_text = f"✨ **It landed on {result_color.title()} {result_num}!**\nYou won `{payout + bet}` coins! (Multiplier: {multiplier}x) ✨"
+            color_hex = 0x00FF00
+        else:
+            await update_balance(user_id, -bet)
+            result_text = f"❌ **It landed on {result_color.title()} {result_num}.**\nYou lost `{bet}` coins."
+            color_hex = 0xFF0000
+
+        embed = discord.Embed(
+            title="Roulette",
+            description=result_text,
+            color=color_hex
+        )
+        embed.set_footer(text=f"Bet: {bet} on {choice.title()}")
+
+        view = PlayAgainView(self.run_roulette, user_id, bet, choice_str)
+        await msg.edit(content=None, embed=embed, view=view)
+
+    @app_commands.command(name="roulette", description="Spin the roulette wheel! (red/black, odd/even, 1st/2nd/3rd, 0-36)")
+    @app_commands.describe(choice="What to bet on: red, black, odd, even, 1st, 2nd, 3rd, or a number 0-36")
+    @cooldown(cl=5, tm=200.0, ft=3)
+    async def roulette(self, interaction: discord.Interaction, bet_input: str, choice: str):
+        user_id = interaction.user.id
+        bet = await resolve_bet_input(bet_input, user_id)
+        if bet is None or bet <= 0:
+            return await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+        await self.run_roulette(interaction, bet, choice)
 
 
 class GamblingCog(commands.Cog):

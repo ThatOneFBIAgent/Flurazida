@@ -124,10 +124,12 @@ class ShopCommands(app_commands.Group):
     def __init__(self):
         super().__init__(name="shop", description="Shop related commands")
 
-    @app_commands.command(name="shop", description="View and buy items from the shop.")
+    # so this was "shop", but i changed it to "view" becuase it appears as fucking /shop shop in discord.
+    @app_commands.command(name="view", description="View and buy items from the shop.")
     @cooldown(cl=5, tm=15.0, ft=3)
     async def shop(self, interaction: discord.Interaction):
         """Displays shop items using embeds and buttons"""
+        log.info(f"Shop view invoked by {interaction.user.id}")
         if not SHOP_ITEMS:
             return await interaction.response.send_message("❌ The shop is empty!", ephemeral=True)
 
@@ -139,6 +141,7 @@ class ShopCommands(app_commands.Group):
     @cooldown(cl=5, tm=15.0, ft=3)
     async def use(self, interaction: discord.Interaction, item_name: str):
         """Handles using an item properly"""
+        log.info(f"Use item invoked by {interaction.user.id}: {item_name}")
         item_name = item_name.lower()
         item_data = next((item for item in SHOP_ITEMS if item["name"].lower() == item_name), None)
 

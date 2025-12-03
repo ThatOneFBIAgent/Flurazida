@@ -7,10 +7,8 @@ import os
 import platform
 from typing import Optional, TypedDict, Dict, Union
 
-
 # Third-Party Imports
 import aiohttp
-
 
 # Local Imports
 from logger import get_logger
@@ -43,7 +41,9 @@ async def _ping_once(session: aiohttp.ClientSession, url: str) -> float:
         resp.raise_for_status()
         # we don't need content, but ensure the request completes
         await resp.text()
-    return (time.monotonic() - start) * 1000.0  # ms
+    duration = (time.monotonic() - start) * 1000.0
+    log.trace(f"Ping to {url} took {duration:.2f}ms")
+    return duration
 
 async def _loop(interval: float, session: Optional[aiohttp.ClientSession] = None):
     global _CACHE
@@ -77,6 +77,7 @@ async def _loop(interval: float, session: Optional[aiohttp.ClientSession] = None
                     _CACHE["ipv6"] = v6
                     _CACHE["ts"] = time.time()
                     _CACHE["error"] = None
+                    log.successtrace(f"Updated CF cache: v4={v4:.2f}ms, v6={v6 if v6 else 'N/A'}")
             finally:
                 # Only close if we created a temporary session
                 if not use_shared:

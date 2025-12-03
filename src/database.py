@@ -37,7 +37,7 @@ def log_db_call(func):
     from functools import wraps
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        log.trace(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.database(f"ECON DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return await func(*args, **kwargs)
     return wrapper
 
@@ -45,12 +45,12 @@ def log_mod_call(func):
     from functools import wraps
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        log.trace(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
+        log.database(f"MOD DB CALL: {func.__name__} called with args={args}, kwargs={kwargs}")
         return await func(*args, **kwargs)
     return wrapper
 
-log.event("Economy DB Logging begin")
-log.event("Moderator DB Logging begin")
+log.database("Economy DB Logging begin")
+log.database("Moderator DB Logging begin")
 
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
@@ -106,9 +106,7 @@ def build_drive_service():
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 # to google:
-#   hey, why the FUCK do you make this so hard
-#   this is like the 6th time i had to rewrite, the entire FUCKING logic
-#   becuase service accounts dont have qouta or some shit. this is python fyi.
+#   why do you make this so hard
 
 def _backup_db_to_gdrive_sync(local_path, drive_filename, folder_id):
     log.info(f"Backing up {local_path} -> {drive_filename}")
@@ -123,11 +121,11 @@ def _backup_db_to_gdrive_sync(local_path, drive_filename, folder_id):
     if files:
         file_id = files[0]["id"]
         service.files().update(fileId=file_id, media_body=media).execute()
-        log.info("Updated existing backup.")
+        log.success("Updated existing backup.")
     else:
         meta = {"name": drive_filename, "parents": [folder_id]}
         service.files().create(body=meta, media_body=media, fields="id").execute()
-        log.info("Created new backup.")
+        log.success("Created new backup.")
 
 async def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
     await asyncio.to_thread(_backup_db_to_gdrive_sync, local_path, drive_filename, folder_id)
@@ -157,11 +155,11 @@ def _backup_all_dbs_sync(dbs, folder_id):
         if files:
             file_id = files[0]["id"]
             service.files().update(fileId=file_id, media_body=media).execute()
-            log.info(f"Updated existing backup '{zip_filename}'.")
+            log.success(f"Updated existing backup '{zip_filename}'.")
         else:
             meta = {"name": zip_filename, "parents": [folder_id]}
             service.files().create(body=meta, media_body=media, fields="id").execute()
-            log.info(f"Created new backup '{zip_filename}'.")
+            log.success(f"Created new backup '{zip_filename}'.")
     finally:
         # Force close the stream if possible (MediaFileUpload doesn't strictly require it but it helps)
         if 'media' in locals():
@@ -394,9 +392,9 @@ async def init_databases():
         """)
         await mod_conn.commit()
     
-        log.info("Databases initialized successfully")
-    except Exception:
-        log.exception("Failed while initializing databases")
+        log.success("Databases initialized successfully")
+    except Exception as e:
+        log.critical(f"Failed while initializing databases: {e}")
         # Re-raise so caller (main.py) can still handle/fail, but we've logged full traceback
         raise
 
@@ -412,7 +410,7 @@ async def modify_robber_multiplier(user_id, change, duration=None):
                       (new_modifier, user_id))
     await conn.commit()
 
-    log.info(f"Updated robbery modifier for {user_id}: {new_modifier}%")
+    log.trace(f"Updated robbery modifier for {user_id}: {new_modifier}%")
 
     # If it's temporary (like Resin Sample), schedule decay
     if duration:
@@ -435,7 +433,7 @@ async def schedule_effect_decay(user_id, original_value, duration):
                       (original_value, user_id))
     await conn.commit()
 
-    log.info(f"Restored robbery modifier for {user_id} to {original_value}%")
+    log.trace(f"Restored robbery modifier for {user_id} to {original_value}%")
 
 # ----------- Economy Functions -----------
 
@@ -749,15 +747,18 @@ async def periodic_backup(interval_hours=1):
         except Exception as e:
             log.warning(f"Periodic backup fail: {e}")
             
-        log.info("Backup task completed.")
+        log.success("Backup task completed.")
         await asyncio.sleep(interval_hours * 3600)
 
 # Register a global uncaught-exception hook to make sure fatal crashes are logged with tracebacks
+
+excepthooklog = get_logger(name="EXCEP")
+
 def _log_unhandled_exception(exc_type, exc_value, exc_tb):
     # Let KeyboardInterrupt behave normally
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_tb)
         return
-    log.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+    excepthooklog.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
 
 sys.excepthook = _log_unhandled_exception

@@ -24,6 +24,9 @@ from database import (
     add_item_to_user
 )
 from config import cooldown
+from logger import get_logger
+
+log = get_logger()
 from discord import ui
 
 class PlayAgainView(ui.View):
@@ -76,6 +79,7 @@ class EconomyCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         target_id = target.id
+        log.trace(f"User {user_id} attempting to rob {target_id}")
 
         if user_id == target_id:
             await interaction.followup.send("❌ You can't rob yourself!", ephemeral=True)
@@ -119,6 +123,7 @@ class EconomyCommands(app_commands.Group):
             amount = random.randint(50, min(300, target_balance))
             await update_balance(user_id, amount)
             await update_balance(target_id, -amount)
+            log.successtrace(f"User {user_id} robbed {target_id} for {amount} coins")
             messages = [
                 f"🦹 You successfully robbed {target.mention} and stole 💰 `{amount}` coins!",
                 f"💰 You snuck up on {target.mention} and got away with `{amount}` coins!",
@@ -129,6 +134,7 @@ class EconomyCommands(app_commands.Group):
         else:
             penalty = random.randint(50, 400)
             await update_balance(user_id, -penalty)
+            log.warningtrace(f"User {user_id} failed to rob {target_id} and lost {penalty} coins")
             messages = [
                 f"🚨 You got caught trying to rob {target.mention}! You paid a fine of 💰 `{penalty}` coins.",
                 f"👮 The police stopped your robbery attempt. Lost 💰 `{penalty}` coins.",
@@ -148,6 +154,7 @@ class EconomyCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         await add_user(user_id, interaction.user.name)
+        log.trace(f"User {user_id} attempting crime")
 
         commiter_bal = await get_balance(user_id)
         if commiter_bal < -100:
@@ -157,6 +164,10 @@ class EconomyCommands(app_commands.Group):
         amount = random.randint(100, 600) if success else -random.randint(300, 600)
 
         await update_balance(user_id, amount)
+        if success:
+            log.successtrace(f"User {user_id} committed crime successfully: {amount} coins")
+        else:
+            log.warningtrace(f"User {user_id} failed crime: {amount} coins")
 
         if success:
             messages = [
@@ -189,6 +200,7 @@ class EconomyCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         await add_user(user_id, interaction.user.name)
+        log.trace(f"User {user_id} attempting slut command")
 
         success = random.random() > 0.07
         amount = random.randint(50, 300) if success else -random.randint(100, 200)
@@ -223,6 +235,7 @@ class EconomyCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         await add_user(user_id, interaction.user.name)
+        log.trace(f"User {user_id} attempting work command")
 
         success = random.random() > 0.03
         amount = random.randint(20, 250) if success else -random.randint(400, 800)
@@ -309,6 +322,7 @@ class EconomyCommands(app_commands.Group):
 
         await update_balance(user_id, -amount)
         await update_balance(target_id, amount)
+        log.successtrace(f"User {user_id} transferred {amount} coins to {target_id}")
 
         await interaction.followup.send(f"💸 You transferred {target.mention} 💰 `{amount}` coins!", ephemeral=False)
 
@@ -350,6 +364,7 @@ class EconomyCommands(app_commands.Group):
 
         # Add the item to the target's inventory
         await add_item_to_user(target_id, item_id, amount)
+        log.successtrace(f"User {user_id} gave {amount} of item {item_id} to {target_id}")
 
         await interaction.followup.send(f"🎁 You gave {target.mention} {amount} of item ID `{item_id}`!", ephemeral=False)
 

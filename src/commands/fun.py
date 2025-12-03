@@ -53,6 +53,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=10, tm=30.0, ft=3)
     async def ping(self, interaction: discord.Interaction):
         start_time = time.perf_counter()
+        log.trace(f"Ping invoked by {interaction.user.id}")
         await interaction.response.defer(ephemeral=False)
         end_time = time.perf_counter()
         thinking_time = (end_time - start_time) * 1000
@@ -86,7 +87,7 @@ class FunCommands(app_commands.Group):
                 if is_railway:
                     ipv6_text = "Not available"
                 elif is_docker:
-                    ipv6_text = "Not available, Docker lacks IPv6)"
+                    ipv6_text = "Not available, Docker lacks IPv6"
                 else:
                     ipv6_text = "N/A"
                 embed.add_field(name="🟣 CF IPv6 RTT", value=ipv6_text, inline=False)
@@ -117,6 +118,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=5, tm=20.0, ft=3)
     async def roll(self, interaction: discord.Interaction, dice: str, expand: bool = False):
         await interaction.response.defer(ephemeral=False)
+        log.trace(f"Roll invoked by {interaction.user.id}: {dice}")
 
         # Quick help
         if dice.strip().lower() == "help":
@@ -258,9 +260,7 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="hack", description="Hack another user! Totally 100% legit.")
     @cooldown(cl=60, tm=25.0, ft=3)
     async def hack(self, interaction: discord.Interaction, target: discord.Member):
-        """
-        Playful fake 'hack' animation. Totally simulated — does not access any real data.
-        """
+        log.trace(f"Hack invoked by {interaction.user.id} on {target.id}")
         await interaction.response.defer(ephemeral=False)
 
         if target == interaction.user:
@@ -363,6 +363,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=5, tm=20.0, ft=3)
     async def info_of_bot(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
+        log.trace(f"Info invoked by {interaction.user.id}")
         bot_user = self.bot.user
 
         now = time.time()
@@ -472,6 +473,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=5, tm=20.0, ft=3)
     async def serverinfo(self, interaction: discord.Interaction, hidden: bool = False):
         await interaction.response.defer(ephemeral=False)
+        log.trace(f"Serverinfo invoked by {interaction.user.id}")
         guild = interaction.guild
         embed = discord.Embed(
             title=f"{guild.name} Info",
@@ -573,14 +575,17 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="cat", description="Get a random cat image")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def cat(self, interaction: discord.Interaction):
+        log.trace(f"Cat invoked by {interaction.user.id}")
         await interaction.response.defer(ephemeral=False)
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for cat command")
             await interaction.followup.send("😿 HTTP session not available.", ephemeral=True)
             return
         async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
             if resp.status != 200:
-                await interaction.followup.send("😿 Failed to fetch a cat image.", ephemeral=True)
+                log.error(f"Cat API failed: {resp.status}")
+                await interaction.followup.send("❌ Failed to fetch cat image.", ephemeral=True)
                 return
             data = await resp.json()
             if not data or "url" not in data[0]:
@@ -596,13 +601,16 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def dog(self, interaction: discord.Interaction):
+        log.info(f"Dog invoked by {interaction.user.id}")
         await interaction.response.defer(ephemeral=False)
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for dog command")
             await interaction.followup.send("🐶 HTTP session not available.", ephemeral=True)
             return
         async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
             if resp.status != 200:
+                log.error(f"Dog API failed: {resp.status}")
                 await interaction.followup.send("🐶 Failed to fetch a dog image.", ephemeral=True)
                 return
             data = await resp.json()
@@ -618,6 +626,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=2, tm=10.0, ft=3)
     async def help_command(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
+        log.trace(f"Help invoked by {interaction.user.id}")
 
         def walk_commands(commands_list):
             """Flatten commands recursively into (full_name, description) tuples."""
@@ -687,6 +696,7 @@ class FunCommands(app_commands.Group):
 
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for xkcd command")
             await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
             return
         async with session.get(api_url) as resp:
@@ -735,6 +745,7 @@ class FunCommands(app_commands.Group):
         # First get the latest comic number
         async with session.get("https://xkcd.com/info.0.json") as resp:
             if resp.status != 200:
+                log.error(f"XKCD API failed (latest): {resp.status}")
                 await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
                 return
             latest_data = await resp.json()
@@ -742,19 +753,19 @@ class FunCommands(app_commands.Group):
 
         if comic:
             if comic < 1 or comic > latest_num:
-                await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
-                return
+                log.error(f"XKCD API failed (comic {comic}): Comic number must be between 1 and {latest_num}")
+                return await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
             async with session.get(f"https://xkcd.com/{comic}/info.0.json") as resp:
                 if resp.status != 200:
-                    await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                    return
+                    log.error(f"XKCD API failed (comic {comic}): {resp.status}")
+                    return await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
                 comic_data = await resp.json()
         else:
             rand_num = random.randint(1, latest_num)
             async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
                 if resp.status != 200:
-                    await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                    return
+                    log.error(f"XKCD API failed (comic {rand_num}): {resp.status}")
+                    return await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
                 comic_data = await resp.json()
 
         embed = discord.Embed(
@@ -767,62 +778,67 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    @app_commands.command(name="urban", description="Get the Urban Dictionary definition of a term.")
-    @app_commands.describe(term="The term to look up (leave empty for random definition)")
-    @cooldown(cl=10, tm=30.0, ft=3)
-    async def urban(self, interaction: discord.Interaction, term: str | None = None):
+    @app_commands.command(name="urban", description="Search Urban Dictionary.")
+    @app_commands.describe(term="The term to search for")
+    @cooldown(cl=5, tm=10.0, ft=3)
+    async def urban(self, interaction: discord.Interaction, term: str = None):
+        log.info(f"Urban invoked by {interaction.user.id}: {term}")
         await interaction.response.defer(ephemeral=False)
-
-        # If no term provided, use the random endpoint
+        
         if term:
-            api_url = f"https://api.urbandictionary.com/v0/define?term={term.strip()}"
+            api_url = f"https://api.urbandictionary.com/v0/define?term={term}"
         else:
             api_url = "https://api.urbandictionary.com/v0/random"
 
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for Urban Dictionary")
             await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
             return
         try:
             async with session.get(api_url) as resp:
                 if resp.status != 200:
+                    log.error(f"Urban Dictionary API failed: {resp.status}")
                     await interaction.followup.send("❌ Failed to fetch definition.", ephemeral=True)
                     return
                 data = await resp.json()
-        except Exception:
+        except Exception as e:
+            log.error(f"Urban Dictionary error: {e}")
             await interaction.followup.send("❌ Error contacting Urban Dictionary.", ephemeral=True)
             return
 
-            # For random endpoint or define, pick a random entry from the list if multiple
-            entries = data.get("list", [])
-            if not entries:
-                await interaction.followup.send(f"❌ No definitions found for `{term}`." if term else "❌ No random definitions found.", ephemeral=True)
-                return
+        entries = data.get("list", [])
+        if not entries:
+            log.warningtrace(f"No Urban Dictionary definition found for: {term}")
+            await interaction.followup.send(f"❌ No definitions found for `{term}`." if term else "❌ No random definitions found.", ephemeral=True)
+            return
 
-            entry = random.choice(entries)
-            definition = entry.get("definition", "No definition provided.").strip()
-            example = entry.get("example", "").strip()
-            thumbs_up = entry.get("thumbs_up", 0)
-            thumbs_down = entry.get("thumbs_down", 0)
-            author = entry.get("author", "Unknown")
-            word = entry.get("word", term or "random")
+        log.successtrace(f"Urban Dictionary definition fetched for {interaction.user.id}: {term or 'random'}")
+        entry = random.choice(entries)
+        definition = entry.get("definition", "No definition provided.").strip()
+        example = entry.get("example", "").strip()
+        thumbs_up = entry.get("thumbs_up", 0)
+        thumbs_down = entry.get("thumbs_down", 0)
+        author = entry.get("author", "Unknown")
+        word = entry.get("word", term or "random")
 
-            embed = discord.Embed(
-                title=f"Urban Dictionary: {word}",
-                color=0xdfdc00
-            )
-            embed.add_field(name="Definition", value=(definition[:1000] + "…") if len(definition) > 1000 else definition, inline=False)
-            if example:
-                embed.add_field(name="Example", value=(example[:1000] + "…") if len(example) > 1000 else example, inline=False)
-            embed.add_field(name="👍 Upvotes", value=str(thumbs_up), inline=True)
-            embed.add_field(name="👎 Downvotes", value=str(thumbs_down), inline=True)
-            embed.set_footer(text=f"Defined by {author}")
+        embed = discord.Embed(
+            title=f"Urban Dictionary: {word}",
+            color=0xdfdc00
+        )
+        embed.add_field(name="Definition", value=(definition[:1000] + "…") if len(definition) > 1000 else definition, inline=False)
+        if example:
+            embed.add_field(name="Example", value=(example[:1000] + "…") if len(example) > 1000 else example, inline=False)
+        embed.add_field(name="👍 Upvotes", value=str(thumbs_up), inline=True)
+        embed.add_field(name="👎 Downvotes", value=str(thumbs_down), inline=True)
+        embed.set_footer(text=f"Defined by {author}")
 
-            await interaction.followup.send(embed=embed, ephemeral=False)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="debug", description="Shows system and bot stats.")
     @cooldown(cl=16, tm=15.0, ft=3)
     async def debug(self, interaction: discord.Interaction):
+        log.info(f"Debug invoked by {interaction.user.id}")
         await interaction.response.defer(ephemeral=True)
 
         # Core data
@@ -909,15 +925,18 @@ class FunCommands(app_commands.Group):
         footer_note = " | ".join(footer_note)
 
         embed.set_footer(text=f"{footer_note} | {interaction.client.user.name}")
+        log.successtrace(f"Debug info sent to {interaction.user.id}")
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="base64", description="Encode or decode a message in Base64.")
     @app_commands.describe(action="Choose to encode or decode", message="The message to encode/decode")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def base64_command(self, interaction: discord.Interaction, action: str, message: str):
+        log.info(f"Base64 invoked by {interaction.user.id}: {action}")
         await interaction.response.defer(ephemeral=False)
         action = action.lower()
         if action not in ["encode", "decode"]:
+            log.warningtrace(f"Invalid base64 action by {interaction.user.id}: {action}")
             await interaction.followup.send("❌ Action must be either 'encode' or 'decode'.", ephemeral=True)
             return
 
@@ -934,18 +953,22 @@ class FunCommands(app_commands.Group):
                 embed = discord.Embed(title="🔓 Base64 Decode", color=0x3498db)
                 embed.add_field(name="Encoded Message", value=f"`{message}`", inline=False)
                 embed.add_field(name="Decoded Message", value=f"`{decoded_str}`", inline=False)
-            except Exception:
+            except Exception as e:
+                log.warningtrace(f"Base64 decode failed for {interaction.user.id}: {e}")
                 await interaction.followup.send("❌ Failed to decode the provided Base64 message. Ensure it is valid Base64.", ephemeral=True)
                 return
 
+        log.successtrace(f"Base64 {action} successful for {interaction.user.id}")
         await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
     @cooldown(cl=2, tm=10.0, ft=3)
     async def explode(self, interaction: discord.Interaction):
+       log.info(f"Explode invoked by {interaction.user.id}")
        await interaction.response.defer(ephemeral=False)
 
        if interaction.user.id != BOT_OWNER:
+           log.warningtrace(f"Explode blocked for non-owner {interaction.user.id}")
            return await interaction.followup.send("❌ This is a dev only command!")
 
        toresult = 1 / 0  # This will raise a ZeroDivisionError
@@ -954,30 +977,37 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
     @cooldown(cl=2, tm=4.0, ft=3)
     async def slowpoke(self, interaction: discord.Interaction):
+        log.info(f"Slowpoke invoked by {interaction.user.id}")
         await interaction.response.defer()
 
         if interaction.user.id != BOT_OWNER:
+            log.warningtrace(f"Slowpoke blocked for non-owner {interaction.user.id}")
             return await interaction.followup.send("❌ This is a dev only command!")
 
         await asyncio.sleep(5) # This will outtime the timeout limit
+        log.successtrace(f"Slowpoke finished for {interaction.user.id}")
         await interaction.followup.send("🐢 Sorry for the wait! I'm a bit slow today.")
 
     @app_commands.command(name="exchange", description="Convert between two currencies (e.g. USD → EUR).")
     @app_commands.describe(amount="Amount to convert", from_currency="Base currency (e.g. USD)", to_currency="Target currency (e.g. EUR)")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def exchange(self, interaction: Interaction, amount: float, from_currency: str, to_currency: str):
+        log.info(f"Exchange invoked by {interaction.user.id}: {amount} {from_currency} -> {to_currency}")
         await interaction.response.defer(ephemeral=False)
 
         # basic validation
         if amount <= 0:
+            log.warningtrace(f"Invalid exchange amount by {interaction.user.id}: {amount}")
             return await interaction.followup.send("❌ Amount must be positive.", ephemeral=True)
         if amount > MAX_AMOUNT:
+            log.warningtrace(f"Exchange amount exceeds limit by {interaction.user.id}: {amount}")
             return await interaction.followup.send("🚫 Amount exceeds safe conversion limit (1e8).", ephemeral=True)
 
         from_currency = from_currency.strip().upper()
         to_currency = to_currency.strip().upper()
 
         if not re.fullmatch(r"[A-Z]{3}", from_currency) or not re.fullmatch(r"[A-Z]{3}", to_currency):
+            log.warningtrace(f"Invalid currency codes by {interaction.user.id}: {from_currency}, {to_currency}")
             return await interaction.followup.send("❌ Invalid currency codes (use 3-letter ISO codes like USD, EUR).", ephemeral=True)
 
         # cache lookup
@@ -989,24 +1019,29 @@ class FunCommands(app_commands.Group):
             url = f"https://open.er-api.com/v6/latest/{from_currency}"
             session = self.bot.http_session
             if not session:
+                log.error("HTTP session missing for exchange command")
                 return await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
             try:
                 resp = await session.get(url, timeout=10)
                 data = await resp.json()
             except Exception as e:
+                log.error(f"Exchange API error: {e}")
                 return await interaction.followup.send(f"❌ API error: {e}", ephemeral=True)
 
             if data.get("result") != "success":
+                log.error(f"Exchange API returned failure: {data}")
                 return await interaction.followup.send("❌ Failed to retrieve exchange data.", ephemeral=True)
 
             rates = data.get("rates", {})
             exchange_cache[from_currency] = {"timestamp": now, "rates": rates}
 
         if to_currency not in rates:
+            log.warningtrace(f"Target currency not found: {to_currency}")
             return await interaction.followup.send(f"❌ Target currency `{to_currency}` not available.", ephemeral=True)
 
         rate = rates[to_currency]
         converted = amount * rate
+        log.successtrace(f"Exchange successful for {interaction.user.id}: {amount} {from_currency} -> {converted} {to_currency}")
 
         embed = Embed(title="💱 Currency Exchange", color=0x00AAFF)
         embed.add_field(name="From", value=f"`{amount:,.2f} {from_currency}`", inline=True)
@@ -1020,11 +1055,14 @@ class FunCommands(app_commands.Group):
     @app_commands.describe(value="Height value (positive number)", unit="Unit of input (m, ft, or in)")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def heights(self, interaction: Interaction, value: float, unit: str):
+        log.info(f"Heights invoked by {interaction.user.id}: {value} {unit}")
         await interaction.response.defer(ephemeral=False)
 
         if value <= 0:
+            log.warningtrace(f"Invalid height value by {interaction.user.id}: {value}")
             return await interaction.followup.send("❌ Height must be positive.", ephemeral=True)
         if value > MAX_VALUE:
+            log.warningtrace(f"Height value exceeds limit by {interaction.user.id}: {value}")
             return await interaction.followup.send("🚫 Height too large (max 1e8).", ephemeral=True)
 
         unit = unit.strip().lower()
@@ -1059,11 +1097,14 @@ class FunCommands(app_commands.Group):
                 embed.add_field(name="Feet/Inches", value=f"`{feet} ft {rem_in:.1f} in`", inline=False)
 
             else:
+                log.warningtrace(f"Invalid height unit by {interaction.user.id}: {unit}")
                 return await interaction.followup.send("❌ Unit must be `m`, `ft`, or `in`.", ephemeral=True)
 
         except Exception as e:
+            log.error(f"Height conversion error: {e}")
             return await interaction.followup.send(f"❌ Conversion error: {e}", ephemeral=True)
 
+        log.successtrace(f"Height conversion successful for {interaction.user.id}")
         await interaction.followup.send(embed=embed)
 
 class FunCog(commands.Cog):
@@ -1075,5 +1116,3 @@ class FunCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(FunCog(bot))
-
-# YAY

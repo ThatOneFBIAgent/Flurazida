@@ -17,6 +17,9 @@ pyzbar
 matplotlib
 moviepy
 imageio-ffmpeg
+ffmpeg-python
+yt-dlp
+wavelink
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client

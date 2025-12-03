@@ -585,13 +585,17 @@ class ImageCommands(app_commands.Group):
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
+        log.info(f"ForceGIF invoked by {interaction.user.id}")
         await interaction.response.defer()
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"ForceGIF invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"ForceGIF invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"ForceGIF no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -601,6 +605,7 @@ class ImageCommands(app_commands.Group):
         # ensure not huge
         frames = self._resize_if_needed(frames, max_dim=900)
         gif = self._frames_to_gif_bytes(frames, duration_ms=duration)
+        log.successtrace(f"ForceGIF success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "forced.gif")
 
     @app_commands.command(name="caption", description="Add a caption at the top or bottom of an image (accepts gifs).")
@@ -613,13 +618,17 @@ class ImageCommands(app_commands.Group):
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
+        log.info(f"Caption invoked by {interaction.user.id}: {caption}")
         await interaction.response.defer()
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Caption invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Caption invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Caption no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -667,10 +676,12 @@ class ImageCommands(app_commands.Group):
             final_img.save(bio, format="PNG")
             bio.seek(0)
             await self._send_image_bytes(interaction, bio.read(), "captioned.png")
+            log.successtrace(f"Caption success (static) for {interaction.user.id}")
         else:
             # Animated -> GIF
             gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
             await self._send_image_bytes(interaction, gif, "captioned.gif")
+            log.successtrace(f"Caption success (gif) for {interaction.user.id}")
 
     @app_commands.command(name="jpegify", description="Apply JPEG artifacting. Set recursions to repeat the effect.")
     @cooldown(cl=10, tm=25.0, ft=3)
@@ -683,23 +694,30 @@ class ImageCommands(app_commands.Group):
     ):
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Jpegify invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Jpegify invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         if recursions > MAX_JPEG_RECURSIONS:
+            log.warningtrace(f"Jpegify recursion limit exceeded by {interaction.user.id}: {recursions}")
             return await interaction.response.send_message(f"❌ Recursions too high! Max is {MAX_JPEG_RECURSIONS}.", ephemeral=True)
         
+        
+        log.info(f"Jpegify invoked by {interaction.user.id} (recursions: {recursions})")
         await interaction.response.defer()
         recursions = max(1, min(25, recursions))
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Jpegify no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
         out_frames = self._jpegify_bytes(frames, recursions=recursions, quality=18)
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        log.successtrace(f"Jpegify success for {interaction.user.id} (x{recursions})")
         await self._send_image_bytes(interaction, gif, f"jpegified_x{recursions}.gif")
 
     @app_commands.command(name="avatar", description="Get a user's avatar (or your own by default).")
@@ -709,16 +727,20 @@ class ImageCommands(app_commands.Group):
         interaction: discord.Interaction,
         user: Optional[discord.Member] = None,
     ):
+        log.info(f"Avatar invoked by {interaction.user.id}")
         await interaction.response.defer()
         target = user or interaction.user
         url = target.display_avatar.replace(size=1024).url
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for avatar command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
+                log.error(f"Avatar fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch avatar.")
             data = await r.read()
+        log.successtrace(f"Avatar fetched for {interaction.user.id} (target: {target.id})")
         await self._send_image_bytes(interaction, data, f"{target.id}_avatar.png")
 
     @app_commands.command(name="banner", description="Get a user's banner (or your own by default).")
@@ -728,38 +750,48 @@ class ImageCommands(app_commands.Group):
         interaction: discord.Interaction,
         user: Optional[discord.Member] = None,
     ):
+        log.info(f"Banner invoked by {interaction.user.id}")
         await interaction.response.defer()
         target = user or interaction.user
         banner = target.banner
         if not banner:
+            log.warningtrace(f"No banner found for {target.id}")
             return await interaction.followup.send("❌ This user has no banner.", ephemeral=True)
         url = banner.replace(size=1024).url
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for banner command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
+                log.error(f"Banner fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch banner.")
             data = await r.read()
+        log.successtrace(f"Banner fetched for {interaction.user.id} (target: {target.id})")
         await self._send_image_bytes(interaction, data, f"{target.id}_banner.png")
 
     @app_commands.command(name="serverbanner", description="Get the server (guild) banner.")
     @cooldown(cl=5, tm=25.0, ft=3)
     async def serverbanner(self, interaction: discord.Interaction):
+        log.info(f"ServerBanner invoked by {interaction.user.id}")
         await interaction.response.defer()
         if not interaction.guild:
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         banner = interaction.guild.banner
         if not banner:
+            log.warningtrace(f"No server banner found for {interaction.guild.id}")
             return await interaction.followup.send("❌ This server has no banner.", ephemeral=True)
         url = interaction.guild.banner.replace(size=1024).url
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for serverbanner command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
+                log.error(f"Server banner fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch server banner.")
             data = await r.read()
+        log.successtrace(f"Server banner fetched for {interaction.user.id} (guild: {interaction.guild.id})")
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_banner.png")
 
     @app_commands.command(name="emote", description="Gets raw emote image by its name.")
@@ -769,42 +801,52 @@ class ImageCommands(app_commands.Group):
         interaction: discord.Interaction,
         emote_name: str,
     ):
+        log.info(f"Emote invoked by {interaction.user.id}: {emote_name}")
         await interaction.response.defer()
         if not interaction.guild:
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         emote = discord.utils.get(interaction.guild.emojis, name=emote_name)
         if not emote:
+            log.warningtrace(f"Emote not found: {emote_name}")
             return await interaction.followup.send(f"❌ No emote named '{emote_name}' found in this server.", ephemeral=True)
 
         url = emote.url.with_size(1024)
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for emote command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(str(url)) as r:
             if r.status != 200:
+                log.error(f"Emote fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch emote image.")
             data = await r.read()
 
+        log.successtrace(f"Emote fetched for {interaction.user.id}: {emote_name}")
         ext = "gif" if emote.animated else "png"
         await self._send_image_bytes(interaction, data, f"{emote.id}_emote.{ext}")
 
     @app_commands.command(name="serveravatar", description="Get the server (guild) icon.")
     @cooldown(cl=5, tm=25.0, ft=3)
     async def serveravatar(self, interaction: discord.Interaction):
+        log.info(f"ServerAvatar invoked by {interaction.user.id}")
         await interaction.response.defer()
         if not interaction.guild:
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         icon = interaction.guild.icon
         if not icon:
+            log.warningtrace(f"No server icon found for {interaction.guild.id}")
             return await interaction.followup.send("❌ This server has no icon.", ephemeral=True)
         url = interaction.guild.icon.replace(size=1024).url
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for serveravatar command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
+                log.error(f"Server icon fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch server icon.")
             data = await r.read()
+        log.successtrace(f"Server icon fetched for {interaction.user.id} (guild: {interaction.guild.id})")
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_icon.png")
 
     @app_commands.command(name="flip", description="Flip an image horizontally/vertically or both.")
@@ -818,16 +860,20 @@ class ImageCommands(app_commands.Group):
     ):
         await interaction.response.defer()
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Flip invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Flip invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Flip no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=1200)
         out = [self._flip_frame(f, axis) for f in frames]
         gif = self._frames_to_gif_bytes(out, duration_ms=duration)
+        log.successtrace(f"Flip success for {interaction.user.id} (axis: {axis})")
         await self._send_image_bytes(interaction, gif, f"flipped_{axis}.gif")
 
     # Globe effect
@@ -880,12 +926,15 @@ class ImageCommands(app_commands.Group):
         rotations = max(1, min(10, rotations))
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Globe invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Globe invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Globe no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         src_frames, _ = self._load_frames_from_bytes(data)
@@ -902,6 +951,7 @@ class ImageCommands(app_commands.Group):
             globe_frames.append(frm)
 
         gif = self._frames_to_gif_bytes(globe_frames, duration_ms=80)
+        log.successtrace(f"Globe success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "globe.gif")
 
     @app_commands.command(name="blur", description="Apply a blur effect to an image.")
@@ -918,6 +968,7 @@ class ImageCommands(app_commands.Group):
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Blur no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -929,6 +980,7 @@ class ImageCommands(app_commands.Group):
             out_frames.append(blurred)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        log.successtrace(f"Blur success for {interaction.user.id} (radius: {radius})")
         await self._send_image_bytes(interaction, gif, "blurred.gif")
 
     @app_commands.command(name="hueshift", description="Shift the hue of an image (wraps around HSV color wheel).")
@@ -944,12 +996,15 @@ class ImageCommands(app_commands.Group):
         shift = shift % 1.0  # normalize [0, 1)
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Hueshift invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Hueshift invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Hueshift no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -984,6 +1039,7 @@ class ImageCommands(app_commands.Group):
             out_frames.append(shifted)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        log.successtrace(f"Hueshift success for {interaction.user.id} (shift: {shift})")
         await self._send_image_bytes(interaction, gif, "hueshifted.gif")
     
     @app_commands.command(name="invert", description="Invert the colors of an image.")
@@ -998,6 +1054,7 @@ class ImageCommands(app_commands.Group):
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Invert no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -1013,6 +1070,7 @@ class ImageCommands(app_commands.Group):
             out_frames.append(inverted)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        log.successtrace(f"Invert success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "inverted.gif")
     
     @app_commands.command(name="speechbubble", description="Add a speech bubble caption to an image (caption is optional).")
@@ -1036,12 +1094,15 @@ class ImageCommands(app_commands.Group):
         await interaction.response.defer()
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Speechbubble invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Speechbubble invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Speechbubble no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -1050,6 +1111,7 @@ class ImageCommands(app_commands.Group):
         bubble_path = os.path.join(os.getcwd(), "resources", "bubbles", f"{position.value}.png")
 
         if not os.path.exists(bubble_path):
+            log.error(f"Speechbubble template missing: {bubble_path}")
             return await interaction.followup.send(f"❌ Missing bubble template for '{position.value}'!", ephemeral=True)
 
         bubble_base = Image.open(bubble_path).convert("RGBA")
@@ -1115,6 +1177,7 @@ class ImageCommands(app_commands.Group):
             out_frames.append(tmp)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        log.successtrace(f"Speechbubble success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "speechbubble.gif")
 
     @app_commands.command(name="swirl", description="Apply a swirl effect to an image.")
@@ -1132,12 +1195,15 @@ class ImageCommands(app_commands.Group):
         radius = max(10.0, min(500.0, radius))
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"Swirl invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"Swirl invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
         
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
+            log.warningtrace(f"Swirl no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -1171,6 +1237,7 @@ class ImageCommands(app_commands.Group):
             out_frames.append(out_frame)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
+        log.successtrace(f"Swirl success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "swirled.gif")
 
     @app_commands.command(name="imagefy", description="Convert last image sent by bot to PNG or JPG.")
@@ -1184,6 +1251,7 @@ class ImageCommands(app_commands.Group):
 
         channel = interaction.channel
         if not channel:
+            log.error("Imagefy channel access failed")
             return await interaction.followup.send("❌ Could not access channel.", ephemeral=True)
 
         # Find last bot message with attachment
@@ -1194,6 +1262,7 @@ class ImageCommands(app_commands.Group):
                 break
 
         if not last_msg:
+            log.warningtrace(f"Imagefy no message found in {channel.id}")
             return await interaction.followup.send(
                 "❌ No recent bot message with an attachment found.",
                 ephemeral=True,
@@ -1202,6 +1271,7 @@ class ImageCommands(app_commands.Group):
         attachment = last_msg.attachments[0]
         data = await self._fetch_bytes(attachment, None)
         if not data:
+            log.error("Imagefy attachment fetch failed")
             return await interaction.followup.send(
                 "❌ Failed to fetch the attachment.", ephemeral=True
             )
@@ -1232,6 +1302,7 @@ class ImageCommands(app_commands.Group):
                     duration=duration,
                 )
             bio.seek(0)
+            log.successtrace(f"Imagefy success (png) for {interaction.user.id}")
             await interaction.followup.send(file=discord.File(bio, "converted.png"))
             return
 
@@ -1240,6 +1311,7 @@ class ImageCommands(app_commands.Group):
         if len(out_frames) == 1:
             out_frames[0].save(bio, format="JPEG", quality=90)
             bio.seek(0)
+            log.successtrace(f"Imagefy success (jpg) for {interaction.user.id}")
             await interaction.followup.send(file=discord.File(bio, "converted.jpg"))
         else:
             # Multi-frame JPG: zip frames individually
@@ -1251,6 +1323,7 @@ class ImageCommands(app_commands.Group):
                     frame_bio.seek(0)
                     zipf.writestr(f"frame_{i+1}.jpg", frame_bio.read())
             zip_bio.seek(0)
+            log.successtrace(f"Imagefy success (zip) for {interaction.user.id}")
             await interaction.followup.send(
                 "🗜️ Multiple frames detected! Exported as ZIP of JPGs:",
                 file=discord.File(zip_bio, "frames.zip"),
@@ -1280,17 +1353,21 @@ class ImageCommands(app_commands.Group):
             bio = io.BytesIO()
             img.save(bio, format="PNG")
             bio.seek(0)
+            log.successtrace(f"QR code generated for {interaction.user.id}")
             await interaction.followup.send(file=discord.File(bio, "qrcode.png"))
             return
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
+            log.warningtrace(f"QR invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
+            log.warningtrace(f"QR invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         # Else, read QR code from image
         data_bytes = await self._resolve_image_bytes(interaction, image, image_url)
         if not data_bytes:
+            log.warningtrace(f"QR no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, _ = self._load_frames_from_bytes(data_bytes)
@@ -1303,6 +1380,7 @@ class ImageCommands(app_commands.Group):
                 break
 
         if not decoded_objs:
+            log.warningtrace(f"No QR code detected for {interaction.user.id}")
             return await interaction.followup.send("❌ No QR code detected in the image.", ephemeral=True)
 
         messages = []
@@ -1339,8 +1417,9 @@ class ImageCommands(app_commands.Group):
             color=0x2ECC71,
         )
         embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
-
+        log.successtrace(f"QR code read for {interaction.user.id} ({len(decoded_objs)} found)")
         await interaction.followup.send(embed=embed, files=files, ephemeral=False)
+
     @app_commands.command(name="petpet", description="Pat someone's head with love!")
     @app_commands.describe(
         user="Who to pat (defaults to yourself)",
@@ -1368,14 +1447,17 @@ class ImageCommands(app_commands.Group):
 
         session = self.bot.http_session
         if not session:
+            log.error("HTTP session missing for petpet command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(avatar_url) as resp:
             if resp.status != 200:
+                log.error(f"Petpet avatar fetch failed: {resp.status}")
                 return await interaction.followup.send("❌ Failed to fetch avatar.")
             avatar_bytes = await resp.read()
 
         # Filter out video formats
         if avatar_url.endswith((".mp4", ".webm")):
+            log.warningtrace(f"Petpet invalid format by {interaction.user.id}: {avatar_url}")
             return await interaction.followup.send("❌ Invalid format! Try using a PNG, JPEG or GIF.")
 
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
@@ -1386,6 +1468,7 @@ class ImageCommands(app_commands.Group):
         # Load petpet template (transparent GIF)
         template_path = os.path.join(os.getcwd(), "resources", "patpat", "template.gif")
         if not os.path.exists(template_path):
+            log.error(f"Petpet template missing: {template_path}")
             return await interaction.followup.send("❌ Petpet template not found!", ephemeral=True)
         
         petpet = Image.open(template_path)
@@ -1458,6 +1541,7 @@ class ImageCommands(app_commands.Group):
         output.seek(0)
 
         # Send using helper
+        log.successtrace(f"Petpet success for {interaction.user.id} (target: {target.id})")
         await self._send_image_bytes(interaction, output.read(), "petpet.gif")
 
 class ImageCog(commands.Cog):
@@ -1479,3 +1563,5 @@ class ImageCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(ImageCog(bot))
+
+# hopefully it dont consume my entire ram :D

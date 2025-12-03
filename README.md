@@ -1,55 +1,54 @@
 # Flurazida
 
-Welcome to **Flurazide** — the bot that does *way too much and somehow doesn’t crash*.  
-It handles image manipulation, economy systems, moderation, gambling, database backups, and a bunch of other stuff you’ll probably discover by accident while perusing the git.
+**Flurazida** is a robust, multi‑purpose Discord bot offering a comprehensive set of features for community management, economy simulation, and media handling.
 
----
+## Features
+- **Image Manipulation** – Meme creation, distortion, and other fun utilities.
+- **Economy System** – Work, shop, and currency management with persistent data.
+- **Database Backups** – Automated backups to Google Drive for safety.
+- **Moderation Tools** – User bans, message clearing, and permission management.
+- **Gambling Games** – Virtual coin betting and games (no real money).
+- **Item Templates** – Customizable items with clear documentation.
+- **Web Server** – JSON API exposing bot statistics for external dashboards.
 
-## 🧠 Features
-- 🎨 **Image Manipulation:** Meme it, distort it, and regret it later.
-- 💸 **Economy System:** Work, buy, flex, lose it all in seconds.
-- 💾 **Database Backups:** Google Drive-powered “oh crap” prevention.
-- 🧰 **Moderation Commands:** Bonk users, clear messages, enforce order.
-- 🎲 **Gambling System:** For your fake in-house coins — don’t sue me, it’s not real money.
-- 🧱 **Item Templates:** Customizable, structured, and "questionably" documented.
+## Setup Guide
 
----
-
-## ⚙️ Setup Guide
-
-### 1. Clone the repo
+### 1. Clone the repository
 ```bash
 git clone https://github.com/ThatOneFBIAgent/Flurazida.git
 cd Flurazida
 ```
-### 2. Install required packages
+
+### 2. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2.1 (OPTIONAL) Set google drive:
+### 3. (Optional) Configure Google Drive backups
 ```bash
 python tokenhelper.py
 ```
-This will open your browser (set by default) and open a google authorization page, it will return a token.json, copy this and turn it into a base64 encoded string for .env saving, or move into /src/.
+Follow the prompts to obtain a `token.json`, encode it in Base64, and add it to your `.env` file as `DRIVE_TOKEN_B64`.
 
-### IMPORTANT
-You **MUST** have a client (OAuth2 Web app with 8080 redirect) from google's Cloud Console, replace ln 17's contents with the downloaded json.
+### 4. Environment configuration
+Create a `.env/.env` file in the project root containing:
+```ini
+BOT_TOKEN=your_discord_bot_token
+DRIVE_TOKEN_B64=base64_encoded_drive_token   # optional
+PORT=5000                                    # web server port (default)
+```
 
-### 3. Configure the bot
-Open extraconfig.py (found under ./src/config.py) and change bot owner id, and backup folder ID. For configuring the bot's token, head to the project root and create a folder named ".env", with a single file titled the same, this'll be where BOT_TOKEN and DRIVE_TOKEN_B64 will be stored at for safety purposes.
+### 5. Bot configuration
+Edit `src/extraconfig.py` to set:
+- `BOT_OWNER` – your Discord user ID.
+- `BACKUP_FOLDER_ID` – Google Drive folder ID for backups.
+- Optional blacklists (`FORBIDDEN_GUILDS`, `FORBIDDEN_USERS`).
 
-### 4. Running the bot
-When running on a VPS make sure Procfile points to the correct path, or when done locally simply do:
+### 6. Run the bot
 ```bash
 python src/main.py
 ```
+The bot will start and the web server will listen on the configured `PORT`. Access `http://localhost:5000/stats` to view live metrics.
 
-When done correctly you will see something like this:
-```
-[035ms] [  INFO  ] [opt.venv.lib.python3.12.site-packages.discord.client] logging in using static token
-[344ms] [  INFO  ] [src.database] Economy DB Logging begin
-[344ms] [  INFO  ] [src.database] Moderator DB Logging begin
-```
-
-## CONGRATULATIONS!!
+## License
+GNU Affero General Public License v3.0

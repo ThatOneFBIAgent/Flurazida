@@ -1,6 +1,6 @@
 #    "Flurazide" - A more than basic Discord bot with database functions
 #    (okay "basic" is an understatement becuase of my autism)
-#    © 2024-2025  Iza Carlos (Aka Carlos E.)
+#    © 2024-2026  Iza Carlos (Aka Carlos E.)
 #    Licensed under the GNU Affero General Public License v3.0
 
 # Standard Library Imports
@@ -11,6 +11,7 @@ import psutil
 import random
 import signal
 import socket
+import subprocess
 import sys
 import time
 import contextlib
@@ -26,6 +27,11 @@ from discord.ext import commands
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+import socket
+import sys
+import time
+import contextlib
+from typing import Optional
 
 # Local Application Imports
 import CloudflarePing as cf
@@ -43,6 +49,10 @@ from database import (
 )
 from logger import get_logger
 
+# Add website to path to import expose
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "website"))
+from expose import start_web_server
+
 log = get_logger()
 
 process = psutil.Process(os.getpid())
@@ -59,6 +69,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.guilds = True
 intents.message_content = True
+intents.presences = True
 intents.members = True
 from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS
 bot_owner = BOT_OWNER
@@ -80,6 +91,13 @@ class Main(commands.AutoShardedBot):
         
         # Start Cloudflare ping loop with shared session
         cf.ensure_started(session=self.http_session)
+
+        # Start the web server
+        try:
+            await start_web_server(self)
+            log.success("Web server started")
+        except Exception as e:
+            log.error(f"Failed to start web server: {e}")
         
         commands_dir = os.path.join(os.path.dirname(__file__), "commands")
         failed = []
@@ -97,6 +115,8 @@ class Main(commands.AutoShardedBot):
 
         if failed:
             log.error(f"{len(failed)} cog(s) failed to load: {[n for n, _ in failed]}")
+        else:
+            log.success("All cogs loaded successfully")
 
         async def reload(interaction: discord.Interaction, cog_name: str):
             if interaction.user.id != self.user_id:
@@ -355,7 +375,7 @@ async def graceful_shutdown():
     if bot.http_session and not bot.http_session.closed:
         await bot.http_session.close()
         log.info("Closed shared HTTP session")
-    
+        
     # Close bot connections
     await kill_all_tasks()
     with contextlib.suppress(Exception):
@@ -440,6 +460,7 @@ async def main():
                 await graceful_shutdown()
             except Exception:
                 log.exception("Error during graceful shutdown")
+                sys.exit(1)
 
 # optinally if someone rawdogs main.py
 if __name__ == "__main__":

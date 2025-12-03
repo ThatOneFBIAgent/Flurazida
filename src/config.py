@@ -18,11 +18,19 @@ from dotenv import load_dotenv
 
 # Ensure we import get_logger used below
 from logger import get_logger
+from extraconfig import (
+    ALPHA,
+    BOT_OWNER,
+    BACKUP_GDRIVE_FOLDER_ID,
+    TEST_SERVER,
+    FORBIDDEN_GUILDS,
+    FORBIDDEN_USERS,
+)
 
 # Correctly load .env from project root's .env folder (project_root/.env/.env)
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env", ".env"))
 
-IS_ALPHA = False  # Set to False when you're ready to switch to the main bot
+IS_ALPHA = ALPHA  # Set to False when you're ready to switch to the main bot
 
 
 if IS_ALPHA:
@@ -30,15 +38,6 @@ if IS_ALPHA:
 else:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-
-# Import global config from extraconfig
-from extraconfig import (
-    BOT_OWNER,
-    BACKUP_GDRIVE_FOLDER_ID,
-    TEST_SERVER,
-    FORBIDDEN_GUILDS,
-    FORBIDDEN_USERS,
-)
 
 # look at the dumma code in main.py for the rest of the config
 # This file is used to store configuration settings for the bot.
@@ -52,6 +51,7 @@ from extraconfig import (
 
 log = get_logger()
 log.setLevel(logging.EVENT_LEVEL)
+log.trace("Config module initialized")
 
 # Console handler
 ch = logging.StreamHandler()
@@ -102,6 +102,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
                         f"🕒 That command's on cooldown! Try again in {round(cl - elapsed, 1)}s.",
                         ephemeral=True,
                     )
+                    log.warningtrace(f"[Cooldown] {command_name} by {user_id} (wait {round(cl - elapsed, 1)}s)")
                     return
 
             _user_command_cooldowns[key] = now
@@ -114,6 +115,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
                     result = await func(*args, **kwargs)
 
                 _command_failures[key] = 0
+                log.successtrace(f"[CommandSuccess] {command_name} executed by {user_id}")
                 return result
 
             except asyncio.TimeoutError:

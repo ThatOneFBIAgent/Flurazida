@@ -28,3 +28,5 @@ FORBIDDEN_USERS = {
 MAX_JPEG_RECURSIONS = 15  # increase at your own risk, performance-wise more recursions equals more cpu and ram usage.
 MAX_JPEG_QUALITY = 4096  # max quality setting for jpegify
 
+# Alpha config
+ALPHA = True

@@ -4,6 +4,9 @@
 import random
 import re
 from typing import Dict, List, Tuple, Optional
+from logger import get_logger
+
+log = get_logger()
 
 
 # Constants for dice limits
@@ -125,6 +128,7 @@ def execute_roll(dice: str) -> Dict:
     Execute a dice roll and return the results.
     Returns a dictionary with all roll data for formatting.
     """
+    log.trace(f"Executing roll expression: {dice}")
     groups, total_dice_count, sanitized_orig = parse_dice_expression(dice)
     
     rng = random.Random()
@@ -242,6 +246,8 @@ def execute_roll(dice: str) -> Dict:
     pre_mod_total = sum(gs["pre_keep_sum"] for gs in group_summaries)
     post_mod_total = sum((gs["post_mod_sum"] if gs["post_mod_sum"] is not None else gs["pre_keep_sum"]) for gs in group_summaries)
 
+    log.successtrace(f"Roll complete: {dice} -> {post_mod_total}")
+
     return {
         "group_summaries": group_summaries,
         "footer_keepdrop": footer_keepdrop,
@@ -252,3 +258,4 @@ def execute_roll(dice: str) -> Dict:
         "dice": dice
     }
 
+# who the hell needs a dice roller THIS complicated???

@@ -7,16 +7,15 @@ import time
 from collections import Counter
 from typing import Optional
 
-
 # Third-Party Imports
 import discord
 from discord.ext import commands
 from discord import app_commands, Interaction
 
-
 # Local Imports
 from database import (
     get_cases_for_guild,
+    get_cases_for_user,
     get_case,
     insert_case,
     remove_case,
@@ -24,7 +23,6 @@ from database import (
 )
 from config import cooldown
 from logger import get_logger
-
 
 log = get_logger()
 
@@ -39,21 +37,27 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.checks.bot_has_permissions(moderate_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
     async def mute(self, interaction: Interaction, user: discord.Member, duration: str, reason: str = None):
+        log.trace(f"Mute invoked by {interaction.user.id} on {user.id} for {duration}")
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild:
+            log.warningtrace(f"Mute used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         if user == interaction.user:
+            log.warningtrace(f"Mute self-target by {interaction.user.id}")
             return await interaction.followup.send("❌ You cannot mute yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
+            log.warningtrace(f"Mute bot-target by {interaction.user.id}")
             return await interaction.followup.send("❌ You cannot mute the bot!", ephemeral=True)
         if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
+            log.warningtrace(f"Mute hierarchy check failed for {interaction.user.id} on {user.id}")
             return await interaction.followup.send("❌ You cannot mute someone with a higher or equal role!", ephemeral=True)
         if user.guild_permissions.administrator:
+            log.warningtrace(f"Mute admin-target by {interaction.user.id} on {user.id}")
             return await interaction.followup.send("❌ You cannot mute an administrator!", ephemeral=True)
 
-        # Parse duration - support more flexible formats
+        # Parse duration
         duration_seconds = 0
         try:
             if duration.endswith("d"):
@@ -65,13 +69,17 @@ class ModeratorCommands(app_commands.Group):
             elif duration.endswith("s"):
                 duration_seconds = int(duration[:-1])
             else:
+                log.warningtrace(f"Mute invalid duration format by {interaction.user.id}: {duration}")
                 return await interaction.followup.send("❌ Invalid duration format! Use `1h`, `30m`, `7d`, `45s`, etc.", ephemeral=True)
             
             if duration_seconds <= 0:
+                log.warningtrace(f"Mute invalid duration (<=0) by {interaction.user.id}: {duration}")
                 return await interaction.followup.send("❌ Duration must be greater than 0!", ephemeral=True)
-            if duration_seconds > 2419200:  # 28 days max (Discord limit)
+            if duration_seconds > 2419200:
+                log.warningtrace(f"Mute duration too long by {interaction.user.id}: {duration}")
                 return await interaction.followup.send("❌ Duration cannot exceed 28 days (Discord's maximum timeout limit)!", ephemeral=True)
         except ValueError:
+            log.warningtrace(f"Mute invalid duration format by {interaction.user.id}: {duration}")
             return await interaction.followup.send("❌ Invalid duration format! Use `1h`, `30m`, `7d`, etc.", ephemeral=True)
 
         expiry_time = int(time.time()) + duration_seconds
@@ -81,7 +89,6 @@ class ModeratorCommands(app_commands.Group):
             reason = "No reason provided"
 
         try:
-            until_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=duration_seconds)
             await user.timeout(until_time, reason=reason)
             
             try:
@@ -93,12 +100,14 @@ class ModeratorCommands(app_commands.Group):
                 log.error(f"Failed to log mute case to database: {db_error}", exc_info=True)
                 # Still send success message since the mute succeeded
 
+            log.successtrace(f"Mute successful: {user.id} for {duration} by {interaction.user.id}")
             await interaction.followup.send(
                 f"✅ **{user.mention} has been timed out for {duration}**",
                 ephemeral=False
             )
 
         except discord.Forbidden:
+            log.warningtrace(f"Mute permission denied for {interaction.user.id} on {user.id}")
             await interaction.followup.send("❌ I do not have permission to timeout this user!", ephemeral=True)
         except Exception as e:
             log.error(f"Error timing out user {user.id} in guild {interaction.guild.id}: {e}", exc_info=True)
@@ -110,18 +119,23 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.checks.bot_has_permissions(moderate_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
     async def unmute(self, interaction: Interaction, user: discord.Member, reason: str = None):
+        log.trace(f"Unmute invoked by {interaction.user.id} on {user.id}")
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild:
+            log.warningtrace(f"Unmute used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         if not user.is_timed_out():
+            log.warningtrace(f"Unmute failed (not muted) for {user.id} by {interaction.user.id}")
             return await interaction.followup.send("⚠️ This user is not currently muted.", ephemeral=True)
 
         try:
             await user.timeout(None, reason=reason or "Manual unmute")
+            log.successtrace(f"Unmute successful: {user.id} by {interaction.user.id}")
             await interaction.followup.send(f"✅ **{user.mention} has been unmuted.**", ephemeral=False)
         except discord.Forbidden:
+            log.warningtrace(f"Unmute permission denied for {interaction.user.id} on {user.id}")
             await interaction.followup.send("❌ I don't have permission to unmute that user!", ephemeral=True)
         except Exception as e:
             log.error(f"Error unmuting user {user.id} in guild {interaction.guild.id}: {e}", exc_info=True)
@@ -133,23 +147,32 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.checks.bot_has_permissions(kick_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
     async def kick(self, interaction: Interaction, user: discord.Member, reason: str = None):
+        log.trace(f"Kick invoked by {interaction.user.id} on {user.id}")
         await interaction.response.defer(ephemeral=False)
-        """Kicks a user from the server."""
+        
         if not interaction.guild:
+            log.warningtrace(f"Kick used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
         if user == interaction.user:
+            log.warningtrace(f"Kick self-target by {interaction.user.id}")
             return await interaction.followup.send("❌ You cannot kick yourself!", ephemeral=True)
         if user.id == self.bot.user.id:
+            log.warningtrace(f"Kick bot-target by {interaction.user.id}")
             return await interaction.followup.send("❌ You cannot kick the bot!", ephemeral=True)
         if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
+            log.warningtrace(f"Kick hierarchy check failed for {interaction.user.id} on {user.id}")
             return await interaction.followup.send("❌ You cannot kick a user with a higher or equal role!", ephemeral=True)
+        
         bot_member = interaction.guild.get_member(self.bot.user.id)
         if bot_member is None:
             bot_member = await interaction.guild.fetch_member(self.bot.user.id)
         if not bot_member.top_role or user.top_role >= bot_member.top_role:
+            log.warningtrace(f"Kick bot hierarchy check failed for {interaction.user.id} on {user.id}")
             return await interaction.followup.send("❌ I cannot kick a user with a higher or equal role than my own!", ephemeral=True)
+        
         if user.guild_permissions.administrator:
+            log.warningtrace(f"Kick admin-target by {interaction.user.id} on {user.id}")
             return await interaction.followup.send("❌ You cannot kick an administrator!", ephemeral=True)
 
         if reason is None:
@@ -161,10 +184,11 @@ class ModeratorCommands(app_commands.Group):
                 await insert_case(interaction.guild.id, user.id, user.name, reason, "kick", interaction.user.id, int(time.time()))
             except Exception as db_error:
                 log.error(f"Failed to log kick case to database: {db_error}", exc_info=True)
-                # Still send success message since the kick succeeded
             
+            log.successtrace(f"Kick successful: {user.id} by {interaction.user.id}")
             await interaction.followup.send(f"✅ **{user.mention} has been kicked**", ephemeral=False)
         except discord.Forbidden:
+            log.warningtrace(f"Kick permission denied for {interaction.user.id} on {user.id}")
             await interaction.followup.send("❌ I do not have permission to kick this user!", ephemeral=True)
         except Exception as e:
             log.error(f"Error kicking user {user.id} in guild {interaction.guild.id}: {e}", exc_info=True)
@@ -186,9 +210,11 @@ class ModeratorCommands(app_commands.Group):
         duration: str = "7d",
         reason: str = "No reason provided"
     ):
+        log.trace(f"Ban invoked by {interaction.user.id} on {user.id} for {duration}")
         await interaction.response.defer(ephemeral=False)
 
         if not interaction.guild:
+            log.warningtrace(f"Ban used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         # --- Permission safety checks ---
@@ -229,7 +255,8 @@ class ModeratorCommands(app_commands.Group):
         try:
             await interaction.guild.ban(user, reason=reason, delete_message_days=0)
         except discord.Forbidden:
-            return await interaction.followup.send("❌ I don't have permission to ban that user.", ephemeral=True)
+            log.warningtrace(f"Ban permission denied for {interaction.user.id} on {user.id}")
+            return await interaction.followup.send("❌ I do not have permission to ban this user!", ephemeral=True)
         except Exception as e:
             log.error(f"[{interaction.guild.name}] Error banning user {user.id}: {e}", exc_info=True)
             return await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
@@ -258,34 +285,33 @@ class ModeratorCommands(app_commands.Group):
         )
 
     @app_commands.command(name="unban", description="Unbans a user from the server.")
-    @app_commands.describe(user_id="The ID of the user to unban", reason="The reason for the unban")
+    @app_commands.describe(user_id="The ID of the user to unban", reason="Reason for unban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def unban(self, interaction: Interaction, user_id: int, reason: str = None):
+    async def unban(self, interaction: Interaction, user_id: str, reason: str = None):
+        log.trace(f"Unban invoked by {interaction.user.id} on {user_id}")
         await interaction.response.defer(ephemeral=False)
-        """Unbans a user from the server."""
+
         if not interaction.guild:
+            log.warningtrace(f"Unban used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-        
-        if reason is None:
-            reason = "No reason provided"
 
         try:
-            user = await interaction.client.fetch_user(user_id)
-            await interaction.guild.unban(user, reason=reason)
-            try:
-                await insert_case(interaction.guild.id, user.id, user.name, reason, "unban", interaction.user.id, int(time.time()))
-            except Exception as db_error:
-                log.error(f"Failed to log unban case to database: {db_error}", exc_info=True)
-                # Still send success message since the unban succeeded
+            user_obj = await self.bot.fetch_user(int(user_id))
+            await interaction.guild.unban(user_obj, reason=reason or "Manual unban")
             
-            await interaction.followup.send(f"✅ **{user.mention} has been unbanned**", ephemeral=False)
-
+            log.successtrace(f"Unban successful: {user_id} by {interaction.user.id}")
+            await interaction.followup.send(f"✅ **{user_obj.mention} has been unbanned.**", ephemeral=False)
         except discord.NotFound:
-            await interaction.followup.send("❌ User not found or not banned.", ephemeral=True)
+            log.warningtrace(f"Unban user not found: {user_id}")
+            return await interaction.followup.send("❌ User not found or not banned.", ephemeral=True)
+        except ValueError:
+             log.warningtrace(f"Unban invalid user ID: {user_id}")
+             return await interaction.followup.send("❌ Invalid User ID.", ephemeral=True)
         except discord.Forbidden:
-            await interaction.followup.send("❌ I do not have permission to unban this user!", ephemeral=True)
+            log.warningtrace(f"Unban permission denied for {interaction.user.id} on {user_id}")
+            return await interaction.followup.send("❌ I do not have permission to unban this user!", ephemeral=True)
         except Exception as e:
             log.error(f"Error unbanning user {user_id} in guild {interaction.guild.id}: {e}", exc_info=True)
             await interaction.followup.send("❌ An error occurred while trying to unban the user.", ephemeral=True)
@@ -293,17 +319,17 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.command(name="warn", description="Warns a user.")
     @app_commands.describe(user="The user to warn", reason="The reason for the warning")
     @app_commands.checks.has_permissions(moderate_members=True)
-    @app_commands.checks.bot_has_permissions(moderate_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def warn(self, interaction: Interaction, user: discord.Member, reason: str = None):
+    async def warn(self, interaction: Interaction, user: discord.Member, reason: str):
+        log.trace(f"Warn invoked by {interaction.user.id} on {user.id}")
         await interaction.response.defer(ephemeral=False)
-        """Warns a user."""
+
         if not interaction.guild:
+            log.warningtrace(f"Warn used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-        
-        if user == interaction.user:
-            return await interaction.followup.send("❌ You cannot warn yourself!", ephemeral=True)
+
         if user.id == self.bot.user.id:
+            log.warningtrace(f"Warn bot-target by {interaction.user.id}")
             return await interaction.followup.send("❌ You cannot warn the bot!", ephemeral=True)
         if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
             return await interaction.followup.send("❌ You cannot warn a user with a higher or equal role!", ephemeral=True)
@@ -316,16 +342,13 @@ class ModeratorCommands(app_commands.Group):
         if user.guild_permissions.administrator:
             return await interaction.followup.send("❌ You cannot warn an administrator!", ephemeral=True)
 
-        if reason is None:
-            reason = "No reason provided"
-
         try:
-            await insert_case(interaction.guild.id, user.id, user.name, reason, "warn", interaction.user.id, int(time.time()))
-            await interaction.followup.send(f"✅ **{user.mention} has been warned**\n**Reason:** {reason}", ephemeral=False)
-        
+            case_num = await insert_case(interaction.guild.id, user.id, user.name, reason, "warn", interaction.user.id, int(time.time()))
+            log.successtrace(f"Warn successful: {user.id} by {interaction.user.id} (Case #{case_num})")
+            await interaction.followup.send(f"✅ **{user.mention} has been warned.** (Case #{case_num})", ephemeral=False)
         except Exception as e:
-            log.error(f"Error warning user {user.id} in guild {interaction.guild.id}: {e}", exc_info=True)
-            await interaction.followup.send("❌ An error occurred while trying to warn the user.", ephemeral=True)
+            log.error(f"Error warning user {user.id}: {e}", exc_info=True)
+            await interaction.followup.send("❌ An error occurred while logging the warning.", ephemeral=True)
 
     @app_commands.command(name="cases", description="View all cases for the server with pagination.")
     @app_commands.checks.has_permissions(view_audit_log=True)
@@ -333,8 +356,9 @@ class ModeratorCommands(app_commands.Group):
     @cooldown(cl=10, tm=20.0, ft=3)
     async def cases(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=False)
-        """View all cases for the server with pagination."""
+        log.trace(f"Cases invoked by {interaction.user.id}")
         if not interaction.guild:
+            log.warningtrace(f"Cases used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
         try:
@@ -411,7 +435,7 @@ class ModeratorCommands(app_commands.Group):
     @cooldown(cl=5, tm=15.0, ft=3)
     async def case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=False)
-        """View details of a specific case."""
+        log.trace(f"Case invoked by {interaction.user.id}: #{case_id}")
         if not interaction.guild:
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
@@ -448,7 +472,7 @@ class ModeratorCommands(app_commands.Group):
     @cooldown(cl=5, tm=15.0, ft=3)
     async def delete_case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=True)
-        """Delete a specific case."""
+        log.trace(f"DeleteCase invoked by {interaction.user.id}: #{case_id}")
         if not interaction.guild:
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
@@ -463,30 +487,25 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Error deleting case {case_id} in guild {interaction.guild.id}: {e}", exc_info=True)
             await interaction.followup.send("❌ An error occurred while trying to delete the case.", ephemeral=True)
 
-    @app_commands.command(name="editcase", description="Edit the reason of a specific case.")
-    @app_commands.describe(case_id="The ID of the case to edit", reason="The new reason for the case")
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.checks.bot_has_permissions(administrator=True)
+    @app_commands.command(name="edit_case", description="Edit the reason for a specific case.")
+    @app_commands.describe(case_number="The case number to edit", new_reason="The new reason")
+    @app_commands.checks.has_permissions(moderate_members=True)
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def edit_case(self, interaction: Interaction, case_id: int, reason: str):
+    async def edit_case(self, interaction: Interaction, case_number: int, new_reason: str):
+        log.info(f"EditCase invoked by {interaction.user.id}: #{case_number}")
         await interaction.response.defer(ephemeral=True)
-        """Edit the reason of a specific case."""
+
         if not interaction.guild:
+            log.warningtrace(f"EditCase used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-        
-        if not reason or not reason.strip():
-            return await interaction.followup.send("❌ You must provide a new reason for the case.", ephemeral=True)
-        
+
         try:
-            case = await get_case(interaction.guild.id, case_id)
-            if not case:
-                return await interaction.followup.send(f"❌ No case found with ID {case_id} in this server.", ephemeral=True)
-            
-            await edit_case_reason(interaction.guild.id, case_id, reason.strip())
-            await interaction.followup.send(f"✅ Case #{case_id} has been updated with new reason: {reason}", ephemeral=True)
+            await edit_case_reason(interaction.guild.id, case_number, new_reason)
+            log.successtrace(f"Case edited: #{case_number} by {interaction.user.id}")
+            await interaction.followup.send(f"✅ Case #{case_number} updated.", ephemeral=True)
         except Exception as e:
-            log.error(f"Error editing case {case_id} in guild {interaction.guild.id}: {e}", exc_info=True)
-            await interaction.followup.send("❌ An error occurred while trying to edit the case.", ephemeral=True)
+            log.error(f"Error editing case #{case_number}: {e}", exc_info=True)
+            await interaction.followup.send("❌ Failed to edit case.", ephemeral=True)
 
     @app_commands.command(name="purge", description="Deletes messages with optional filters.")
     @app_commands.describe(
@@ -505,6 +524,7 @@ class ModeratorCommands(app_commands.Group):
     @cooldown(cl=3, tm=20.0, ft=2)
     async def purge(self, interaction: Interaction, user: Optional[discord.Member] = None, limit: int = 50, type: str = "all", reason: str = None):
         await interaction.response.defer(ephemeral=True)
+        log.trace(f"Purge invoked by {interaction.user.id}: {limit} messages, {type} filter, {user}")
         
         if not interaction.guild or not interaction.channel:
             return await interaction.followup.send("❌ This command must be used in a guild channel.", ephemeral=True)
@@ -602,6 +622,25 @@ class ModeratorCommands(app_commands.Group):
 
             if getattr(member, "nick", None):
                 embed.add_field(name="Nickname", value=member.nick, inline=False)
+            
+            if isinstance(member, discord.Member):
+                perms = member.guild_permissions
+                notable = {
+                    "Administrator": perms.administrator,
+                    "Kick Members": perms.kick_members,
+                    "Ban Members": perms.ban_members,
+                    "Manage Channels": perms.manage_channels,
+                    "Manage Guild": perms.manage_guild,
+                    "Manage Messages": perms.manage_messages,
+                    "Manage Roles": perms.manage_roles,
+                    "Manage Webhooks": perms.manage_webhooks,
+                    "Manage Emojis": perms.manage_emojis,
+                    "Manage Nicknames": perms.manage_nicknames,
+                    "View Audit Log": perms.view_audit_log,
+                    "View Server Insights": perms.view_server_insights,
+                }
+                perm_list = [name for name, val in notable.items() if val]
+                embed.add_field(name="Key Permissions", value=", ".join(perm_list) if perm_list else "None", inline=False)
 
             avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
             banner_url = None
@@ -620,14 +659,15 @@ class ModeratorCommands(app_commands.Group):
             embed.add_field(name="Account Type", value=marker, inline=False)
 
             if young_account:
-                embed.set_footer(text="⚠️ YOUNG ACCOUNT DETECTED — Created less than 60 days ago")
+                embed.set_footer(text="⚠️ YOUNG ACCOUNT DETECTED — Registered less than 60 days ago")
             else:
                 embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
+            log.successtrace(f"Whois successful for {interaction.user.id}")
             await interaction.followup.send(embed=embed)
 
         except Exception as e:
-            log.error(f"WHOIS failed for {member}: {e}")
+            log.error(f"WHOIS failed for {member}: {e}", exc_info=True)
             await interaction.followup.send("❌ Failed to fetch user info. Check logs for details.", ephemeral=True)
 
 class ModeratorCog(commands.Cog):

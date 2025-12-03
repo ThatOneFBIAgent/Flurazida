@@ -1,27 +1,44 @@
+# logger.py
+# Global logger with context and color formatting
 import logging
 import inspect
 import sys
 import os
+from extraconfig import ALPHA
 
 # Define custom log levels
 SUCCESS_LEVEL = 25  # Between INFO (20) and WARNING (30)
-TRACE_LEVEL = 5     # Below DEBUG (10)
 EVENT_LEVEL = 15    # Below INFO (20)
+SUCCESSTRACE_LEVEL = 14 # Below EVENT (15)
+WARNINGTRACE_LEVEL = 13 # Below SUCCESSTRACE (14)
+TRACE_LEVEL = 12     # Above DEBUG (10)
+DATABASE_LEVEL = 22
 
 logging.EVENT_LEVEL = EVENT_LEVEL
 logging.SUCCESS_LEVEL = SUCCESS_LEVEL
+logging.DATABASE_LEVEL = DATABASE_LEVEL
 logging.TRACE_LEVEL = TRACE_LEVEL
+logging.SUCCESSTRACE_LEVEL = SUCCESSTRACE_LEVEL
+logging.WARNINGTRACE_LEVEL = WARNINGTRACE_LEVEL
 
 logging.addLevelName(SUCCESS_LEVEL, "SUCCESS")
 logging.addLevelName(TRACE_LEVEL, "TRACE")
 logging.addLevelName(EVENT_LEVEL, "EVENT")
+logging.addLevelName(DATABASE_LEVEL, "DATABASE")
+logging.addLevelName(SUCCESSTRACE_LEVEL, "S-TRACE")
+logging.addLevelName(WARNINGTRACE_LEVEL, "W-TRACE")
+
+loggingLevel = TRACE_LEVEL if ALPHA else EVENT_LEVEL
 
 # Custom auto-context color formatter
 class ColoredFormatter(logging.Formatter):
     COLORS = {
         TRACE_LEVEL: "\033[90m",      # gray
         logging.DEBUG: "\033[90m",     # gray
+        WARNINGTRACE_LEVEL: "\033[33m", # yellow
+        SUCCESSTRACE_LEVEL: "\033[32m", # green
         logging.INFO: "\033[36m",      # cyan
+        DATABASE_LEVEL: "\033[35m",      # purple
         EVENT_LEVEL: "\033[96m",      # light blue
         SUCCESS_LEVEL: "\033[32m",  # green text
         logging.WARNING: "\033[33m",   # yellow
@@ -44,6 +61,13 @@ class ColoredFormatter(logging.Formatter):
         module_name = ".".join(part for part in module_parts if part and part != "__init__")
 
         formatted = f"[{msecs}ms] [{record.levelname:^8}] [{module_name}] {record.getMessage()}"
+
+        if record.exc_info:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+            if record.exc_text:
+                formatted += "\n" + record.exc_text
+
         return f"{color}{formatted}{self.RESET}"
 
 # Base logger setup
@@ -51,7 +75,7 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColoredFormatter())
 
 logging.basicConfig(
-    level=EVENT_LEVEL,
+    level=loggingLevel,
     handlers=[handler],
     force=True
 )
@@ -94,7 +118,25 @@ def event(self, message, *args, **kwargs):
     if self.isEnabledFor(EVENT_LEVEL):
         self._log(EVENT_LEVEL, message, args, **kwargs)
 
+def database(self, message, *args, **kwargs):
+    """Log a database message (even more verbose than debug)."""
+    if self.isEnabledFor(DATABASE_LEVEL):
+        self._log(DATABASE_LEVEL, message, args, **kwargs)
+
+def successtrace(self, message, *args, **kwargs):
+    """Log a success trace message."""
+    if self.isEnabledFor(SUCCESSTRACE_LEVEL):
+        self._log(SUCCESSTRACE_LEVEL, message, args, **kwargs)
+
+def warningtrace(self, message, *args, **kwargs):
+    """Log a warning trace message."""
+    if self.isEnabledFor(WARNINGTRACE_LEVEL):
+        self._log(WARNINGTRACE_LEVEL, message, args, **kwargs)
+
 # Attach custom methods to Logger class
 logging.Logger.success = success
 logging.Logger.trace = trace
 logging.Logger.event = event
+logging.Logger.database = database
+logging.Logger.successtrace = successtrace
+logging.Logger.warningtrace = warningtrace
