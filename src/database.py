@@ -750,15 +750,13 @@ async def periodic_backup(interval_hours=1):
         log.success("Backup task completed.")
         await asyncio.sleep(interval_hours * 3600)
 
-# Register a global uncaught-exception hook to make sure fatal crashes are logged with tracebacks
-
-excepthooklog = get_logger(name="EXCEP")
+# Register a global uncaught-exception hook to make sure fatal crashes are logged with traceback
 
 def _log_unhandled_exception(exc_type, exc_value, exc_tb):
     # Let KeyboardInterrupt behave normally
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_tb)
         return
-    excepthooklog.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+    log.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
 
 sys.excepthook = _log_unhandled_exception

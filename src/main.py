@@ -158,8 +158,12 @@ class Main(commands.AutoShardedBot):
         async with self._activity_sync_lock:
             for shard_id, ws in self.shards.items():
                 try:
-                    await self.change_presence(activity=activity, status=status, shard_id=shard_id)
-                    log.info(f"[Shard {shard_id}] Synced activity: {activity.name} ({activity.type.name})")
+                    human_shard = shard_id + 1
+                    activityname = getattr(activity, "name", None) or str(activity)
+                    pershardactivity = f"{activityname} | {human_shard}/{self.shard_count}"
+                    newactivity = discord.Activity(name=pershardactivity, type=activity.type)
+                    await self.change_presence(activity=newactivity, status=status, shard_id=shard_id)
+                    log.info(f"[Shard {shard_id}] Synced activity: {pershardactivity} ({activity.type.name})")
                 except Exception as e:
                     log.warning(f"[Shard {shard_id}] Failed to sync activity: {e}")
 

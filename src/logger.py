@@ -106,31 +106,37 @@ def get_logger(name=None) -> logging.Logger:
 def success(self, message, *args, **kwargs):
     """Log a success message with green background."""
     if self.isEnabledFor(SUCCESS_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
         self._log(SUCCESS_LEVEL, message, args, **kwargs)
 
 def trace(self, message, *args, **kwargs):
     """Log a trace message (even more verbose than debug)."""
     if self.isEnabledFor(TRACE_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
         self._log(TRACE_LEVEL, message, args, **kwargs)
 
 def event(self, message, *args, **kwargs):
     """Log an event message (even more verbose than debug)."""
     if self.isEnabledFor(EVENT_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
         self._log(EVENT_LEVEL, message, args, **kwargs)
 
 def database(self, message, *args, **kwargs):
     """Log a database message (even more verbose than debug)."""
     if self.isEnabledFor(DATABASE_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
         self._log(DATABASE_LEVEL, message, args, **kwargs)
 
 def successtrace(self, message, *args, **kwargs):
     """Log a success trace message."""
     if self.isEnabledFor(SUCCESSTRACE_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
         self._log(SUCCESSTRACE_LEVEL, message, args, **kwargs)
 
 def warningtrace(self, message, *args, **kwargs):
     """Log a warning trace message."""
     if self.isEnabledFor(WARNINGTRACE_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
         self._log(WARNINGTRACE_LEVEL, message, args, **kwargs)
 
 # Attach custom methods to Logger class

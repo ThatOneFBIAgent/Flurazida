@@ -247,6 +247,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=5, tm=20.0, ft=3)
     async def eight_ball(self, interaction: discord.Interaction, question: str):
         await interaction.response.defer(ephemeral=False)
+        log.trace(f"8ball invoked by {interaction.user.id}: {question}")
         if not question:
             return await interaction.followup.send("❌ **I'm not a mind reader! Ask a question!**", ephemeral=True)
         
@@ -601,7 +602,7 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="dog", description="Get a random dog image")
     @cooldown(cl=5, tm=20.0, ft=3)
     async def dog(self, interaction: discord.Interaction):
-        log.info(f"Dog invoked by {interaction.user.id}")
+        log.trace(f"Dog invoked by {interaction.user.id}")
         await interaction.response.defer(ephemeral=False)
         session = self.bot.http_session
         if not session:
@@ -738,6 +739,7 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=7, tm=25.0, ft=3)
     async def xkcd(self, interaction: discord.Interaction, comic: int | None = None):
         await interaction.response.defer(ephemeral=False)
+        log.trace(f"XKCD invoked by {interaction.user.id}: {comic}")
         session = self.bot.http_session
         if not session:
             await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
@@ -782,7 +784,7 @@ class FunCommands(app_commands.Group):
     @app_commands.describe(term="The term to search for")
     @cooldown(cl=5, tm=10.0, ft=3)
     async def urban(self, interaction: discord.Interaction, term: str = None):
-        log.info(f"Urban invoked by {interaction.user.id}: {term}")
+        log.trace(f"Urban invoked by {interaction.user.id}: {term}")
         await interaction.response.defer(ephemeral=False)
         
         if term:
@@ -838,7 +840,7 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="debug", description="Shows system and bot stats.")
     @cooldown(cl=16, tm=15.0, ft=3)
     async def debug(self, interaction: discord.Interaction):
-        log.info(f"Debug invoked by {interaction.user.id}")
+        log.trace(f"Debug invoked by {interaction.user.id}")
         await interaction.response.defer(ephemeral=True)
 
         # Core data
@@ -932,7 +934,7 @@ class FunCommands(app_commands.Group):
     @app_commands.describe(action="Choose to encode or decode", message="The message to encode/decode")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def base64_command(self, interaction: discord.Interaction, action: str, message: str):
-        log.info(f"Base64 invoked by {interaction.user.id}: {action}")
+        log.trace(f"Base64 invoked by {interaction.user.id}: {action}")
         await interaction.response.defer(ephemeral=False)
         action = action.lower()
         if action not in ["encode", "decode"]:
@@ -964,7 +966,7 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="explode", description="Always returns an error! Used for testing error handling.")
     @cooldown(cl=2, tm=10.0, ft=3)
     async def explode(self, interaction: discord.Interaction):
-       log.info(f"Explode invoked by {interaction.user.id}")
+       log.trace(f"Explode invoked by {interaction.user.id}")
        await interaction.response.defer(ephemeral=False)
 
        if interaction.user.id != BOT_OWNER:
@@ -977,7 +979,7 @@ class FunCommands(app_commands.Group):
     @app_commands.command(name="slowpoke", description="A command that intentionally responds slowly.")
     @cooldown(cl=2, tm=4.0, ft=3)
     async def slowpoke(self, interaction: discord.Interaction):
-        log.info(f"Slowpoke invoked by {interaction.user.id}")
+        log.trace(f"Slowpoke invoked by {interaction.user.id}")
         await interaction.response.defer()
 
         if interaction.user.id != BOT_OWNER:
@@ -992,7 +994,7 @@ class FunCommands(app_commands.Group):
     @app_commands.describe(amount="Amount to convert", from_currency="Base currency (e.g. USD)", to_currency="Target currency (e.g. EUR)")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def exchange(self, interaction: Interaction, amount: float, from_currency: str, to_currency: str):
-        log.info(f"Exchange invoked by {interaction.user.id}: {amount} {from_currency} -> {to_currency}")
+        log.trace(f"Exchange invoked by {interaction.user.id}: {amount} {from_currency} -> {to_currency}")
         await interaction.response.defer(ephemeral=False)
 
         # basic validation
@@ -1055,7 +1057,7 @@ class FunCommands(app_commands.Group):
     @app_commands.describe(value="Height value (positive number)", unit="Unit of input (m, ft, or in)")
     @cooldown(cl=10, tm=30.0, ft=3)
     async def heights(self, interaction: Interaction, value: float, unit: str):
-        log.info(f"Heights invoked by {interaction.user.id}: {value} {unit}")
+        log.trace(f"Heights invoked by {interaction.user.id}: {value} {unit}")
         await interaction.response.defer(ephemeral=False)
 
         if value <= 0:
