@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-dev \
   && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get install -y --no-install-recommends libzbar0
+
 RUN ln -s /usr/lib/*/libzbar.so.0 /usr/lib/*/libzbar.so || true
 
 # Copy the requirements file into the container at /app
