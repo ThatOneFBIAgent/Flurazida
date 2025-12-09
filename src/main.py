@@ -74,7 +74,7 @@ intents.guilds = True
 intents.message_content = True
 intents.presences = True
 intents.members = True
-from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS
+from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS, WEBSITE_ENABLED
 bot_owner = BOT_OWNER
 test_server = TEST_SERVER
 
@@ -96,7 +96,7 @@ class Main(commands.AutoShardedBot):
         cf.ensure_started(session=self.http_session)
 
         # Start the web server
-        if extraconfig.WEBSITE_ENABLED:
+        if WEBSITE_ENABLED:
             try:
                 await start_web_server(self)
                 log.success("Web server started")
