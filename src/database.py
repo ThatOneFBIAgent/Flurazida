@@ -92,7 +92,7 @@ def load_creds_from_env():
 
 def build_drive_service():
     # Try local token first, then env-based token loader as fallback
-    if os.getenv(RAILWAY_PROJECT_ID):
+    if os.getenv("RAILWAY_PROJECT_ID"):
         log.trace("Running on Railway, using env-based credentials.")
         creds = load_creds_from_env()
     else:

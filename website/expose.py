@@ -111,8 +111,14 @@ async def post_stats_task(bot, base_logger=None):
     
     target_url = os.getenv("PROD_STATUS_URL") or "http://localhost:8000/api/bot/status"
 
-    logger = base_logger or print
-    logger(f"Starting stats poster task targeting: {target_url}")
+    if base_logger:
+        log_info = base_logger.info
+        log_error = base_logger.error
+    else:
+        log_info = print
+        log_error = print
+    
+    log_info(f"Starting stats poster task targeting: {target_url}")
 
     async with aiohttp.ClientSession() as session:
         while not bot.is_closed():
@@ -120,19 +126,19 @@ async def post_stats_task(bot, base_logger=None):
                 stats = await get_bot_stats(bot)
 
                 async with session.post(target_url, json=stats) as response:
-                    logger(f"POST {target_url} -> {response.status}")
+                    log_info(f"POST {target_url} -> {response.status}")
                     
                     if response.status not in (200, 201, 204):
-                        logger(f"Failed to post stats: {response.status}")
+                        log_error(f"Failed to post stats: {response.status}")
                         # Print server response for debugging
                         try:
                             text = await response.text()
-                            logger(f"Response body: {text}")
-                        except:
-                            pass
+                            log_error(f"Response body: {text}")
+                        except Exception as e:
+                            log_error(f"Could not read response body: {e}")
 
             except Exception as e:
-                logger(f"Error posting stats: {e}")
+                log_error(f"Error posting stats: {e}")
 
             await asyncio.sleep(60)
 
