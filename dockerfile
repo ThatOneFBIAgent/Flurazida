@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   build-essential \
   pkg-config \
   zlib1g-dev \
+  zbar-tools \
+  zbar-dev \
   libjpeg-dev \
   libzbar0 \
   libzbar-dev \

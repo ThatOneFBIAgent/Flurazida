@@ -108,7 +108,7 @@ async def start_web_server(bot):
 
 async def post_stats_task(bot, base_logger=None):
     await bot.wait_until_ready()
-    
+
     target_url = os.getenv("PROD_STATUS_URL") or "http://localhost:8000/api/bot/status"
 
     if base_logger:
@@ -117,8 +117,11 @@ async def post_stats_task(bot, base_logger=None):
     else:
         log_info = print
         log_error = print
-    
+
     log_info(f"Starting stats poster task targeting: {target_url}")
+
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 4
 
     async with aiohttp.ClientSession() as session:
         while not bot.is_closed():
@@ -126,10 +129,12 @@ async def post_stats_task(bot, base_logger=None):
                 stats = await get_bot_stats(bot)
 
                 async with session.post(target_url, json=stats) as response:
-                    log_info(f"POST {target_url} -> {response.status}")
-                    
-                    if response.status not in (200, 201, 204):
+                    if response.status in (200, 201, 204):
+                        log_info(f"POST {target_url} -> {response.status}")
+                        consecutive_failures = 0  # Reset on success
+                    else:
                         log_error(f"Failed to post stats: {response.status}")
+                        consecutive_failures += 1
                         # Print server response for debugging
                         try:
                             text = await response.text()
@@ -139,6 +144,11 @@ async def post_stats_task(bot, base_logger=None):
 
             except Exception as e:
                 log_error(f"Error posting stats: {e}")
+                consecutive_failures += 1
+
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                log_error(f"Consecutive failures reached {MAX_CONSECUTIVE_FAILURES}. Shutting down stats poster task.")
+                break # Exit the loop to shut down the task
 
             await asyncio.sleep(60)
 
