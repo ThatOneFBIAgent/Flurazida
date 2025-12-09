@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gcc \
   pkg-config \
   libzbar0 \
+  zbar-tools \
   libzbar-dev \
   libjpeg-dev \
   libffi-dev \
