@@ -107,61 +107,33 @@ async def start_web_server(bot):
     bot.loop.create_task(post_stats_task(bot, base_logger=log))
 
 async def post_stats_task(bot, base_logger=None):
-    """Background task to post stats to a configured URL."""
     await bot.wait_until_ready()
     
     target_url = os.getenv("PROD_STATUS_URL") or "http://localhost:8000/api/bot/status"
 
-    if base_logger:
-        base_logger.info(f"Starting stats poster task targeting: {target_url}")
-    else:
-        print(f"Starting stats poster task targeting: {target_url}")
-    
-    async with aiohttp.ClientSession() as session:
-        while not bot.is_closed():
-            try:
-                stats = await get_bot_stats(bot)
-                async with session.post(target_url, json=stats) as response:
-                    if response.status not in (200, 201, 204):
-                        err_msg = f"Failed to post stats to {target_url}: {response.status}"
-                        if base_logger:
-                            base_logger.warning(err_msg)
-                        else:
-                            print(err_msg)
-            except Exception as e:
-                err_msg = f"Error posting stats: {e}"
-                if base_logger:
-                    base_logger.error(err_msg)
-                else:
-                    print(err_msg)
-            
-            # Wait for 60 seconds before next post
-            await asyncio.sleep(60)
-
-    msg = f"Starting stats poster task targeting: {target_url}"
-    if base_logger:
-        base_logger.info(msg)
-    else:
-        print(msg)
+    logger = base_logger or print
+    logger(f"Starting stats poster task targeting: {target_url}")
 
     async with aiohttp.ClientSession() as session:
         while not bot.is_closed():
             try:
                 stats = await get_bot_stats(bot)
+
                 async with session.post(target_url, json=stats) as response:
+                    logger(f"POST {target_url} -> {response.status}")
+                    
                     if response.status not in (200, 201, 204):
-                        err_msg = f"Failed to post stats to {target_url}: {response.status}"
-                        if base_logger:
-                            base_logger.warning(err_msg)
-                        else:
-                            print(err_msg)
+                        logger(f"Failed to post stats: {response.status}")
+                        # Print server response for debugging
+                        try:
+                            text = await response.text()
+                            logger(f"Response body: {text}")
+                        except:
+                            pass
+
             except Exception as e:
-                err_msg = f"Error posting stats: {e}"
-                if base_logger:
-                    base_logger.error(err_msg)
-                else:
-                    print(err_msg)
-            
-            # Wait for 60 seconds before next post
+                logger(f"Error posting stats: {e}")
+
             await asyncio.sleep(60)
+
 
