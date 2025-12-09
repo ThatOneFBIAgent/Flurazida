@@ -92,11 +92,15 @@ def load_creds_from_env():
 
 def build_drive_service():
     # Try local token first, then env-based token loader as fallback
-    try:
-        creds = load_creds_local()
-    except Exception:
-        log.info("token.json not found, falling back to env-based credentials.")
+    if os.getenv(RAILWAY_PROJECT_ID):
+        log.trace("Running on Railway, using env-based credentials.")
         creds = load_creds_from_env()
+    else:
+        try:
+            creds = load_creds_local()
+        except Exception:
+            log.info("token.json not found, falling back to env-based credentials.")
+            creds = load_creds_from_env()
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 # to google:

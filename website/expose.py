@@ -110,27 +110,33 @@ async def post_stats_task(bot, base_logger=None):
     """Background task to post stats to a configured URL."""
     await bot.wait_until_ready()
     
-    # Determine the target URL based on environment
-    # Default local URL
-    target_url = "http://localhost:8000/api/bot/status"
-    
-    # Check for Railway environment
-    if os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_STATIC_URL"):
-        prod_url = os.getenv("PROD_STATUS_URL")
-        # If the user supplied a specific URL, use it
-        if prod_url:
-            target_url = prod_url
-        else:
-            # Fallback or warning if production URL is expected but not found
-            msg = "Running in Railway but PROD_STATUS_URL not set. Stats posting might fail or go to default."
-            if base_logger:
-                base_logger.warning(msg)
-            else:
-                print(msg)
-            target_url = None
+    target_url = os.getenv("PROD_STATUS_URL") or "http://localhost:8000/api/bot/status"
 
-    if not target_url:
-        return
+    if base_logger:
+        base_logger.info(f"Starting stats poster task targeting: {target_url}")
+    else:
+        print(f"Starting stats poster task targeting: {target_url}")
+    
+    async with aiohttp.ClientSession() as session:
+        while not bot.is_closed():
+            try:
+                stats = await get_bot_stats(bot)
+                async with session.post(target_url, json=stats) as response:
+                    if response.status not in (200, 201, 204):
+                        err_msg = f"Failed to post stats to {target_url}: {response.status}"
+                        if base_logger:
+                            base_logger.warning(err_msg)
+                        else:
+                            print(err_msg)
+            except Exception as e:
+                err_msg = f"Error posting stats: {e}"
+                if base_logger:
+                    base_logger.error(err_msg)
+                else:
+                    print(err_msg)
+            
+            # Wait for 60 seconds before next post
+            await asyncio.sleep(60)
 
     msg = f"Starting stats poster task targeting: {target_url}"
     if base_logger:
