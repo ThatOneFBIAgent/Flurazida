@@ -1,11 +1,10 @@
-# Use an official Python runtime as a parent image
-FROM python:3.12-slim
+# fuck slim im using the full image
+FROM python:3.12
 
 # Install system dependencies
 # ffmpeg is required for music playback (discord.py and yt-dlp)
 # libffi-dev, libnacl-dev, python3-dev are often needed for PyNaCl build if no wheel exists
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  ffmpeg \
   build-essential \
   ca-certificates \
   git \
@@ -19,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libnacl-dev \
   python3-dev \
   && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/lib/*/libzbar.so.0 /usr/lib/*/libzbar.so || true
 
 # Copy the requirements file into the container at /app
 COPY requirements.txt .
