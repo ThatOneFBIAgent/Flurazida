@@ -1,41 +1,49 @@
-# fuck slim im using the full image
-FROM python:3.12
+# Dockerfile - use this for Railway Docker/railpack deployment
+FROM python:3.12-slim
 
-# Install system dependencies
-# ffmpeg is required for music playback (discord.py and yt-dlp)
-# libffi-dev, libnacl-dev, python3-dev are often needed for PyNaCl build if no wheel exists
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  build-essential \
-  ca-certificates \
-  git \
-  gcc \
-  pkg-config \
-  libzbar0 \
-  zbar-tools \
-  libzbar-dev \
-  libjpeg-dev \
-  libffi-dev \
-  libnacl-dev \
-  python3-dev \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get install -y --no-install-recommends libzbar0
-
-RUN ln -s /usr/lib/*/libzbar.so.0 /usr/lib/*/libzbar.so || true
-
-# Copy the requirements file into the container at /app
-COPY requirements.txt .
-
-# Install any needed packages specified in requirements.txt
-RUN pip install --upgrade pip setuptools wheel \
-  && pip install --no-cache-dir -r requirements.txt
-
-# Copy the rest of the application code (yes the entire gp folder)
-COPY . .
-
-# Define environment variable for unbuffered output
+# Do not buffer stdout/stderr (helps with logs)
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 
-# Run the bot
+# Install system deps required by some Python packages (zbar for pyzbar, libs for pillow, ffmpeg for media)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  build-essential \
+  pkg-config \
+  zlib1g-dev \
+  libjpeg-dev \
+  libzbar0 \
+  libzbar-dev \
+  ffmpeg \
+  ca-certificates \
+  git \
+  && rm -rf /var/lib/apt/lists/*
+
+# Set working dir
+WORKDIR /app
+
+# Copy and install Python deps
+COPY requirements.txt /app/requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel \
+  && python -m pip install -r /app/requirements.txt
+
+
+
+# Run as non-root (optional but recommended)
+# create user 'bot'
+RUN useradd --create-home --no-log-init bot || true
+
+# Copy source
+COPY . /app
+
+# Ensure resources folder exists (font, etc.) and is readable
+RUN mkdir -p /app/resources || true
+
+# Allow user to write
+RUN chown -R bot:bot /app
+USER bot
+ENV HOME=/home/bot
+WORKDIR /app
+
+# Run the bot (worker avoids HTTP routing)
+# If you want web process (exposed port) use "web:" in Procfile; Discord bot is typically a worker.
 CMD ["python", "src/main.py"]
