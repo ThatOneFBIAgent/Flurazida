@@ -17,37 +17,6 @@ log = get_logger()
 
 DEBT_FLOOR = -1000  # Minimum allowed balance
 
-class CrashBetModal(ui.Modal, title="Place your bet"):
-    def __init__(self, players_dict, user_id):
-        super().__init__()
-        self.players = players_dict
-        self.user_id = user_id
-        self.bet = ui.TextInput(label="Bet Amount", placeholder="Enter how many coins you want to wager", required=True)
-        self.add_item(self.bet)
-
-    async def on_submit(self, interaction: Interaction):
-        user_id = interaction.user.id
-        balance = await get_balance(user_id)
-        
-        # Check if user already joined
-        if user_id in self.players:
-            return await interaction.response.send_message("❌ You have already placed a bet!", ephemeral=True)
-
-        bet_val = await resolve_bet_input(self.bet.value, user_id)
-        
-        if bet_val is None or bet_val <= 0:
-            log.warningtrace(f"Invalid crash bet by {user_id}: {self.bet.value}")
-            return await interaction.response.send_message("❌ Invalid bet amount!", ephemeral=True)
-
-        if bet_val > balance:
-             log.warningtrace(f"Insufficient funds for crash bet by {user_id}: {bet_val} > {balance}")
-             return await interaction.response.send_message(f"❌ You don't have enough coins! (Balance: {balance})", ephemeral=True)
-
-        await update_balance(user_id, -bet_val)
-        self.players[user_id] = bet_val
-        log.successtrace(f"Crash bet accepted for {user_id}: {bet_val}")
-        await interaction.response.send_message(f"✅ Bet of `{bet_val}` coins accepted!", ephemeral=True)
-
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
         super().__init__(timeout=90)
@@ -168,7 +137,6 @@ class GamblingCommands(app_commands.Group):
     def __init__(self, bot):
         super().__init__(name="gambling", description="Gambling commands")
         self.bot = bot
-        self.active_crash_games = {}
 
     class BlackjackView(ui.View):
         def __init__(self, user_id, bet, deck, player_hand, dealer_hand, embed, message):
@@ -770,7 +738,6 @@ class GamblingCommands(app_commands.Group):
 class GamblingCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.active_crash_games = {}
 
     async def cog_load(self):
         self.bot.tree.add_command(GamblingCommands(self.bot))

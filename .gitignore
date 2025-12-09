@@ -10,5 +10,7 @@ __pycache__/
 token.json
 errors.log
 .*
-website/*
-website
+startbot.bat
+lvlk/*
+lvlk
+src/commands/music.py

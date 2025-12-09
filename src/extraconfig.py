@@ -29,4 +29,4 @@ MAX_JPEG_RECURSIONS = 15  # increase at your own risk, performance-wise more rec
 MAX_JPEG_QUALITY = 4096  # max quality setting for jpegify
 
 # Alpha config
-ALPHA = False
+ALPHA = True

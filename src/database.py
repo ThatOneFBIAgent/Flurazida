@@ -49,10 +49,6 @@ def log_mod_call(func):
         return await func(*args, **kwargs)
     return wrapper
 
-log.database("Economy DB Logging begin")
-log.database("Moderator DB Logging begin")
-
-
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 TOKEN_ENV = "DRIVE_TOKEN_B64"
 CREDENTIALS_ENV = "DRIVE_CREDENTIALS_B64"
@@ -90,8 +86,6 @@ def load_creds_from_env():
         try:
             creds.refresh(Request())
             log.info("Refreshed OAuth access token successfully.")
-            # NOTE: We cannot persist the refreshed token back into Railway env from code.
-            # If you want the updated token saved, you can re-export the new creds.to_json() manually.
         except Exception as e:
             log.warning(f"Failed to refresh token: {e}. Token may be revoked; you'll need to re-run the local helper.")
     return creds
@@ -101,8 +95,12 @@ def build_drive_service():
     try:
         creds = load_creds_local()
     except FileNotFoundError:
-        log.info("token.json not found, falling back to env-based credentials.")
-        creds = load_creds_from_env()
+        try:
+            log.info("token.json not found, falling back to env-based credentials.")
+            creds = load_creds_from_env()
+        except Exception as e:
+            log.error(f"Failed to load credentials: {e}")
+            raise
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 # to google:
@@ -366,6 +364,7 @@ async def init_databases():
         )
         """)
         await conn.commit()
+        log.database("Economy database initialized successfully")
     
         # Initialize moderator database with single cases table
         mod_conn = await db.get_moderator()
@@ -391,6 +390,7 @@ async def init_databases():
         CREATE INDEX IF NOT EXISTS idx_cases_guild_id ON cases(guild_id)
         """)
         await mod_conn.commit()
+        log.database("Moderator database initialized successfully")
     
         log.success("Databases initialized successfully")
     except Exception as e:
@@ -751,6 +751,7 @@ async def periodic_backup(interval_hours=1):
         await asyncio.sleep(interval_hours * 3600)
 
 # Register a global uncaught-exception hook to make sure fatal crashes are logged with traceback
+# dont ask why this is in database.py and not main.py i'm too lazy to move it fuck you
 
 def _log_unhandled_exception(exc_type, exc_value, exc_tb):
     # Let KeyboardInterrupt behave normally

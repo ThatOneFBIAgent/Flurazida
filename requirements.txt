@@ -11,15 +11,12 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib   # optional, only if you use user OAuth flows
 pillow
-imageio
+imageio-ffmpeg
 qrcode[pil]
 pyzbar
-matplotlib
-moviepy
-imageio-ffmpeg
-ffmpeg-python
 yt-dlp
-wavelink
+mafic
+
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client

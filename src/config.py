@@ -38,15 +38,13 @@ if IS_ALPHA:
 else:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+LAVALINK_HOST = os.getenv("LAVALINK_HOST", "localhost")
+LAVALINK_PORT = os.getenv("LAVALINK_PORT", 2333)
+LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD", "youshallnotpass")
 
-# look at the dumma code in main.py for the rest of the config
-# This file is used to store configuration settings for the bot.
-# it does not mean you'll get my bot's token, i'm not that dumb
-# and you shouldn't be either.
-
-# Do not host config.py with raw bot token on your repository, instead use environment variables or a secure vault, or just host it on your pc.
-# This will require dotenv (already set in requirements), otherwise you risk sharing your bot token with third parties and discord ressetting the token.
-
+# This file's purpose is to store basic configuration (see extraconfig.py for more) and the cooldown decorator.
+# Do not, and i implore, do not commit your discord bot token to a public or even private repository i would argue.
+# Discord WILL reset your token if they find it online, or people use it maliciously.
 # still doesn't stop me from putting code here.
 
 log = get_logger()
@@ -71,7 +69,7 @@ _user_command_cooldowns = {}
 _command_failures = {}
 
 # reason we use equals to all three is so even if we forget one it still works with defaults, although that "none" error is annoying
-def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
+def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
     """
     Adds cooldown, timeout, and failure tracking to a command.
     When a user repeatedly fails a command, the owner gets a DM with logs.
@@ -79,6 +77,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
     - cl: cooldown in seconds between uses per user (0 = no cooldown)
     - tm: timeout in seconds for command execution (None = no timeout)
     - ft: failure threshold before alerting owner/user (3 = default)
+    - nw: check if command is nsfw (default: False)
     """
     def decorator(func):
         @wraps(func)
@@ -108,6 +107,14 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3):
             _user_command_cooldowns[key] = now
 
             # --- main run + timeout ---
+            if nw:
+                if interaction.channel.type == discord.ChannelType.text and interaction.channel.is_nsfw():
+                    await interaction.response.send_message(
+                        "🔞 This command is not allowed in non-NSFW channels.",
+                        ephemeral=True,
+                    )
+                    return
+
             try:
                 if tm:
                     result = await asyncio.wait_for(func(*args, **kwargs), timeout=tm)

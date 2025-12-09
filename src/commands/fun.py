@@ -28,7 +28,7 @@ from discord import app_commands, Interaction, Embed
 # Local Imports
 import CloudflarePing as cf
 import config
-from config import BOT_TOKEN, cooldown, IS_ALPHA
+from config import cooldown, IS_ALPHA
 from extraconfig import BOT_OWNER
 from logger import get_logger
 from utils.roll_logic import execute_roll
@@ -1108,6 +1108,81 @@ class FunCommands(app_commands.Group):
 
         log.successtrace(f"Height conversion successful for {interaction.user.id}")
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name='activity', description='Get a random activity')
+    @cooldown(cl=10, tm=30.0, ft=3)
+    async def bored(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        log.trace(f'Bored invoked by {interaction.user.id}')
+
+        try:
+            session = self.bot.http_session
+            if not session:
+                return await interaction.followup.send('❌ HTTP session not available.', ephemeral=True)
+
+            url = 'https://bored-api.appbrewery.com/random'
+            resp = await session.get(url, timeout=10)
+            data = await resp.json()
+
+            if data.get('error'):
+                return await interaction.followup.send('❌ Failed to retrieve activity data.', ephemeral=True)
+
+            activity = data.get('activity')
+            type_ = data.get('type')
+            participants = data.get('participants')
+            price = data.get('price')
+            accessibility = data.get('accessibility')
+            availability = data.get('availability')
+            key = data.get('key')
+
+            # Price emoji
+            if price <= 0.1:
+                price_emoji = '💸'
+            elif price <= 0.3:
+                price_emoji = '🪙'
+            elif price <= 0.6:
+                price_emoji = '💵'
+            else:
+                price_emoji = '🤑'
+
+            # Availability emoji
+            if availability >= 0.3:
+                av_emoji = '❗'
+            elif availability >= 0.6:
+                av_emoji = '✨'
+            else:
+                av_emoji = '♾️'
+
+            # Accessibility emoji
+            acc_map = {
+                'Few to no challenges': '🧘',
+                'Minor challenges': '🧩',
+                'Significant challenges': '🧗'
+            }
+            acc_emoji = acc_map.get(accessibility, '❓')
+
+            # Participants emoji
+            if participants == 1:
+                part_emoji = '👤'
+            elif participants == 2:
+                part_emoji = '👥'
+            else:
+                part_emoji = '🧑‍🤝‍🧑'
+
+            embed = Embed(title='Activity', color=0x33CC33)
+            embed.add_field(name='Activity', value=f'{activity}', inline=False)
+            embed.add_field(name='Type', value=f'{type_}', inline=False)
+            embed.add_field(name='Participants', value=f'{part_emoji} {participants}', inline=True)
+            embed.add_field(name='Price', value=f'{price_emoji} {price}', inline=True)
+            embed.add_field(name='Availability', value=f'{av_emoji} {availability}', inline=True)
+            embed.add_field(name='Accessibility', value=f'{acc_emoji} {accessibility}', inline=False)
+            embed.set_footer(text=f'bored-api.appbrewery.com | Key: {key}')
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            log.error(f'Bored error: {e}')
+            return await interaction.followup.send(f'❌ No activity today folks! Reason: {e}', ephemeral=True)
 
 class FunCog(commands.Cog):
     def __init__(self, bot):

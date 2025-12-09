@@ -18,7 +18,6 @@ from typing import Dict, Optional, Tuple, List, Literal
 # Third-Party Imports
 import aiohttp
 import discord
-import imageio
 import numpy as np
 import qrcode
 from PIL import (

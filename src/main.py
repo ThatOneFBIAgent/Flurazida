@@ -24,6 +24,9 @@ from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 from discord.ext import commands
 
+os.environ["MAFIC_LIBRARY"] = "discord.py"
+import mafic
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -77,7 +80,7 @@ test_server = TEST_SERVER
 
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
-        super().__init__(command_prefix="!", shard_count=2, intents=intents, *args, **kwargs)
+        super().__init__(command_prefix="!", shard_count=2, intents=intents, max_messages=100, *args, **kwargs)
         self.user_id = bot_owner
         self._ready_once = asyncio.Event()
         self._activity_sync_lock = asyncio.Lock()
@@ -178,10 +181,23 @@ async def on_ready():
         log.event(f"Bot is online as {bot.user} (ID: {bot.user.id})")
         log.event(f"Connected to {len(bot.guilds)} guilds across {total_shards} shard(s).")
         log.event(f"Serving approximately {sum(g.member_count for g in bot.guilds)} users.")
+
+        # Connect to Lavalink
+        try:
+            await mafic.NodePool(bot).create_node(
+                host=config.LAVALINK_HOST,
+                port=config.LAVALINK_PORT,
+                label="main",
+                password=config.LAVALINK_PASSWORD,
+            )
+            log.success("Connected to Lavalink node.")
+        except Exception as e:
+            log.critical(f"Failed to connect to Lavalink node: {e}")
+
         bot._ready_once.set()
     else:
         # Shard resumed event — bot reconnected
-        log.info(f"[Shard {bot.shard_id or '?'}] resumed session.")
+        log.info(f"[Shard {bot.shard_id or '?'}] resumed session in {time.time() - bot.start_time:.2f} seconds.")
 
 @bot.event
 async def on_shard_connect(shard_id):
