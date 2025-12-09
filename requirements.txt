@@ -16,7 +16,7 @@ qrcode[pil]
 pyzbar
 yt-dlp
 mafic
-
+numpy
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
