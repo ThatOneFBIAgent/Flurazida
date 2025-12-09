@@ -96,11 +96,14 @@ class Main(commands.AutoShardedBot):
         cf.ensure_started(session=self.http_session)
 
         # Start the web server
-        try:
-            await start_web_server(self)
-            log.success("Web server started")
-        except Exception as e:
-            log.error(f"Failed to start web server: {e}")
+        if extraconfig.WEBSITE_ENABLED:
+            try:
+                await start_web_server(self)
+                log.success("Web server started")
+            except Exception as e:
+                log.error(f"Failed to start web server: {e}")
+        else:
+            log.info("Website disabled, skipping web server startup")
         
         commands_dir = os.path.join(os.path.dirname(__file__), "commands")
         failed = []

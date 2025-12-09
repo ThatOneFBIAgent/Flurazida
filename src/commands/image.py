@@ -26,7 +26,12 @@ from PIL import (
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import View, Button
-from pyzbar.pyzbar import decode  # type: ignore # We ignore due to the complications of installing pyzbar locally, but this (should) import fine.
+try:
+    from pyzbar.pyzbar import decode
+    ZBAR_AVAILABLE = True
+except ImportError:
+    ZBAR_AVAILABLE = False
+    decode = None  # Prevent NameError if accidentally called
 
 
 # Local Imports
@@ -1364,6 +1369,10 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         # Else, read QR code from image
+        if not ZBAR_AVAILABLE:
+            log.warningtrace(f"QR read attempted by {interaction.user.id} but ZBar is missing")
+            return await interaction.followup.send("❌ QR code scanning is unavailable on this host (missing zbar library). Generation is still available.", ephemeral=True)
+
         data_bytes = await self._resolve_image_bytes(interaction, image, image_url)
         if not data_bytes:
             log.warningtrace(f"QR no data found for {interaction.user.id}")
