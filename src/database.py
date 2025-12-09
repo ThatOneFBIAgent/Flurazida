@@ -95,12 +95,8 @@ def build_drive_service():
     try:
         creds = load_creds_local()
     except FileNotFoundError:
-        try:
-            log.info("token.json not found, falling back to env-based credentials.")
-            creds = load_creds_from_env()
-        except Exception as e:
-            log.error(f"Failed to load credentials: {e}")
-            raise
+        log.info("token.json not found, falling back to env-based credentials.")
+        creds = load_creds_from_env()
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 # to google:

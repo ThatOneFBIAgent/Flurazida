@@ -80,7 +80,7 @@ test_server = TEST_SERVER
 
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
-        super().__init__(command_prefix="!", shard_count=2, intents=intents, max_messages=100, *args, **kwargs)
+        super().__init__(command_prefix="!", shard_count=3, intents=intents, max_messages=100, *args, **kwargs)
         self.user_id = bot_owner
         self._ready_once = asyncio.Event()
         self._activity_sync_lock = asyncio.Lock()
