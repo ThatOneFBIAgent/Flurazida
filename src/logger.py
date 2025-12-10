@@ -12,7 +12,8 @@ EVENT_LEVEL = 15    # Below INFO (20)
 SUCCESSTRACE_LEVEL = 14 # Below EVENT (15)
 WARNINGTRACE_LEVEL = 13 # Below SUCCESSTRACE (14)
 TRACE_LEVEL = 12     # Above DEBUG (10)
-DATABASE_LEVEL = 22
+DATABASE_LEVEL = 19
+NETWORK_LEVEL = 18
 
 logging.EVENT_LEVEL = EVENT_LEVEL
 logging.SUCCESS_LEVEL = SUCCESS_LEVEL
@@ -20,6 +21,7 @@ logging.DATABASE_LEVEL = DATABASE_LEVEL
 logging.TRACE_LEVEL = TRACE_LEVEL
 logging.SUCCESSTRACE_LEVEL = SUCCESSTRACE_LEVEL
 logging.WARNINGTRACE_LEVEL = WARNINGTRACE_LEVEL
+logging.NETWORK_LEVEL = NETWORK_LEVEL
 
 logging.addLevelName(SUCCESS_LEVEL, "SUCCESS")
 logging.addLevelName(TRACE_LEVEL, "TRACE")
@@ -27,23 +29,25 @@ logging.addLevelName(EVENT_LEVEL, "EVENT")
 logging.addLevelName(DATABASE_LEVEL, "DATABASE")
 logging.addLevelName(SUCCESSTRACE_LEVEL, "S-TRACE")
 logging.addLevelName(WARNINGTRACE_LEVEL, "W-TRACE")
+logging.addLevelName(NETWORK_LEVEL, "NETWORK")
 
 loggingLevel = TRACE_LEVEL if ALPHA else EVENT_LEVEL
 
 # Custom auto-context color formatter
 class ColoredFormatter(logging.Formatter):
     COLORS = {
-        TRACE_LEVEL: "\033[90m",      # gray
-        logging.DEBUG: "\033[90m",     # gray
-        WARNINGTRACE_LEVEL: "\033[33m", # yellow
-        SUCCESSTRACE_LEVEL: "\033[32m", # green
-        logging.INFO: "\033[36m",      # cyan
-        DATABASE_LEVEL: "\033[35m",      # purple
-        EVENT_LEVEL: "\033[96m",      # light blue
-        SUCCESS_LEVEL: "\033[32m",  # green text
-        logging.WARNING: "\033[33m",   # yellow
-        logging.ERROR: "\033[31m",     # red
-        logging.CRITICAL: "\033[41;97m",  # red bg with white text
+        TRACE_LEVEL: "\033[90m",                    # gray
+        logging.DEBUG: "\033[90m",                  # gray
+        WARNINGTRACE_LEVEL: "\033[33m",             # yellow
+        SUCCESSTRACE_LEVEL: "\033[32m",             # green
+        logging.INFO: "\033[36m",                   # cyan
+        DATABASE_LEVEL: "\033[35m",                 # purple
+        EVENT_LEVEL: "\033[96m",                    # light blue
+        NETWORK_LEVEL: "\033[0;38;2;41;28;255;49m", # dark blue
+        SUCCESS_LEVEL: "\033[32m",                  # green text
+        logging.WARNING: "\033[33m",                # yellow
+        logging.ERROR: "\033[31m",                  # red
+        logging.CRITICAL: "\033[41;97m",            # red bg with white text
     } # you CAN have other logs with bgs, but it's only recommended for critical errors since it's eye-catching
     RESET = "\033[0m"
 
@@ -139,6 +143,12 @@ def warningtrace(self, message, *args, **kwargs):
         kwargs.setdefault('stacklevel', 2)
         self._log(WARNINGTRACE_LEVEL, message, args, **kwargs)
 
+def network(self, message, *args, **kwargs):
+    """Log a network message (even more verbose than debug)."""
+    if self.isEnabledFor(NETWORK_LEVEL):
+        kwargs.setdefault('stacklevel', 2)
+        self._log(NETWORK_LEVEL, message, args, **kwargs)
+
 # Attach custom methods to Logger class
 logging.Logger.success = success
 logging.Logger.trace = trace
@@ -146,3 +156,4 @@ logging.Logger.event = event
 logging.Logger.database = database
 logging.Logger.successtrace = successtrace
 logging.Logger.warningtrace = warningtrace
+logging.Logger.network = network

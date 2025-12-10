@@ -85,9 +85,9 @@ def load_creds_from_env():
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            log.info("Refreshed OAuth access token successfully.")
+            log.network("Refreshed OAuth access token successfully.")
         except Exception as e:
-            log.warning(f"Failed to refresh token: {e}. Token may be revoked; you'll need to re-run the local helper.")
+            log.network(f"Failed to refresh token: {e}. Token may be revoked; you'll need to re-run the local helper.")
     return creds
 
 def build_drive_service():

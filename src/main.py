@@ -53,7 +53,8 @@ from database import (
 from logger import get_logger
 
 # Add website to path to import expose
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "website"))
+# TODO: really annoying where in logs this shows as src....website.expose
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "website")) 
 from expose import start_web_server
 
 log = get_logger()
@@ -185,17 +186,20 @@ async def on_ready():
         log.event(f"Connected to {len(bot.guilds)} guilds across {total_shards} shard(s).")
         log.event(f"Serving approximately {sum(g.member_count for g in bot.guilds)} users.")
 
-        # Connect to Lavalink
-        try:
-            await mafic.NodePool(bot).create_node(
-                host=config.LAVALINK_HOST,
-                port=config.LAVALINK_PORT,
-                label="main",
+        # Connect to Lavalink/Mafic if music cog loaded
+        if "music" in bot.extensions:
+            try:
+                await mafic.NodePool(bot).create_node(
+                    host=config.LAVALINK_HOST,
+                    port=config.LAVALINK_PORT,
+                    label="main",
                 password=config.LAVALINK_PASSWORD,
             )
-            log.success("Connected to Lavalink node.")
-        except Exception as e:
-            log.critical(f"Failed to connect to Lavalink node: {e}")
+                log.success("Connected to Lavalink node.")
+            except Exception as e:
+                log.critical(f"Failed to connect to Lavalink node: {e}")
+        else:
+            log.info("Music cog not loaded, skipping Lavalink connection.")
 
         bot._ready_once.set()
     else:
@@ -204,7 +208,7 @@ async def on_ready():
 
 @bot.event
 async def on_shard_connect(shard_id):
-    log.event(f"[Shard {shard_id}] connected successfully.")
+    log.event(f"[Shard {shard_id}] connected successfully in {time.time() - bot.start_time:.2f} seconds.")
 
 @bot.event
 async def on_shard_ready(shard_id):
@@ -217,7 +221,7 @@ async def on_shard_disconnect(shard_id):
 
 @bot.event
 async def on_shard_resumed(shard_id):
-    log.event(f"[Shard {shard_id}] resumed connection cleanly.")
+    log.event(f"[Shard {shard_id}] resumed connection cleanly in {time.time() - bot.start_time:.2f} seconds.")
 
 @bot.event
 async def on_message(message):
@@ -397,7 +401,7 @@ async def graceful_shutdown():
     # Close shared HTTP session
     if bot.http_session and not bot.http_session.closed:
         await bot.http_session.close()
-        log.info("Closed shared HTTP session")
+        log.network("Closed shared HTTP session")
         
     # Close bot connections
     await kill_all_tasks()
@@ -406,6 +410,7 @@ async def graceful_shutdown():
 
     log.info("Shutdown complete.")
     log.info("Flurazide says: Goodbye!")
+    sys.exit(0)
 
     # if discord.py is still not closing shit, throw the interpreter (and everything) into the void
     await asyncio.sleep(10)
@@ -458,8 +463,8 @@ async def main():
             except NotImplementedError:
                 # Windows: loop.add_signal_handler usually isn't implemented for SIGTERM
                 log.warning(f"Cannot register signal handler for {sig!r} on this platform; falling back to default behaviour.")
-            except Exception:
-                log.exception(f"Failed to register signal handler for {sig!r}")
+            except Exception as e:
+                log.exception(f"Failed to register signal handler for {sig!r}: {e}")
 
         bot_task = asyncio.create_task(bot.start(config.BOT_TOKEN))
 
@@ -481,8 +486,8 @@ async def main():
             # Ensure final graceful shutdown (closes http session, backups, bot.close)
             try:
                 await graceful_shutdown()
-            except Exception:
-                log.exception("Error during graceful shutdown")
+            except Exception as e:
+                log.exception(f"Error during graceful shutdown: {e}")
                 sys.exit(1)
 
 # optinally if someone rawdogs main.py
@@ -493,3 +498,7 @@ if __name__ == "__main__":
         # Use log.exception to capture full traceback rather than only the exception string
         log.exception(f"Fatal crash as {e}")
         sys.exit(1)
+else:
+    log.critical("Main.py should be run as the main module.")
+    log.info("Did you forget to set worker?")
+    sys.exit(1)

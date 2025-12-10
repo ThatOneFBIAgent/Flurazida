@@ -148,6 +148,7 @@ async def post_stats_task(bot, base_logger=None):
 
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 log_error(f"Consecutive failures reached {MAX_CONSECUTIVE_FAILURES}. Shutting down stats poster task.")
+                session.close() # this surely wont close every single session right?
                 break # Exit the loop to shut down the task
 
             await asyncio.sleep(60)
