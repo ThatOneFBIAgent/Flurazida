@@ -215,13 +215,18 @@ async def on_shard_ready(shard_id):
     guilds = [g for g in bot.guilds if g.shard_id == shard_id]
     log.event(f"[Shard {shard_id}] ready — handling {len(guilds)} guild(s).")
 
+disconnect_time = {}
 @bot.event
 async def on_shard_disconnect(shard_id):
+    disconnect_time[shard_id] = time.time()
     log.warning(f"[Shard {shard_id}] disconnected — waiting for resume.")
 
 @bot.event
 async def on_shard_resumed(shard_id):
-    log.event(f"[Shard {shard_id}] resumed connection cleanly in {time.time() - bot.start_time:.2f} seconds.")
+    if shard_id in disconnect_time: delta = time.time() - disconnect_time[shard_id] 
+    else: delta = 0
+    log.event(f"[Shard {shard_id}] resumed connection cleanly in {delta:.2f} seconds.")
+    disconnect_time.pop(shard_id, None)
 
 @bot.event
 async def on_message(message):
