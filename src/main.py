@@ -243,23 +243,60 @@ async def on_message(message):
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
-    from discord.app_commands import CommandInvokeError
+    from discord.app_commands import (
+        CommandInvokeError,
+        BotMissingPermissions,
+        MissingPermissions,
+        CheckFailure
+    )
 
-    # Extract the "real" underlying error
     original = error.original if isinstance(error, CommandInvokeError) else error
 
     cmd_name = getattr(interaction.command, "name", "Unknown")
     cmd_group = getattr(interaction.command, "qualified_name", cmd_name)
     user = f"{interaction.user} ({interaction.user.id})"
+    guild = f"{getattr(interaction.guild, 'name', 'DM')} ({getattr(interaction.guild, 'id', 'N/A')})"
 
+    # Handle missing permissions: don't log as 'ERROR' unless you want the pain
+    if isinstance(original, BotMissingPermissions):
+        perms = ", ".join(original.missing_permissions)
+        await _safe_response(interaction, f'I cant do that, im missing: {perms}', True)
+        log.warning(
+            f"Bot missing perms for command {cmd_group} by {user} in {guild}: {perms}"
+        )
+        return
+
+    if isinstance(original, MissingPermissions):
+        perms = ", ".join(original.missing_permissions)
+        await _safe_response(interaction, f'You cant do that, missing: {perms}', True)
+        log.info(
+            f"User missing perms for command {cmd_group} by {user} in {guild}: {perms}"
+        )
+        return
+
+    if isinstance(original, CheckFailure):
+        await _safe_response(interaction, 'You dont meet the requirements for that.', True)
+        log.info(
+            f"Check failed for command {cmd_group} by {user} in {guild}"
+        )
+        return
+
+    # real errors beyond checks
     log.error(
         f"Slash command failed:\n"
         f" • Command: {cmd_group}\n"
         f" • User: {user}\n"
-        f" • Guild: {getattr(interaction.guild, 'name', 'DM')} "
-        f"({getattr(interaction.guild, 'id', 'N/A')})",
+        f" • Guild: {guild}",
         exc_info=original
     )
+
+    await _safe_response(interaction, 'The command imploded spectacularly.', True)
+
+async def _safe_response(interaction, message, ephemeral=False):
+    try:
+        await interaction.response.send_message(message, ephemeral=ephemeral)
+    except discord.InteractionResponded:
+        await interaction.followup.send(message, ephemeral=ephemeral)
 
 # yes i am this petty.
 async def global_blacklist_check(interaction: Interaction) -> bool:
