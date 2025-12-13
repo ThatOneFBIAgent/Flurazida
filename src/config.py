@@ -470,6 +470,6 @@ def get_activity(now_hour):
     rarity = random.choices(rarities, weights=rw, k=1)[0]
 
     # pick activity inside rarity bucket
-    pool = ACTIVITIES[mode][rarity]
+    pool = ACTIVITIES_V2[mode][rarity]
     acts, aw = zip(*[(p['act'], p['w']) for p in pool])
     return random.choices(acts, weights=aw, k=1)[0]
