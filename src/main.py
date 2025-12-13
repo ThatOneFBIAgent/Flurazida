@@ -81,7 +81,9 @@ test_server = TEST_SERVER
 
 # fucking prefixes istg
 def prefix(bot, message):
-    return ['>>', f'<@{bot.user.id}>']
+    if not bot.user:
+        return ['>>']
+    return ['>>', bot.user.mention]
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
         super().__init__(command_prefix=prefix, shard_count=3, intents=intents, max_messages=100, *args, **kwargs)

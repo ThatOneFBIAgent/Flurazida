@@ -96,7 +96,7 @@ def ensure_started(interval: int = CLOUD_FLARE_PING_INTERVAL, session: Optional[
         session: Optional shared HTTP session to use (recommended)
     """
     global _task
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     if _task is None or _task.done():
         _task = loop.create_task(_loop(interval, session))
     return _task
