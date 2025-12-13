@@ -400,7 +400,14 @@ async def init_databases():
 
 @log_db_call
 async def modify_robber_multiplier(user_id, change, duration=None):
-    """Modifies the user's robbery success/failure rate"""
+    """ 
+    Modifies the user's robbery success/failure rate 
+    
+    Args:
+        user_id (int): The user's ID
+        change (int): The amount to add (or subtract if negative) to the user's robbery modifier
+        duration (int): The duration in seconds
+    """
     current_modifier = await get_robbery_modifier(user_id)  # Get current modifier
     new_modifier = max(min(current_modifier + change, 100), -100)  # Cap between -100% and +100%
 
@@ -418,7 +425,15 @@ async def modify_robber_multiplier(user_id, change, duration=None):
 
 @log_db_call
 async def get_robbery_modifier(user_id):
-    """Gets the total robbery modifier for a user (from items)"""
+    """ 
+    Gets the total robbery modifier for a user (from items) 
+    
+    Args:
+        user_id (int): The user's ID
+    
+    Returns:
+        int: The total robbery modifier
+    """
     conn = await db.get_economy()
     async with conn.execute("SELECT SUM(effect_modifier) FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
         result = await cursor.fetchone()
@@ -426,7 +441,14 @@ async def get_robbery_modifier(user_id):
 
 @log_db_call
 async def schedule_effect_decay(user_id, original_value, duration):
-    """Waits for the effect duration to expire and then reverts the modifier"""
+    """ 
+    Waits for the effect duration to expire and then reverts the modifier 
+    
+    Args:
+        user_id (int): The user's ID
+        original_value (int): The original modifier value
+        duration (int): The duration in seconds
+    """
     await asyncio.sleep(duration)  # Wait X seconds
     conn = await db.get_economy()
     await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
@@ -439,7 +461,13 @@ async def schedule_effect_decay(user_id, original_value, duration):
 
 @log_db_call
 async def update_balance(user_id, amount):
-    """Updates user balance, clamped to DEBT_FLOOR and synced to backup."""
+    """ 
+    Updates user balance, clamped to DEBT_FLOOR and synced to backup. 
+    
+    Args:
+        user_id (int): The user's ID
+        amount (int): The amount to add (or subtract if negative) to the user's balance
+    """
     log.trace(f"Updating balance for {user_id}: {amount} coins")
     conn = await db.get_economy()
     await conn.execute("""
@@ -455,7 +483,15 @@ async def update_balance(user_id, amount):
 
 @log_db_call
 async def get_balance(user_id):
-    """ Fetches user balance """
+    """ 
+    Fetches user balance 
+    
+    Args:
+        user_id (int): The user's ID
+    
+    Returns:
+        int: The user's balance
+    """
     log.trace(f"Getting balance for {user_id}")
     conn = await db.get_economy()
     async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:

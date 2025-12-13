@@ -24,9 +24,6 @@ from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 from discord.ext import commands
 
-os.environ["MAFIC_LIBRARY"] = "discord.py"
-import mafic
-
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -39,7 +36,7 @@ from typing import Optional
 # Local Application Imports
 import CloudflarePing as cf
 import config
-from config import IS_ALPHA
+from config import IS_ALPHA, get_activity
 from database import (
     get_expired_cases,
     periodic_backup,
@@ -102,7 +99,7 @@ class Main(commands.AutoShardedBot):
         cf.ensure_started(session=self.http_session)
 
         log.info("Starting background tasks")
-        self.cycle_paired_activities_task = asyncio.create_task(cycle_paired_activities())
+        self.cycle_activities_task = asyncio.create_task(cycle_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
         self.delayed_backup_starter_task = asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
 
@@ -195,21 +192,6 @@ async def on_ready():
         log.event(f"Bot is online as {bot.user} (ID: {bot.user.id})")
         log.event(f"Connected to {len(bot.guilds)} guilds across {total_shards} shard(s).")
         log.event(f"Serving approximately {sum(g.member_count for g in bot.guilds)} users.")
-
-        # Connect to Lavalink/Mafic if music cog loaded
-        if "music" in bot.extensions:
-            try:
-                await mafic.NodePool(bot).create_node(
-                    host=config.LAVALINK_HOST,
-                    port=config.LAVALINK_PORT,
-                    label="main",
-                password=config.LAVALINK_PASSWORD,
-            )
-                log.success("Connected to Lavalink node.")
-            except Exception as e:
-                log.critical(f"Failed to connect to Lavalink node: {e}")
-        else:
-            log.info("Music cog not loaded, skipping Lavalink connection.")
 
         bot._ready_once.set()
     else:
@@ -345,29 +327,13 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
 
     return True
 
-async def cycle_paired_activities():
+async def cycle_activities():
     global last_activity_signature
     await bot.wait_until_ready()
     while not bot.is_closed():
         for _ in range(10):
-            combo_type = random.choice(ALL_ACTIVITY_TYPES if doubles else SINGLE_ACTIVITY_TYPES)
-            status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
-            game = lambda: random.choice([a for a in activities if isinstance(a, discord.Game)])
-            listen = lambda: random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.listening])
-            watch = lambda: random.choice([a for a in activities if isinstance(a, discord.Activity) and a.type == discord.ActivityType.watching])
-
-            activity, combined = None, None
-            if combo_type == "A": activity = game()
-            elif combo_type == "B": activity = listen()
-            elif combo_type == "C": activity = watch()
-            elif combo_type == "A+B": combined = discord.Game(f"{game().name} & listening to {listen().name}")
-            elif combo_type == "A+C": combined = discord.Game(f"{game().name} & watching {watch().name}")
-            elif combo_type == "B+A": combined = discord.Activity(type=discord.ActivityType.listening, name=f"{listen().name} & playing {game().name}")
-            elif combo_type == "B+C": combined = discord.Activity(type=discord.ActivityType.listening, name=f"{listen().name} & watching {watch().name}")
-            elif combo_type == "C+A": combined = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & playing {game().name}")
-            elif combo_type == "C+B": combined = discord.Activity(type=discord.ActivityType.watching, name=f"{watch().name} & listening to {listen().name}")
-
-            act = combined if combined else activity
+            now = time.time()
+            act = get_activity(now)
             sig = (act.name, act.type)
             if sig != last_activity_signature:
                 last_activity_signature = sig

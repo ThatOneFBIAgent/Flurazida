@@ -11,7 +11,28 @@
 - **Item Templates** – Customizable items with clear documentation.
 - **Web Server** – JSON API exposing bot statistics for external dashboards.
 
-## Setup Guide
+## Setup Guide (Basic)
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/ThatOneFBIAgent/Flurazida.git
+```
+
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run the helper
+```bash
+python startbot.py
+```
+Follow the prompts to obtain a `token.json`, encode it in Base64, and add it to your `.env` file as `DRIVE_TOKEN_B64`, for later use do:
+```bash
+python src/main.py
+```
+
+## Setup Guide (Advanced)
 
 ### 1. Clone the repository
 ```bash
@@ -26,7 +47,7 @@ pip install -r requirements.txt
 
 ### 3. (Optional) Configure Google Drive backups
 ```bash
-python tokenhelper.py
+python setuputils/tokenhelper.py
 ```
 Follow the prompts to obtain a `token.json`, encode it in Base64, and add it to your `.env` file as `DRIVE_TOKEN_B64`.
 
@@ -48,7 +69,7 @@ Edit `src/extraconfig.py` to set:
 ```bash
 python src/main.py
 ```
-The bot will start and the web server will listen on the configured `PORT`. Access `http://localhost:5000/stats` to view live metrics.
+The bot will start and the web server (if enabled and configured) will listen on the configured `PORT`. Access `http://localhost:5000/stats` to view live metrics.
 
 ## License
 GNU Affero General Public License v3.0

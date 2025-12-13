@@ -278,6 +278,8 @@ class FunCommands(app_commands.Group):
 
         # Flavorful staged messages
         stages = [
+            "Establishing connection via Mcdonald's wifi",
+            "Verifying captcha by yelling at the screen",
             "Scanning ports (why are there so many open ports?)",
             "Bypassing cookie consent... delicious crumbs detected",
             "Probing social media for embarrassing karaoke clips",
@@ -285,8 +287,12 @@ class FunCommands(app_commands.Group):
             "Injecting tasteful malware (just kidding, it's glitter)",
             "Compiling list of suspiciously common hobbies...",
             "Accessing private folder: `mildly_awkward_memes/`",
+            "Checking clipboard history... oh no...",
             "Uploading hypebeast.exe to cloud (takes a sec)",
-            "Planting digital cactus 🌵 — can't remove remotely, oops"
+            "Downloading more ram...",
+            "Planting digital cactus 🌵 — can't remove remotely, oops",
+            "Consulting stackoverflow...",
+            "Printing final report into the shredder"
         ]
 
         # Randomized leak pool (completely fictional/fake)
@@ -295,16 +301,36 @@ class FunCommands(app_commands.Group):
             f"{target.name.lower()}.{random.randint(10,99)}@mailinator.com",
             f"{target.name[0].lower()}{secrets.token_hex(2)}@nope.invalid"
         ]
-        fake_passwords = ["hunter2", "ilovepizza", "correcthorsebatterystaple", "123456789", "letmeinpls"]
-        fake_ips = [f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
-                    f"172.1{random.randint(6,31)}.{random.randint(0,255)}.{random.randint(0,255)}"]
-        fake_files = ["mildly_awkward_meme.png", "favorite_thanksgiving_dish.txt", "guitar_solo.mid", "shopping_list.xlsx", "super_duper_secret.py"]
+        fake_passwords = [
+            "hunter2", "ilovepizza", "correcthorsebatterystaple", "123456789", "letmeinpls",
+            "password123", "iloveyou", "123456", "qwerty", "password", "admin", "adminlecom",
+            "admin123", "Aa123123"
+        ]
+        fake_ips = [
+            f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}",
+            f"172.1{random.randint(6,31)}.{random.randint(0,255)}.{random.randint(0,255)}"
+        ]
+        fake_files = [
+            "mildly_awkward_meme.png", 
+            "favorite_thanksgiving_dish.txt", 
+            "guitar_solo.mid", 
+            "shopping_list.xlsx", 
+            "super_duper_secret.py",
+            "school_grades.pdf",
+            "mcdonalds_receipt.jpg",
+            "amazon_orders.html",
+            "coffee_recepie.txt",
+            "chatgpt_chats.xlsx",
+            "pc_specs.txt",
+            "theory_of_everything.pdf",
+            "proof_that_i_am_not_a_robot.txt"
+            ]
 
         progress = 0
         bar_len = 20
 
         # chance to "backfire" on the invoker (comedic)
-        backfire = random.random() < 0.06  # 6% chance to backfire
+        backfire = random.random() < 0.03  # 3% chance to backfire
         if backfire:
             final_status = "BACKFIRE"
             final_text = f"💥 Whoops — security flagged your machine! You got pwned instead. Better luck next time, {interaction.user.mention}."
@@ -313,7 +339,7 @@ class FunCommands(app_commands.Group):
             final_text = f"✅ Hack complete! Collected a tasteful pile of totally-fictional evidence on {target.display_name}."
 
         # perform stages with progress updates
-        for i, stage in enumerate(random.sample(stages, k=min(len(stages), 6))):
+        for i, stage in enumerate(random.sample(stages, k=min(len(stages), 15))):
             # jitter progress increments: first steps slow, later steps jump more
             increment = random.randint(6, 20) if i > 2 else random.randint(6, 12)
             progress = min(99, progress + increment)
@@ -342,7 +368,7 @@ class FunCommands(app_commands.Group):
         if backfire:
             embed.description = final_text
             embed.add_field(name="Effect", value="You have been roasted. Console: `¯\\_(ツ)_/¯`", inline=False)
-            embed.add_field(name="Remediation", value="Reboot, unplug, beg for mercy.", inline=False)
+            embed.add_field(name="Remediation", value="Reboot, unplug, *maybe* beg for mercy.", inline=False)
         else:
             embed.add_field(name="Primary Email", value=random.choice(fake_emails), inline=True)
             embed.add_field(name="Favorite Password (leaked)", value=random.choice(fake_passwords), inline=True)
@@ -896,7 +922,7 @@ class FunCommands(app_commands.Group):
         )
 
         embed.add_field(
-            name="🧠 System",
+            name="🧠 Host System",
             value=(
                 f"**CPU:** `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
                 f"**RAM:** `{used_mem:.0f}` / `{total_mem:.0f}` MB\n"
@@ -1110,7 +1136,7 @@ class FunCommands(app_commands.Group):
         await interaction.followup.send(embed=embed)
 
     @app_commands.command(name='activity', description='Get a random activity')
-    @cooldown(cl=10, tm=30.0, ft=3)
+    @cooldown(cl=30, tm=30.0, ft=3)
     async def bored(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         log.trace(f'Bored invoked by {interaction.user.id}')
@@ -1125,6 +1151,13 @@ class FunCommands(app_commands.Group):
             data = await resp.json()
 
             if data.get('error'):
+                return await interaction.followup.send('❌ Failed to retrieve activity data.', ephemeral=True)
+            
+            http_status = resp.status
+            if http_status == 429:
+                return await interaction.followup.send('❌ Slow down! You are making too many requests.', ephemeral=True)
+            
+            if http_status != 200:
                 return await interaction.followup.send('❌ Failed to retrieve activity data.', ephemeral=True)
 
             activity = data.get('activity')

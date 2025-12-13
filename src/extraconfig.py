@@ -33,6 +33,3 @@ ALPHA = False
 
 # Website config
 WEBSITE_ENABLED = False
-
-# mafic
-ENABLE_MAFIC = False

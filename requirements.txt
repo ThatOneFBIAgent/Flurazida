@@ -1,26 +1,21 @@
 discord.py
 aiohttp
 psutil
-PyNaCl        # optional, required for voice features
 python-dotenv
-PyDrive2      # or pydrive2
 ping3
 google-api-python-client
 packaging
 google-auth
 google-auth-httplib2
-google-auth-oauthlib   # optional, only if you use user OAuth flows
+google-auth-oauthlib
 pillow
 imageio-ffmpeg
 qrcode[pil]
 pyzbar
-yt-dlp
-mafic
 numpy
+aiosqlite
 
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
 # aiomysql                  # async client
 
-# Optional utilities
-aiosqlite                 # async sqlite usage
