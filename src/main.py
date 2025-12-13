@@ -79,9 +79,12 @@ from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USER
 bot_owner = BOT_OWNER
 test_server = TEST_SERVER
 
+# fucking prefixes istg
+def prefix(bot, message):
+    return ['>>', f'<@{bot.user.id}>']
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
-        super().__init__(command_prefix="!", shard_count=3, intents=intents, max_messages=100, *args, **kwargs)
+        super().__init__(command_prefix=prefix, shard_count=3, intents=intents, max_messages=100, *args, **kwargs)
         self.user_id = bot_owner
         self._ready_once = asyncio.Event()
         self._activity_sync_lock = asyncio.Lock()
@@ -95,6 +98,10 @@ class Main(commands.AutoShardedBot):
         
         # Start Cloudflare ping loop with shared session
         cf.ensure_started(session=self.http_session)
+
+        self.cycle_paired_activities_task = asyncio.create_task(cycle_paired_activities())
+        self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
+        self.delayed_backup_starter_task = asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
 
         # Start the web server
         if WEBSITE_ENABLED:
@@ -492,9 +499,6 @@ async def main():
         log.info(f"Periodic backup started after {delay_hours}h delay.")
 
     async with bot:
-        asyncio.create_task(cycle_paired_activities())
-        asyncio.create_task(moderation_expiry_task())
-        asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
         bot.tree.interaction_check = global_blacklist_check
 
         shutdown_signal = asyncio.get_event_loop().create_future()
@@ -534,14 +538,14 @@ async def main():
             try:
                 await graceful_shutdown()
             except Exception as e:
-                log.exception(f"Error during graceful shutdown: {e}")
+                log.exception(f"Error during graceful shutdown: {e}", exc_info=True)
                 sys.exit(1)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        log.critical(f"Fatal crash as {e}")
+        log.critical(f"Fatal crash as {e}", exc_info=True)
         sys.exit(1)
 else:
     log.critical("Main.py should be run as the main module.")
