@@ -101,6 +101,7 @@ class Main(commands.AutoShardedBot):
         # Start Cloudflare ping loop with shared session
         cf.ensure_started(session=self.http_session)
 
+        log.info("Starting background tasks")
         self.cycle_paired_activities_task = asyncio.create_task(cycle_paired_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
         self.delayed_backup_starter_task = asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
@@ -471,8 +472,16 @@ async def graceful_shutdown():
     # if discord.py is still not closing shit, throw the interpreter (and everything) into the void
     await asyncio.sleep(10)
     os._exit(0)
-    
-    
+
+BACKUP_DELAY_HOURS = 1
+async def delayed_backup_starter(delay_hours):
+    if IS_ALPHA:
+        log.warning("Skipping backup as this is an alpha version.")
+        return
+    await bot.wait_until_ready()
+    await asyncio.sleep(delay_hours * 3600)
+    asyncio.create_task(periodic_backup(delay_hours))
+    log.info(f"Periodic backup started after {delay_hours}h delay.")
 
 async def main():
     # Attempt restore and surface any problem (was being called silently)
@@ -490,15 +499,6 @@ async def main():
 
     # Initialize database tables
     await init_databases()
-    BACKUP_DELAY_HOURS = 1
-    async def delayed_backup_starter(delay_hours):
-        if IS_ALPHA:
-            log.warning("Skipping backup as this is an alpha version.")
-            return
-        await bot.wait_until_ready()
-        await asyncio.sleep(delay_hours * 3600)
-        asyncio.create_task(periodic_backup(delay_hours))
-        log.info(f"Periodic backup started after {delay_hours}h delay.")
 
     async with bot:
         bot.tree.interaction_check = global_blacklist_check
