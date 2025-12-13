@@ -339,18 +339,13 @@ class FunCommands(app_commands.Group):
             final_text = f"✅ Hack complete! Collected a tasteful pile of totally-fictional evidence on {target.display_name}."
 
         # perform stages with progress updates
-        for i, stage in enumerate(random.sample(stages, k=min(len(stages), 15))):
-            # jitter progress increments: first steps slow, later steps jump more
-            increment = random.randint(6, 20) if i > 2 else random.randint(6, 12)
-            progress = min(99, progress + increment)
+        total = min(len(stages), 15)
+        for i, stage in enumerate(random.sample(stages, k=total)):
+            progress = int(((i + 1) / total) * 95)
             blocks = "█" * (progress * bar_len // 100)
             spaces = "░" * (bar_len - len(blocks))
             content = f"💻 Hacking **{target.display_name}**...\n`[{blocks}{spaces}] {progress}%`\n🔧 {stage}"
-            try:
-                await msg.edit(content=content)
-            except Exception:
-                # some clients don't allow edit in this context; ignore
-                pass
+            await msg.edit(content=content)
             await asyncio.sleep(random.uniform(0.9, 1.6))
 
         # final flash to 100
@@ -373,7 +368,7 @@ class FunCommands(app_commands.Group):
             embed.add_field(name="Primary Email", value=random.choice(fake_emails), inline=True)
             embed.add_field(name="Favorite Password (leaked)", value=random.choice(fake_passwords), inline=True)
             embed.add_field(name="Last Known IP", value=random.choice(fake_ips), inline=True)
-            embed.add_field(name="Top Secret Files", value=", ".join(random.sample(fake_files, 2)), inline=False)
+            embed.add_field(name="Top Secret Files", value=", ".join(random.sample(fake_files, (random.randint(1, 5)))), inline=False)
             embed.add_field(name="Note", value="All results are fabricated for entertainment. No personal data was accessed.", inline=False)
             embed.set_footer(text=final_text)
 
