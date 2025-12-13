@@ -82,6 +82,14 @@ def roll_die(sides: int, rng: random.Random) -> int:
 def resolve_explosions_for_die(first_roll: int, sides: int, explode_flag: str, rng: random.Random, max_depth: int = 100) -> Tuple[int, List[int], List[int]]:
     """
     Returns (value_contrib, chain_list, raw_chain)
+    Args:
+        first_roll (int): The first roll
+        sides (int): The number of sides on the die
+        explode_flag (str): The explode flag
+        rng (random.Random): The random number generator
+        max_depth (int): The maximum depth of explosions
+    Returns:
+        Tuple[int, List[int], List[int]]: The value contribution, chain list, and raw chain
     - chain_list: the values that will be shown/added (penetrating subtracts 1 on extras)
     - raw_chain: raw face values used to test for further explosions (used only internally)
     """

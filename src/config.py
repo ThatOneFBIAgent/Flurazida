@@ -8,12 +8,13 @@ import inspect
 import logging
 import os
 import time
+import random
 from functools import wraps
 from typing import Callable, Optional
 
 # Third-Party Imports
 import discord
-from discord import File, Interaction
+from discord import File, Interaction, Game, Activity, ActivityType
 from dotenv import load_dotenv
 
 # Ensure we import get_logger used below
@@ -73,7 +74,8 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
     """
     Adds cooldown, timeout, and failure tracking to a command.
     When a user repeatedly fails a command, the owner gets a DM with logs.
-    Parameters:
+    NSFW commands will be blocked if they are not in an NSFW channel.
+    Args:
     - cl: cooldown in seconds between uses per user (0 = no cooldown)
     - tm: timeout in seconds for command execution (None = no timeout)
     - ft: failure threshold before alerting owner/user (3 = default)
@@ -355,3 +357,118 @@ ACTIVITIES = [
 # remove or add as you see fit, but probably keep it above 20 to avoid repetition
 # also you can ask chatgpt for more ideas or a change of theme
 # have fun!
+
+# 12/12/2025: hear me out, randomized activites based on the time of the day AND rarity!!!!
+# fuck yeah lemme whip this bitch
+# this'll be implemented later
+
+ACTIVITIES_V2 = {
+    'DAY_COMMON': [
+        {'act': Game("with equations"), 'w': 10},
+        {'act': Game("with solutions"), 'w': 9},
+        {'act': Game("with molecules"), 'w': 9},
+        {'act': Game("with noble gases"), 'w': 7},
+        {'act': Game("hide and seek with electrons"), 'w': 6},
+        {'act': Game("periodic table scavenger hunt"), 'w': 6},
+        {'act': Game("pH meter challenge"), 'w': 6},
+        {'act': Activity(type=ActivityType.listening, name="chemistry facts"), 'w': 8},
+        {'act': Activity(type=ActivityType.listening, name="stoichiometry lectures"), 'w': 7},
+        {'act': Activity(type=ActivityType.watching, name="chemical reactions"), 'w': 9},
+        {'act': Activity(type=ActivityType.watching, name="crystals grow"), 'w': 7},
+        {'act': Activity(type=ActivityType.watching, name="atoms collide"), 'w': 7},
+    ],
+
+    'DAY_UNCOMMON': [
+        {'act': Game("finding Avogadro's number"), 'w': 5},
+        {'act': Game("with unstable isotopes"), 'w': 4},
+        {'act': Game("reaction kinetics"), 'w': 5},
+        {'act': Game("aligning electron orbitals"), 'w': 4},
+        {'act': Game("titrating weak acids like a pro"), 'w': 4},
+        {'act': Game("predicting UV-Vis peaks"), 'w': 4},
+        {'act': Activity(type=ActivityType.listening, name="bubbling beakers"), 'w': 5},
+        {'act': Activity(type=ActivityType.listening, name="periodic table diss tracks"), 'w': 3},
+        {'act': Activity(type=ActivityType.watching, name="Brownian motion chaos"), 'w': 4},
+        {'act': Activity(type=ActivityType.watching, name="hydrogen bonding in slow motion"), 'w': 4},
+    ],
+
+    'DAY_RARE': [
+        {'act': Game("with forbidden compounds"), 'w': 2},
+        {'act': Game("quantum tunneling hide-and-seek"), 'w': 2},
+        {'act': Game("constructing molecular orbital diagrams"), 'w': 2},
+        {'act': Game("solving Schrödinger's equation for fun"), 'w': 2},
+        {'act': Activity(type=ActivityType.listening, name="neutrino whispers"), 'w': 2},
+        {'act': Activity(type=ActivityType.listening, name="Pauli principle sermons"), 'w': 1},
+        {'act': Activity(type=ActivityType.watching, name="aromaticity collapse"), 'w': 1},
+        {'act': Activity(type=ActivityType.watching, name="transition state lifetimes"), 'w': 2},
+    ],
+
+    'NIGHT_COMMON': [
+        {'act': Game("in the lab... unsupervised"), 'w': 10},
+        {'act': Game("experiment roulette"), 'w': 9},
+        {'act': Game("atomic tag"), 'w': 8},
+        {'act': Activity(type=ActivityType.listening, name="a centrifuge"), 'w': 7},
+        {'act': Activity(type=ActivityType.listening, name="laser hums"), 'w': 6},
+        {'act': Activity(type=ActivityType.watching, name="users ignore lab safety"), 'w': 9},
+        {'act': Activity(type=ActivityType.watching, name="ionic drama unfold"), 'w': 7},
+        {'act': Game("crystal hunting"), 'w': 6},
+    ],
+
+    'NIGHT_UNCOMMON': [
+        {'act': Game("acid roulette"), 'w': 4},
+        {'act': Game("with questionable solvents"), 'w': 4},
+        {'act': Game("with radioactive decay"), 'w': 3},
+        {'act': Game("isolating carbocations safely"), 'w': 3},
+        {'act': Game("assembling a Grignard reagent"), 'w': 2},
+        {'act': Game("attempting a Williamson ether synthesis"), 'w': 2},
+        {'act': Activity(type=ActivityType.listening, name="radioactive decay beats"), 'w': 2},
+        {'act': Activity(type=ActivityType.listening, name="a lab explosion"), 'w': 3},
+        {'act': Activity(type=ActivityType.watching, name="the lab explode"), 'w': 3},
+        {'act': Activity(type=ActivityType.watching, name="ionic liquids misbehave"), 'w': 2},
+    ],
+
+    'NIGHT_RARE': [
+        {'act': Game("Factorio: Meth Lab DLC"), 'w': 1},
+        {'act': Game("Breaking Bad (educational edition)"), 'w': 1},
+        {'act': Game("with superacids"), 'w': 1},
+        {'act': Game("DFT simulations for giggles"), 'w': 1},
+        {'act': Game("playing with organometallic catalysts"), 'w': 1},
+        {'act': Activity(type=ActivityType.listening, name="a chemical spill"), 'w': 1},
+        {'act': Activity(type=ActivityType.watching, name="the lab spontaneously combust"), 'w': 1},
+        {'act': Activity(type=ActivityType.watching, name="moles commit tax fraud"), 'w': 1},
+        {'act': Activity(type=ActivityType.watching, name="quantum particles behave oddly"), 'w': 1},
+    ],
+}
+
+DAY_BUCKET_WEIGHTS = {
+    'COMMON': 30,
+    'UNCOMMON': 15,
+    'RARE': 5,
+}
+
+NIGHT_BUCKET_WEIGHTS = {
+    'COMMON': 40,
+    'UNCOMMON': 7,
+    'RARE': 3,
+}
+
+def get_activity(now_hour):
+    """
+    Returns a random activity based on the time of day and rarity
+    Args:
+        now_hour (int): The current hour of the day
+    Returns:
+        discord.Activity: A random activity based on the time of day and rarity
+    """
+    is_day = 7 <= now_hour <= 22
+
+    mode = 'DAY' if is_day else 'NIGHT'
+    bucket_weights = DAY_BUCKET_WEIGHTS if is_day else NIGHT_BUCKET_WEIGHTS
+
+    # pick rarity
+    rarities, rw = zip(*bucket_weights.items())
+    rarity = random.choices(rarities, weights=rw, k=1)[0]
+
+    # pick activity inside rarity bucket
+    pool = ACTIVITIES[mode][rarity]
+    acts, aw = zip(*[(p['act'], p['w']) for p in pool])
+    return random.choices(acts, weights=aw, k=1)[0]

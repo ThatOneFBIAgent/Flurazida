@@ -233,7 +233,12 @@ async def on_message(message):
     if message.author.bot:
         return
     bot_name = str(bot.user.name).lower()
-    if bot_name in message.content.lower():
+    content = message.content.lower()
+
+    mentioned_by_name = bot_name in content.split()
+    mentioned_directly = bot.user in message.mentions
+    
+    if mentioned_by_name or mentioned_directly:
         for emoji in ["🧪"]:
             try:
                 await message.add_reaction(emoji)
@@ -260,7 +265,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
     # Handle missing permissions: don't log as 'ERROR' unless you want the pain
     if isinstance(original, BotMissingPermissions):
         perms = ", ".join(original.missing_permissions)
-        await _safe_response(interaction, f'I cant do that, im missing: {perms}', True)
+        await _safe_response(interaction, f'❌ I cant do that, im missing: {perms}', True)
         log.warning(
             f"Bot missing perms for command {cmd_group} by {user} in {guild}: {perms}"
         )
@@ -268,14 +273,14 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
 
     if isinstance(original, MissingPermissions):
         perms = ", ".join(original.missing_permissions)
-        await _safe_response(interaction, f'You cant do that, missing: {perms}', True)
+        await _safe_response(interaction, f'❌ You cant do that, missing: {perms}', True)
         log.info(
             f"User missing perms for command {cmd_group} by {user} in {guild}: {perms}"
         )
         return
 
     if isinstance(original, CheckFailure):
-        await _safe_response(interaction, 'You dont meet the requirements for that.', True)
+        await _safe_response(interaction, '❌ You dont meet the requirements for that.', True)
         log.info(
             f"Check failed for command {cmd_group} by {user} in {guild}"
         )
@@ -290,7 +295,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
         exc_info=original
     )
 
-    await _safe_response(interaction, 'The command imploded spectacularly.', True)
+    await _safe_response(interaction, f'💥 The command imploded spectacularly, call Stephen Hawking. \n\n Err: {original}', True)
 
 async def _safe_response(interaction, message, ephemeral=False):
     try:
@@ -532,13 +537,11 @@ async def main():
                 log.exception(f"Error during graceful shutdown: {e}")
                 sys.exit(1)
 
-# optinally if someone rawdogs main.py
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        # Use log.exception to capture full traceback rather than only the exception string
-        log.exception(f"Fatal crash as {e}")
+        log.critical(f"Fatal crash as {e}")
         sys.exit(1)
 else:
     log.critical("Main.py should be run as the main module.")
