@@ -331,16 +331,23 @@ async def cycle_activities():
     global last_activity_signature
     await bot.wait_until_ready()
     while not bot.is_closed():
-        for _ in range(10):
-            now = time.time()
-            act = get_activity(now)
+        try:
+            now_hour = time.localtime().tm_hour
+            act = get_activity(now_hour)
             sig = (act.name, act.type)
+
             if sig != last_activity_signature:
                 last_activity_signature = sig
+                status = random.choice([discord.Status.online, discord.Status.idle, discord.Status.dnd])
                 await bot.change_activity_all(activity=act, status=status)
                 log.event(f"Changed presence to: {act.name} ({act.type})")
-                break
-        await asyncio.sleep(900)
+            else:
+                log.debug(f"Activity signature unchanged: {act.name} ({act.type})")
+
+            await asyncio.sleep(900)  # Sleep for 15 minutes before checking again
+        except Exception as e:
+            log.error(f"Error in cycle_activities: {e}", exc_info=True)
+            await asyncio.sleep(60) # Short sleep on error to prevent busy-looping
 
 async def moderation_expiry_task():
     await bot.wait_until_ready()

@@ -452,15 +452,15 @@ NIGHT_BUCKET_WEIGHTS = {
     'RARE': 3,
 }
 
-def get_activity(now_hour):
+def get_activity(hour: int):
     """
     Returns a random activity based on the time of day and rarity
     Args:
-        now_hour (int): The current hour of the day
+        hour (int): The current hour of the day
     Returns:
         discord.Activity: A random activity based on the time of day and rarity
     """
-    is_day = 7 <= now_hour <= 22
+    is_day = 7 <= hour <= 22
 
     mode = 'DAY' if is_day else 'NIGHT'
     bucket_weights = DAY_BUCKET_WEIGHTS if is_day else NIGHT_BUCKET_WEIGHTS
