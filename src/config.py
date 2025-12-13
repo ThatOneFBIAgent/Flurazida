@@ -363,7 +363,8 @@ ACTIVITIES = [
 # this'll be implemented later
 
 ACTIVITIES_V2 = {
-    'DAY_COMMON': [
+    'DAY': {
+    'COMMON': [
         {'act': Game("with equations"), 'w': 10},
         {'act': Game("with solutions"), 'w': 9},
         {'act': Game("with molecules"), 'w': 9},
@@ -379,7 +380,7 @@ ACTIVITIES_V2 = {
         {'act': Activity(type=ActivityType.watching, name="atoms collide"), 'w': 7},
     ],
 
-    'DAY_UNCOMMON': [
+    'UNCOMMON': [
         {'act': Game("finding Avogadro's number"), 'w': 5},
         {'act': Game("with unstable isotopes"), 'w': 4},
         {'act': Game("reaction kinetics"), 'w': 5},
@@ -392,7 +393,7 @@ ACTIVITIES_V2 = {
         {'act': Activity(type=ActivityType.watching, name="hydrogen bonding in slow motion"), 'w': 4},
     ],
 
-    'DAY_RARE': [
+    'RARE': [
         {'act': Game("with forbidden compounds"), 'w': 2},
         {'act': Game("quantum tunneling hide-and-seek"), 'w': 2},
         {'act': Game("constructing molecular orbital diagrams"), 'w': 2},
@@ -402,8 +403,9 @@ ACTIVITIES_V2 = {
         {'act': Activity(type=ActivityType.watching, name="aromaticity collapse"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="transition state lifetimes"), 'w': 2},
     ],
-
-    'NIGHT_COMMON': [
+    },
+    'NIGHT': {
+    'COMMON': [
         {'act': Game("in the lab... unsupervised"), 'w': 10},
         {'act': Game("experiment roulette"), 'w': 9},
         {'act': Game("atomic tag"), 'w': 8},
@@ -414,7 +416,7 @@ ACTIVITIES_V2 = {
         {'act': Game("crystal hunting"), 'w': 6},
     ],
 
-    'NIGHT_UNCOMMON': [
+    'UNCOMMON': [
         {'act': Game("acid roulette"), 'w': 4},
         {'act': Game("with questionable solvents"), 'w': 4},
         {'act': Game("with radioactive decay"), 'w': 3},
@@ -427,7 +429,7 @@ ACTIVITIES_V2 = {
         {'act': Activity(type=ActivityType.watching, name="ionic liquids misbehave"), 'w': 2},
     ],
 
-    'NIGHT_RARE': [
+    'RARE': [
         {'act': Game("Factorio: Meth Lab DLC"), 'w': 1},
         {'act': Game("Breaking Bad (educational edition)"), 'w': 1},
         {'act': Game("with superacids"), 'w': 1},
@@ -438,6 +440,7 @@ ACTIVITIES_V2 = {
         {'act': Activity(type=ActivityType.watching, name="moles commit tax fraud"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="quantum particles behave oddly"), 'w': 1},
     ],
+    },
 }
 
 DAY_BUCKET_WEIGHTS = {
