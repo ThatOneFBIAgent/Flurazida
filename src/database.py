@@ -473,21 +473,21 @@ async def add_user(user_id, username):
     """
     log.trace(f"Adding user {user_id} in economy database, {username}")
 
-    async with await db.get_economy() as conn:
-        # check existence
-        query = "SELECT 1 FROM users WHERE user_id = ?"
-        async with conn.execute(query, (user_id,)) as cursor:
-            exists = await cursor.fetchone()
+    conn = await db.get_economy()
+    # check existence
+    query = "SELECT 1 FROM users WHERE user_id = ?"
+    async with conn.execute(query, (user_id,)) as cursor:
+        exists = await cursor.fetchone()
 
-        if exists:
-            return
+    if exists:
+        return
 
-        # insert new row
-        await conn.execute(
-            "INSERT INTO users (user_id, username, balance) VALUES (?, ?, 0)",
-            (user_id, username)
-        )
-        await conn.commit()
+    # insert new row
+    await conn.execute(
+        "INSERT INTO users (user_id, username, balance) VALUES (?, ?, 0)",
+        (user_id, username)
+    )
+    await conn.commit()
 
 # ----------- Item Handling Functions -----------
 
@@ -504,8 +504,8 @@ async def add_user_item(user_id, item_id, item_name, uses_left=1, effect_modifie
         effect_modifier (int): The effect modifier for the item
     """
     log.trace(f"Adding item {item_name} (ID: {item_id}) to {user_id}'s inventory")
-    async with await db.get_economy() as conn:
-        await conn.execute("""
+    conn = await db.get_economy()
+    await conn.execute("""
         INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier) 
         VALUES (?, ?, ?, ?, ?) 
         ON CONFLICT(user_id, item_id) DO UPDATE 
@@ -522,10 +522,10 @@ async def get_user_items(user_id):
     Args:
         user_id (int): The user's ID
     """
-    async with await db.get_economy() as conn:
-        async with conn.execute("SELECT item_id, item_name, uses_left FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
-            items = await cursor.fetchall()
-            return [{"item_id": row[0], "item_name": row[1], "uses_left": row[2]} for row in items] if items else []
+    conn = await db.get_economy()
+    async with conn.execute("SELECT item_id, item_name, uses_left FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
+        items = await cursor.fetchall()
+        return [{"item_id": row[0], "item_name": row[1], "uses_left": row[2]} for row in items] if items else []
 
 @log_db_call
 async def remove_item_from_user(user_id, item_id):
@@ -536,9 +536,9 @@ async def remove_item_from_user(user_id, item_id):
         user_id (int): The user's ID
         item_id (int): The item's ID
     """
-    async with await db.get_economy() as conn:
-        await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id))
+    await conn.commit()
 
 @log_db_call
 async def update_item_uses(user_id, item_id, uses_left):
@@ -550,9 +550,9 @@ async def update_item_uses(user_id, item_id, uses_left):
         item_id (int): The item's ID
         uses_left (int): The number of uses left for the item
     """
-    async with await db.get_economy() as conn:
-        await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?", (uses_left, user_id, item_id))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?", (uses_left, user_id, item_id))
+    await conn.commit()
 
 @log_db_call
 async def add_item_to_user(user_id, item_id, item_name, uses_left=1, effect_modifier=0):
@@ -566,8 +566,8 @@ async def add_item_to_user(user_id, item_id, item_name, uses_left=1, effect_modi
         uses_left (int): The number of uses left for the item
         effect_modifier (int): The effect modifier for the item
     """
-    async with await db.get_economy() as conn:
-        await conn.execute("""
+    conn = await db.get_economy()
+    await conn.execute("""
         INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
@@ -591,12 +591,14 @@ async def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modif
     """
     log.trace(f"User {user_id} is buying {item_name} for {price} coins")
 
-    async with await db.get_economy() as conn:
-        # Check if user exists
-        async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            user = await cursor.fetchone()
-            if not user:
-                return False  # User does not exist
+    log.trace(f"User {user_id} is buying {item_name} for {price} coins")
+    
+    conn = await db.get_economy()
+    # Check if user exists
+    async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        user = await cursor.fetchone()
+        if not user:
+            return False  # User does not exist
 
     current_balance = user[0]
     if current_balance < price:
@@ -628,13 +630,13 @@ async def use_item(user_id, item_id):
         user_id (int): The user's ID
         item_id (int): The item's ID
     """
-    async with await db.get_economy() as conn:
-        # Fetch user items
-        async with await conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)) as cursor:
-            result = await cursor.fetchone()
-            
-            if not result:
-                return f"❌ You don't have this item!"
+    conn = await db.get_economy()
+    # Fetch user items
+    async with await conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)) as cursor:
+        result = await cursor.fetchone()
+        
+        if not result:
+            return f"❌ You don't have this item!"
 
         uses_left = result[0]
         if uses_left <= 0:
@@ -700,10 +702,10 @@ async def check_gun_defense(victim_id):
     Args:
         victim_id (int): The user's ID
     """
-    async with await db.get_economy() as conn:
-        async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)) as cursor:
-            result = await cursor.fetchone()
-            return result[0] if result and result[0] > 0 else 0
+    conn = await db.get_economy()
+    async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result and result[0] > 0 else 0
 
 @log_db_call
 async def decrement_gun_use(victim_id):
@@ -713,9 +715,9 @@ async def decrement_gun_use(victim_id):
     Args:
         victim_id (int): The user's ID
     """
-    async with await db.get_economy() as conn:
-        await conn.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = 10 AND uses_left > 0", (victim_id,))
-        await conn.commit()
+    conn = await db.get_economy()
+    await conn.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = 10 AND uses_left > 0", (victim_id,))
+    await conn.commit()
 
 # ----------- Moderator logging functions -----------
 
@@ -738,13 +740,13 @@ async def insert_case(guild_id, user_id, username, reason, action_type, moderato
     if timestamp is None:
         timestamp = int(time.time())
 
-    async with await db.get_moderator() as conn:
-        # Ensure atomicity so two concurrent inserts for the same guild can't get the same case_number
-        await conn.execute("BEGIN IMMEDIATE")
-        # Get current max case_number for the guild
-        async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
-            row = await cursor.fetchone()
-        next_case_number = (row[0] or 0) + 1
+    conn = await db.get_moderator()
+    # Ensure atomicity so two concurrent inserts for the same guild can't get the same case_number
+    await conn.execute("BEGIN IMMEDIATE")
+    # Get current max case_number for the guild
+    async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
+        row = await cursor.fetchone()
+    next_case_number = (row[0] or 0) + 1
 
     # Insert including computed per-guild case_number
     await conn.execute("""
@@ -767,15 +769,15 @@ async def get_cases_for_guild(guild_id, limit=50, offset=0):
         limit (int): The number of cases to return
         offset (int): The offset for pagination
     """
-    async with await db.get_moderator() as conn:
-        async with conn.execute("""
+    conn = await db.get_moderator()
+    async with conn.execute("""
         SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry
         FROM cases
         WHERE guild_id = ?
         ORDER BY case_number DESC
         LIMIT ? OFFSET ?
     """, (guild_id, limit, offset)) as cursor:
-            return await cursor.fetchall()
+        return await cursor.fetchall()
 
 @log_mod_call
 async def get_cases_for_user(guild_id, user_id):
@@ -786,14 +788,14 @@ async def get_cases_for_user(guild_id, user_id):
         guild_id (int): The guild's ID
         user_id (int): The user's ID
     """
-    async with await db.get_moderator() as conn:
-        async with conn.execute("""
+    conn = await db.get_moderator()
+    async with conn.execute("""
         SELECT case_number, reason, action_type, timestamp, moderator_id, expiry
         FROM cases
         WHERE guild_id = ? AND user_id = ?
         ORDER BY case_number DESC
     """, (guild_id, user_id)) as cursor:
-            return await cursor.fetchall()
+        return await cursor.fetchall()
 
 @log_mod_call
 async def get_case(guild_id, case_number):
@@ -804,13 +806,13 @@ async def get_case(guild_id, case_number):
         guild_id (int): The guild's ID
         case_number (int): The case number
     """
-    async with await db.get_moderator() as conn:
-        async with conn.execute("""
+    conn = await db.get_moderator()
+    async with conn.execute("""
         SELECT case_number, user_id, username, reason, action_type, timestamp, moderator_id, expiry
         FROM cases
         WHERE guild_id = ? AND case_number = ?
     """, (guild_id, case_number)) as cursor:
-            return await cursor.fetchone()
+        return await cursor.fetchone()
 
 @log_mod_call
 async def remove_case(guild_id, case_number):
@@ -821,9 +823,9 @@ async def remove_case(guild_id, case_number):
         guild_id (int): The guild's ID
         case_number (int): The case number
     """
-    async with await db.get_moderator() as conn:
-        await conn.execute("DELETE FROM cases WHERE guild_id = ? AND case_number = ?", (guild_id, case_number))
-        await conn.commit()
+    conn = await db.get_moderator()
+    await conn.execute("DELETE FROM cases WHERE guild_id = ? AND case_number = ?", (guild_id, case_number))
+    await conn.commit()
 
 @log_mod_call
 async def edit_case_reason(guild_id, case_number, new_reason):
@@ -835,10 +837,10 @@ async def edit_case_reason(guild_id, case_number, new_reason):
         case_number (int): The case number
         new_reason (str): The new reason for the case
     """
-    async with await db.get_moderator() as conn:
-        await conn.execute("UPDATE cases SET reason = ? WHERE guild_id = ? AND case_number = ?",
-                          (new_reason, guild_id, case_number))
-        await conn.commit()
+    conn = await db.get_moderator()
+    await conn.execute("UPDATE cases SET reason = ? WHERE guild_id = ? AND case_number = ?",
+                      (new_reason, guild_id, case_number))
+    await conn.commit()
 
 # Do not log because it spams terminal like hell
 async def get_expired_cases(guild_id, action_type, now=None):
@@ -852,21 +854,21 @@ async def get_expired_cases(guild_id, action_type, now=None):
     """
     if now is None:
         now = int(time.time())
-    async with await db.get_moderator() as conn:
-        if guild_id is None:
-            # Get all expired cases across all guilds - return (guild_id, user_id)
-            async with conn.execute("""
-                SELECT guild_id, user_id FROM cases
-                WHERE action_type = ? AND expiry > 0 AND expiry <= ?
-            """, (action_type, now)) as cursor:
-                return await cursor.fetchall()
-        else:
-            # Return (case_number, user_id) for specific guild
-            async with conn.execute("""
-                SELECT case_number, user_id FROM cases
-                WHERE guild_id = ? AND action_type = ? AND expiry > 0 AND expiry <= ?
+    conn = await db.get_moderator()
+    if guild_id is None:
+        # Get all expired cases across all guilds - return (guild_id, user_id)
+        async with conn.execute("""
+            SELECT guild_id, user_id FROM cases
+            WHERE action_type = ? AND expiry > 0 AND expiry <= ?
+        """, (action_type, now)) as cursor:
+            return await cursor.fetchall()
+    else:
+        # Return (case_number, user_id) for specific guild
+        async with conn.execute("""
+            SELECT case_number, user_id FROM cases
+            WHERE guild_id = ? AND action_type = ? AND expiry > 0 AND expiry <= ?
         """, (guild_id, action_type, now)) as cursor:
-                return await cursor.fetchall()
+            return await cursor.fetchall()
 
 BACKUP_FOLDER_ID = BACKUP_GDRIVE_FOLDER_ID
 
