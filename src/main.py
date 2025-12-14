@@ -58,12 +58,6 @@ log = get_logger()
 
 process = psutil.Process(os.getpid())
 last_activity_signature = None
-activities = config.ACTIVITIES
-doubles = config.ALLOW_DOUBLE_ACTIVITIES
-
-SINGLE_ACTIVITY_TYPES = ["A", "B", "C"]
-DOUBLE_ACTIVITY_TYPES = ["A+B", "A+C", "B+C", "B+A", "C+A", "C+B"]
-ALL_ACTIVITY_TYPES = SINGLE_ACTIVITY_TYPES + DOUBLE_ACTIVITY_TYPES
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
