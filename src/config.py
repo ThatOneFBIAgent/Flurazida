@@ -65,6 +65,8 @@ fh.setLevel(logging.EVENT_LEVEL)
 fh.setFormatter(formatter)
 log.addHandler(fh)
 
+log.propagate = False
+
 # Use a dict to store cooldowns: {(user_id, command_name): timestamp}
 _user_command_cooldowns = {}
 _command_failures = {}
@@ -195,173 +197,7 @@ async def _alert_owner(interaction: Interaction, command_name: str, exc: Excepti
     except Exception as e:
         log.error(f"[OwnerAlertFail] Could not DM owner: {e}")
 
-
-# Bot activity list, add your own activities here, bot will randomly pick one every 10 minutes (also configurable in main.py)
-ALLOW_DOUBLE_ACTIVITIES = False # Set to True to allow combinations of two activities
-ACTIVITIES = [
-    # Games (Playing ...)
-    discord.Game("with equations"),
-    discord.Game("with solutions"),
-    discord.Game("with molecules"),
-    discord.Game("acid roulette"),
-    discord.Game("with noble gases"),
-    discord.Game("finding Avogadro's number: 6.02214076e23"),
-    discord.Game("with unstable isotopes"),
-    discord.Game("hide and seek with electrons"),
-    discord.Game("on the Bunsen burner"),
-    discord.Game("molecular tag"),
-    discord.Game("with questionable solvents"),
-    discord.Game("chemistry in base 16"),
-    discord.Game("with Schrödinger's keyboard"),
-    discord.Game("in the lab... unsupervised"),
-    discord.Game("with forbidden compounds"),
-    discord.Game("with polyatomic sadness"),
-    discord.Game("with toxic bonding"),
-    discord.Game("Minecraft but stoichiometric"),
-    discord.Game("Portal 3: Chemical Edition"),
-    discord.Game("Factorio: Meth Lab DLC"),
-    discord.Game("Breaking Bad (educational edition)"),
-    discord.Game("noble gas party simulator"),
-    discord.Game("with radioactive decay"),
-    discord.Game("crystal hunting"),
-    discord.Game("periodic table scavenger hunt"),
-    discord.Game("with supercooled liquids"),
-    discord.Game("atomic tag"),
-    discord.Game("experiment roulette"),
-    discord.Game("with reaction kinetics"),
-    discord.Game("sublimation race"),
-    discord.Game("pH meter challenge"),
-    discord.Game("tracking Brownian motion in real time"),
-    discord.Game("playing with organometallic catalysts"),
-    discord.Game("aligning electron orbitals"),
-    discord.Game("nuclear spin tag"),
-    discord.Game("plotting a van't Hoff curve"),
-    discord.Game("identifying lanthanides by flame color"),
-    discord.Game("quantum tunneling hide-and-seek"),
-    discord.Game("magnetizing ferrofluids"),
-    discord.Game("watching cis-trans isomer races"),
-    discord.Game("supercooling water without freezing"),
-    discord.Game("attempting a Williamson ether synthesis"),
-    discord.Game("balancing redox half-reactions in binary"),
-    discord.Game("nucleophilic substitution speedrun"),
-    discord.Game("tracking positron emissions"),
-    discord.Game("playing with Mössbauer spectroscopy"),
-    discord.Game("constructing molecular orbital diagrams"),
-    discord.Game("titrating weak acids like a pro"),
-    discord.Game("solving the Schrödinger equation for fun"),
-    discord.Game("predicting UV-Vis absorption peaks"),
-    discord.Game("simulating SN1 vs SN2 pathways"),
-    discord.Game("watching benzene rings rotate"),
-    discord.Game("isolating carbocations safely"),
-    discord.Game("calculating Gibbs free energy for your lunch"),
-    discord.Game("detecting dipole moments in molecules"),
-    discord.Game("experimenting with superacids"),
-    discord.Game("assembling a Grignard reagent"),
-    discord.Game("quantum entanglement hide-and-seek"),
-    discord.Game("with DFT simulations for giggles"),
-
-    # Listening (Listening To ...)
-    discord.Activity(type=discord.ActivityType.listening, name="the periodic table song"),
-    discord.Activity(type=discord.ActivityType.listening, name="chemistry facts"),
-    discord.Activity(type=discord.ActivityType.listening, name="user hypotheses"),
-    discord.Activity(type=discord.ActivityType.listening, name="stoichiometry lectures"),
-    discord.Activity(type=discord.ActivityType.listening, name="bubbling beakers"),
-    discord.Activity(type=discord.ActivityType.listening, name="endothermic reactions"),
-    discord.Activity(type=discord.ActivityType.listening, name="uranium humming"),
-    discord.Activity(type=discord.ActivityType.listening, name="complaints about the mole concept"),
-    discord.Activity(type=discord.ActivityType.listening, name="lab goggles fog up"),
-    discord.Activity(type=discord.ActivityType.listening, name="theoretical screams"),
-    discord.Activity(type=discord.ActivityType.listening, name="periodic table diss tracks"),
-    discord.Activity(type=discord.ActivityType.listening, name="a centrifuge"),
-    discord.Activity(type=discord.ActivityType.listening, name="atoms bonding"),
-    discord.Activity(type=discord.ActivityType.listening, name="a lab explosion"),
-    discord.Activity(type=discord.ActivityType.listening, name="a chemical spill"),
-    discord.Activity(type=discord.ActivityType.listening, name="a Bunsen burner"),
-    discord.Activity(type=discord.ActivityType.listening, name="a chemical reaction"),
-    discord.Activity(type=discord.ActivityType.listening, name="a lab accident"),
-    discord.Activity(type=discord.ActivityType.listening, name="molecules colliding"),
-    discord.Activity(type=discord.ActivityType.listening, name="neutrino whispers"),
-    discord.Activity(type=discord.ActivityType.listening, name="radioactive decay beats"),
-    discord.Activity(type=discord.ActivityType.listening, name="electrons spin tunes"),
-    discord.Activity(type=discord.ActivityType.listening, name="quark chatter"),
-    discord.Activity(type=discord.ActivityType.listening, name="laser hums"),
-    discord.Activity(type=discord.ActivityType.listening, name="NMR peak harmonics"),
-    discord.Activity(type=discord.ActivityType.listening, name="Raman spectra whispers"),
-    discord.Activity(type=discord.ActivityType.listening, name="crystal lattice vibrations"),
-    discord.Activity(type=discord.ActivityType.listening, name="oscillating BZ reactions"),
-    discord.Activity(type=discord.ActivityType.listening, name="singlet-triplet transitions"),
-    discord.Activity(type=discord.ActivityType.listening, name="forbidden infrared absorptions"),
-    discord.Activity(type=discord.ActivityType.listening, name="hyperfine splitting murmurs"),
-    discord.Activity(type=discord.ActivityType.listening, name="EPR electron spins"),
-    discord.Activity(type=discord.ActivityType.listening, name="π-π stacking chatter"),
-    discord.Activity(type=discord.ActivityType.listening, name="J-coupling confessions"),
-    discord.Activity(type=discord.ActivityType.listening, name="topological insulator hum"),
-    discord.Activity(type=discord.ActivityType.listening, name="van der Waals whispers"),
-    discord.Activity(type=discord.ActivityType.listening, name="Hückel aromaticity lectures"),
-    discord.Activity(type=discord.ActivityType.listening, name="spin-orbit coupling vibes"),
-    discord.Activity(type=discord.ActivityType.listening, name="bond order debates"),
-    discord.Activity(type=discord.ActivityType.listening, name="photoelectron spectra"),
-    discord.Activity(type=discord.ActivityType.listening, name="Schrödinger cat meows"),
-    discord.Activity(type=discord.ActivityType.listening, name="hyperconjugation discussions"),
-    discord.Activity(type=discord.ActivityType.listening, name="Pauli principle sermons"),
-
-    # Watching (Watching ...)
-    discord.Activity(type=discord.ActivityType.watching, name="chemical reactions"),
-    discord.Activity(type=discord.ActivityType.watching, name="atoms collide"),
-    discord.Activity(type=discord.ActivityType.watching, name="a lab safety video"),
-    discord.Activity(type=discord.ActivityType.watching, name="crystals grow"),
-    discord.Activity(type=discord.ActivityType.watching, name="the periodic table rearrange itself"),
-    discord.Activity(type=discord.ActivityType.watching, name="the flask boil over"),
-    discord.Activity(type=discord.ActivityType.watching, name="ionic drama unfold"),
-    discord.Activity(type=discord.ActivityType.watching, name="thermodynamics take a nap"),
-    discord.Activity(type=discord.ActivityType.watching, name="carbon date badly"),
-    discord.Activity(type=discord.ActivityType.watching, name="users ignore lab safety"),
-    discord.Activity(type=discord.ActivityType.watching, name="moles commit tax fraud"),
-    discord.Activity(type=discord.ActivityType.watching, name="the periodic table change"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab explode"),
-    discord.Activity(type=discord.ActivityType.watching, name="the universe expand"),
-    discord.Activity(type=discord.ActivityType.watching, name="chemical bonds break"),
-    discord.Activity(type=discord.ActivityType.watching, name="lab rats escape"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab spontaneously combust"),
-    discord.Activity(type=discord.ActivityType.watching, name="quantum particles behave oddly"),
-    discord.Activity(type=discord.ActivityType.watching, name="the lab safety officer nap"),
-    discord.Activity(type=discord.ActivityType.watching, name="supercooled liquids crack"),
-    discord.Activity(type=discord.ActivityType.watching, name="plasma arcs dance"),
-    discord.Activity(type=discord.ActivityType.watching, name="nanobots assemble"),
-    discord.Activity(type=discord.ActivityType.watching, name="electron clouds shift"),
-    discord.Activity(type=discord.ActivityType.watching, name="chemical equilibrium sway"),
-    discord.Activity(type=discord.ActivityType.watching, name="magnetism in action"),
-    discord.Activity(type=discord.ActivityType.watching, name="hydrogen bonding in slow motion"),
-    discord.Activity(type=discord.ActivityType.watching, name="reaction coordinate diagrams unfold"),
-    discord.Activity(type=discord.ActivityType.watching, name="UV-Vis absorbance shift"),
-    discord.Activity(type=discord.ActivityType.watching, name="X-ray diffraction patterns dance"),
-    discord.Activity(type=discord.ActivityType.watching, name="chirality flips in 3D"),
-    discord.Activity(type=discord.ActivityType.watching, name="cis-trans photoisomerization"),
-    discord.Activity(type=discord.ActivityType.watching, name="Brownian motion chaos"),
-    discord.Activity(type=discord.ActivityType.watching, name="lanthanide contraction in action"),
-    discord.Activity(type=discord.ActivityType.watching, name="isotopic fractionation"),
-    discord.Activity(type=discord.ActivityType.watching, name="enthalpy vs entropy duels"),
-    discord.Activity(type=discord.ActivityType.watching, name="transition state lifetimes"),
-    discord.Activity(type=discord.ActivityType.watching, name="molecular vibrations on steroids"),
-    discord.Activity(type=discord.ActivityType.watching, name="sigma and pi bonds argue"),
-    discord.Activity(type=discord.ActivityType.watching, name="aromaticity collapse"),
-    discord.Activity(type=discord.ActivityType.watching, name="quantum dot luminescence"),
-    discord.Activity(type=discord.ActivityType.watching, name="photoexcited electron dance"),
-    discord.Activity(type=discord.ActivityType.watching, name="ionic liquids misbehave"),
-    discord.Activity(type=discord.ActivityType.watching, name="superconducting vortices"),
-    discord.Activity(type=discord.ActivityType.watching, name="vibrational spectroscopy showdown"),
-    discord.Activity(type=discord.ActivityType.watching, name="Fermi levels shift in real time"),
-]
-
-# holy moly that is a lot of activities!
-# remove or add as you see fit, but probably keep it above 20 to avoid repetition
-# also you can ask chatgpt for more ideas or a change of theme
-# have fun!
-
-# 12/12/2025: hear me out, randomized activites based on the time of the day AND rarity!!!!
-# fuck yeah lemme whip this bitch
-# this'll be implemented later
-
+# Bot activity list
 ACTIVITIES_V2 = {
     'DAY': {
     'COMMON': [
@@ -389,8 +225,10 @@ ACTIVITIES_V2 = {
         {'act': Game("predicting UV-Vis peaks"), 'w': 4},
         {'act': Activity(type=ActivityType.listening, name="bubbling beakers"), 'w': 5},
         {'act': Activity(type=ActivityType.listening, name="periodic table diss tracks"), 'w': 3},
+        {'act': Activity(type=ActivityType.listening, name="sonochemistry's rambunctiousness"), 'w': 3},
         {'act': Activity(type=ActivityType.watching, name="Brownian motion chaos"), 'w': 4},
         {'act': Activity(type=ActivityType.watching, name="hydrogen bonding in slow motion"), 'w': 4},
+        {'act': Activity(type=ActivityType.watching, name="bunsen burners burn"), 'w': 4},
     ],
 
     'RARE': [
@@ -398,9 +236,12 @@ ACTIVITIES_V2 = {
         {'act': Game("quantum tunneling hide-and-seek"), 'w': 2},
         {'act': Game("constructing molecular orbital diagrams"), 'w': 2},
         {'act': Game("solving Schrödinger's equation for fun"), 'w': 2},
+        {'act': Game("with quantum dots"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="neutrino whispers"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="Pauli principle sermons"), 'w': 1},
+        {'act': Activity(type=ActivityType.listening, name="Democritus' atomos"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="aromaticity collapse"), 'w': 1},
+        {'act': Activity(type=ActivityType.watching, name="the belousov-zhabotinsky reaction"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="transition state lifetimes"), 'w': 2},
     ],
     },
@@ -409,11 +250,13 @@ ACTIVITIES_V2 = {
         {'act': Game("in the lab... unsupervised"), 'w': 10},
         {'act': Game("experiment roulette"), 'w': 9},
         {'act': Game("atomic tag"), 'w': 8},
+        {'act': Game("crystal hunting"), 'w': 6},
         {'act': Activity(type=ActivityType.listening, name="a centrifuge"), 'w': 7},
         {'act': Activity(type=ActivityType.listening, name="laser hums"), 'w': 6},
+        {'act': Activity(type=ActivityType.listening, name="to the fusion reactor"), 'w': 6},
         {'act': Activity(type=ActivityType.watching, name="users ignore lab safety"), 'w': 9},
         {'act': Activity(type=ActivityType.watching, name="ionic drama unfold"), 'w': 7},
-        {'act': Game("crystal hunting"), 'w': 6},
+        {'act': Activity(type=ActivityType.watching, name="neutron stars collide"), 'w': 7},
     ],
 
     'UNCOMMON': [
@@ -425,17 +268,23 @@ ACTIVITIES_V2 = {
         {'act': Game("attempting a Williamson ether synthesis"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="radioactive decay beats"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="a lab explosion"), 'w': 3},
+        {'act': Activity(type=ActivityType.listening, name="John Dalton's schizophrenia"), 'w': 2},
         {'act': Activity(type=ActivityType.watching, name="the lab explode"), 'w': 3},
         {'act': Activity(type=ActivityType.watching, name="ionic liquids misbehave"), 'w': 2},
+        {'act': Activity(type=ActivityType.watching, name="quantum tunneling"), 'w': 2},
     ],
 
     'RARE': [
         {'act': Game("Factorio: Meth Lab DLC"), 'w': 1},
         {'act': Game("Breaking Bad (educational edition)"), 'w': 1},
+        {'act': Game("Minecraft: Nilered edition"), 'w': 1},
         {'act': Game("with superacids"), 'w': 1},
+        {'act': Game("with positrons"), 'w': 1},
         {'act': Game("DFT simulations for giggles"), 'w': 1},
         {'act': Game("playing with organometallic catalysts"), 'w': 1},
         {'act': Activity(type=ActivityType.listening, name="a chemical spill"), 'w': 1},
+        {'act': Activity(type=ActivityType.listening, name="radioactive decay beats"), 'w': 1},
+        {'act': Activity(type=ActivityType.listening, name="a lab explosion"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="the lab spontaneously combust"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="moles commit tax fraud"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="quantum particles behave oddly"), 'w': 1},
@@ -476,3 +325,8 @@ def get_activity(hour: int):
     pool = ACTIVITIES_V2[mode][rarity]
     acts, aw = zip(*[(p['act'], p['w']) for p in pool])
     return random.choices(acts, weights=aw, k=1)[0]
+
+# holy moly that is a lot of activities!
+# remove or add as you see fit, but probably keep it above 20 to avoid repetition
+# also you can ask chatgpt for more ideas or a change of theme
+# have fun!

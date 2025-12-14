@@ -129,18 +129,20 @@ class ShopCommands(app_commands.Group):
     @cooldown(cl=5, tm=15.0, ft=3)
     async def shop(self, interaction: discord.Interaction):
         """Displays shop items using embeds and buttons"""
+        await interaction.response.defer()
         log.info(f"Shop view invoked by {interaction.user.id}")
         if not SHOP_ITEMS:
             return await interaction.response.send_message("❌ The shop is empty!", ephemeral=True)
 
         view = ShopView(interaction.user.id)
-        await interaction.response.send_message(embed=view.format_shop_page(), view=view, ephemeral=False)
+        await interaction.followup.send(embed=view.format_shop_page(), view=view, ephemeral=False)
 
     @app_commands.command(name="use", description="Use an item from your inventory")
     @app_commands.describe(item_name="The name of the item you want to use")
     @cooldown(cl=5, tm=15.0, ft=3)
     async def use(self, interaction: discord.Interaction, item_name: str):
         """Handles using an item properly"""
+        await interaction.response.defer()
         log.info(f"Use item invoked by {interaction.user.id}: {item_name}")
         item_name = item_name.lower()
         item_data = next((item for item in SHOP_ITEMS if item["name"].lower() == item_name), None)
@@ -150,7 +152,7 @@ class ShopCommands(app_commands.Group):
 
         # Use the centralized item effect logic
         result_message = await use_item(interaction.user.id, item_data["id"])
-        await interaction.response.send_message(result_message, ephemeral=True)
+        await interaction.followup.send(result_message, ephemeral=True)
 
 class ShopCog(commands.Cog):
     def __init__(self, bot):
