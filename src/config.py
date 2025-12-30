@@ -179,7 +179,7 @@ async def _alert_owner(interaction: Interaction, command_name: str, exc: Excepti
         text = f"⚠️ **Command failure threshold reached!**\n"
         text += f"Command: `{command_name}`\n"
         text += f"Guild: `{interaction.guild.name if interaction.guild else 'DM'}`\n"
-        text += f"User: `{interaction.user} ({interaction.user.id})`\n"
+        text += f"User: `{interaction.user} ({interaction.user.id})` (<@{interaction.user.id}>)\n"
         if exc:
             text += f"Latest exception: `{exc}`\n"
 

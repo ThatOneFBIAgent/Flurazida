@@ -217,7 +217,7 @@ class ModeratorCommands(app_commands.Group):
             log.warningtrace(f"Ban used outside guild by {interaction.user.id}")
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
-        # --- Permission safety checks ---
+        # Permission safety checks
         if user == interaction.user:
             return await interaction.followup.send("❌ You can't ban yourself.", ephemeral=True)
         if user.id == self.bot.user.id:
@@ -231,7 +231,7 @@ class ModeratorCommands(app_commands.Group):
         if not bot_member.top_role or user.top_role >= bot_member.top_role:
             return await interaction.followup.send("❌ That user's role is higher or equal to mine!", ephemeral=True)
 
-        # --- Duration parsing ---
+        # Duration parsing
         total_seconds = 0
         matches = re.findall(r"(\d+)([dhm])", duration)
         if not matches:
@@ -251,7 +251,7 @@ class ModeratorCommands(app_commands.Group):
 
         expiry = int(time.time()) + total_seconds if total_seconds > 0 else 0
 
-        # --- Execute ban ---
+        # Execute ban
         try:
             await interaction.guild.ban(user, reason=reason, delete_message_days=0)
         except discord.Forbidden:
@@ -261,7 +261,7 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"[{interaction.guild.name}] Error banning user {user.id}: {e}", exc_info=True)
             return await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
 
-        # --- Log case to DB (expiry handled by your main unban task) ---
+        # Log case to DB (expiry handled by your main unban task)
         try:
             await insert_case(
                 interaction.guild.id,
@@ -277,7 +277,7 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Failed to log ban case to database: {db_error}", exc_info=True)
             # Still send success message since the ban succeeded
 
-        # --- Confirmation message ---
+        # Confirmation message
         duration_text = duration if expiry else "permanently"
         await interaction.followup.send(
             f"✅ **{user.mention} has been banned for {duration_text}.**\nReason: `{reason}`",
@@ -521,7 +521,7 @@ class ModeratorCommands(app_commands.Group):
     ])
     @app_commands.checks.has_permissions(manage_messages=True)
     @app_commands.checks.bot_has_permissions(manage_messages=True)
-    @cooldown(cl=3, tm=20.0, ft=2)
+    @cooldown(cl=7, tm=20.0, ft=2) # some fucker made the bot get hit with 429s constantly
     async def purge(self, interaction: Interaction, user: Optional[discord.Member] = None, limit: int = 50, type: str = "all", reason: str = None):
         await interaction.response.defer(ephemeral=True)
         log.trace(f"Purge invoked by {interaction.user.id}: {limit} messages, {type} filter, {user}")

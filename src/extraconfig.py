@@ -30,6 +30,3 @@ MAX_JPEG_QUALITY = 4096  # max quality setting for jpegify
 
 # Alpha config
 ALPHA = False
-
-# Website config
-WEBSITE_ENABLED = False

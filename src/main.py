@@ -49,11 +49,6 @@ from database import (
 )
 from logger import get_logger
 
-# Add website to path to import expose
-# TODO: really annoying where in logs this shows as src....website.expose
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "website")) 
-from expose import start_web_server
-
 log = get_logger()
 
 process = psutil.Process(os.getpid())
@@ -66,7 +61,7 @@ intents.guilds = True
 intents.message_content = True
 intents.presences = True
 intents.members = True
-from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS, WEBSITE_ENABLED
+from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS
 bot_owner = BOT_OWNER
 test_server = TEST_SERVER
 
@@ -96,16 +91,6 @@ class Main(commands.AutoShardedBot):
         self.cycle_activities_task = asyncio.create_task(cycle_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
         self.delayed_backup_starter_task = asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
-
-        # Start the web server
-        if WEBSITE_ENABLED:
-            try:
-                await start_web_server(self)
-                log.success("Web server started")
-            except Exception as e:
-                log.error(f"Failed to start web server: {e}")
-        else:
-            log.info("Website disabled, skipping web server startup")
         
         commands_dir = os.path.join(os.path.dirname(__file__), "commands")
         failed = []
