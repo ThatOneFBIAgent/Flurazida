@@ -156,7 +156,7 @@ class Main(commands.AutoShardedBot):
                     pershardactivity = f"{activityname} | {human_shard}/{self.shard_count}"
                     newactivity = discord.Activity(name=pershardactivity, type=activity.type)
                     await self.change_presence(activity=newactivity, status=status, shard_id=shard_id)
-                    log.info(f"[Shard {shard_id}] Synced activity: {pershardactivity} ({activity.type.name})")
+                    log.trace(f"[Shard {shard_id}] Synced activity: {pershardactivity} ({activity.type.name})")
                 except Exception as e:
                     log.warning(f"[Shard {shard_id}] Failed to sync activity: {e}")
 

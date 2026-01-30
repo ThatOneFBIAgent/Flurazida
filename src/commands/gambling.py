@@ -341,24 +341,24 @@ class GamblingCommands(app_commands.Group):
 
         PAYOUT = {
             # commons
-            "🍒": {"3": 1.2, "2": 0.8},
-            "🍋": {"3": 1.2, "2": 0.8},
-            "🍇": {"3": 1.2, "2": 0.8},
+            "🍒": {"3": 1.1, "2": 0.5},
+            "🍋": {"3": 1.1, "2": 0.5},
+            "🍇": {"3": 1.1, "2": 0.5},
 
             # rares
-            "🍉": {"3": 3.0, "2": 1.2},
-            "🍓": {"3": 3.0, "2": 1.2},
-            "🍍": {"3": 3.0, "2": 1.2},
+            "🍉": {"3": 2.5, "2": 1.0},
+            "🍓": {"3": 2.5, "2": 1.0},
+            "🍍": {"3": 2.5, "2": 1.0},
 
             # epics
-            "🔔": {"3": 10, "2": 3},
-            "7️⃣": {"3": 10, "2": 3},
+            "🔔": {"3": 5, "2": 2},
+            "7️⃣": {"3": 5, "2": 2},
 
             # legendaries
-            "💎": {"3": 50, "2": 10},
+            "💎": {"3": 25, "2": 5},
 
             # how the FUCK
-            "🗿": {"3": 100, "2": 25}
+            "🗿": {"3": 50, "2": 10}
         }
 
         # Weighted emojis
@@ -371,20 +371,6 @@ class GamblingCommands(app_commands.Group):
                 [random.choices(emojis, weights)[0] for _ in range(3)]
                 for _ in range(3)
             ]
-
-        # suspense baby
-        suspense_msg = await interaction.followup.send("🎰 Spinning...")
-        await asyncio.sleep(0.8)
-        await suspense_msg.edit(content="🎰 Spinning... *click*")
-        await asyncio.sleep(0.5)
-        await suspense_msg.edit(content="🎰 Spinning... *click... click*")
-        await asyncio.sleep(0.5)
-
-        grid = generate_grid()
-
-        # check matches
-        three_match_bonus = 0
-        two_match_bonus = 0
 
         def evaluate_spin(grid):
             payouts = {}  # symbol -> best multiplier
@@ -415,6 +401,25 @@ class GamblingCommands(app_commands.Group):
             # sum only best payouts
             total = sum(payouts.values())
             return total
+
+        # Favor the house: Aim for ~60% loss rate
+        force_loss = random.random() < 0.47
+        max_retries = 50
+        
+        grid = generate_grid()
+        if force_loss:
+            items = 0
+            while evaluate_spin(grid) >= 1.0 and items < max_retries:
+                grid = generate_grid()
+                items += 1
+
+        # suspense baby
+        suspense_msg = await interaction.followup.send("🎰 Spinning...")
+        await asyncio.sleep(0.8)
+        await suspense_msg.edit(content="🎰 Spinning... *click*")
+        await asyncio.sleep(0.5)
+        await suspense_msg.edit(content="🎰 Spinning... *click... click*")
+        await asyncio.sleep(0.5)
 
         # payout logic
         win_amount = 0

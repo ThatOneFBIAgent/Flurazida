@@ -8,11 +8,11 @@ from extraconfig import ALPHA
 
 # Define custom log levels
 SUCCESS_LEVEL = 25  # Between INFO (20) and WARNING (30)
-EVENT_LEVEL = 15    # Below INFO (20)
+EVENT_LEVEL = 19    # Below INFO (20)
 SUCCESSTRACE_LEVEL = 14 # Below EVENT (15)
 WARNINGTRACE_LEVEL = 13 # Below SUCCESSTRACE (14)
 TRACE_LEVEL = 12     # Above DEBUG (10)
-DATABASE_LEVEL = 19
+DATABASE_LEVEL = 17
 NETWORK_LEVEL = 18
 
 logging.EVENT_LEVEL = EVENT_LEVEL
@@ -157,3 +157,17 @@ logging.Logger.database = database
 logging.Logger.successtrace = successtrace
 logging.Logger.warningtrace = warningtrace
 logging.Logger.network = network
+
+# Logging stack:
+# 10 DEBUG
+# 12 TRACE          (if using alpha token, log all but debug)
+# 13 WARNINGTRACE
+# 14 SUCCESSTRACE
+# 17 DATABASE
+# 18 NETWORK
+# 19 EVENT          (otherwise, prod token logs up to here)
+# 20 INFO
+# 25 SUCCESS
+# 30 WARNING
+# 40 ERROR
+# 50 CRITICAL
