@@ -14,7 +14,6 @@ import tempfile
 import subprocess
 from typing import Dict, Optional, Tuple, List, Literal
 
-
 # Third-Party Imports
 import aiohttp
 import discord
@@ -33,11 +32,10 @@ except ImportError:
     ZBAR_AVAILABLE = False
     decode = None  # Prevent NameError if accidentally called
 
-
 # Local Imports
 from config import cooldown
 from logger import get_logger
-
+from utils.hosting import upload_to_litterbox
 
 log = get_logger()
 
@@ -381,16 +379,47 @@ class ImageCommands(app_commands.Group):
         return bio.read()
 
     async def _send_image_bytes(self, interaction: discord.Interaction, data: bytes, filename: str, ephemeral: bool = False):
-        """Helper to reply with a file and size info."""
-        size_mb = len(data) / (1024 * 1024)
+        """Helper to reply with a file and size info. Handles large files with temporal hosting."""
+        size_bytes = len(data)
+        size_mb = size_bytes / (1024 * 1024)
         size_str = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{size_mb * 1024:.0f} KB"
 
+        # Check Discord's local limit (8MB fallback if unknown)
+        limit = 8 * 1024 * 1024
+        if interaction.guild:
+            limit = interaction.guild.filesize_limit
+
+        if size_bytes > limit:
+            log.warning(f"File {filename} ({size_str}) exceeds limit ({limit/1024/1024:.1f} MB). Attempting temporal hosting...")
+            
+            # Send a placeholder/loading if it takes a bit
+            # (deferred interaction already exists usually, but we might need to update)
+            
+            link = await upload_to_litterbox(data, filename, "12h")
+            if link:
+                content = (
+                    f"📎 **{filename}** · {size_str} ([Download]({link}))\n"
+                    f"⚠️ *This file has been temporarily uploaded due to its size. Consider saving!*"
+                )
+                return await interaction.followup.send(content=content, ephemeral=ephemeral)
+            else:
+                log.error("Temporal hosting failed. Attempting direct send anyway...")
+
         file = discord.File(io.BytesIO(data), filename=filename)
-        await interaction.followup.send(
-            content=f"📎 **{filename}** · {size_str}",
-            file=file,
-            ephemeral=ephemeral
-        )
+        try:
+            await interaction.followup.send(
+                content=f"📎 **{filename}** · {size_str}",
+                file=file,
+                ephemeral=ephemeral
+            )
+        except discord.HTTPException as e:
+            if e.code == 40005:  # Request entity too large
+                 await interaction.followup.send(
+                     "❌ The file is just too massive for me to send (and hosting failed). Try a shorter or smaller image.",
+                     ephemeral=True
+                 )
+            else:
+                 raise e
    
     async def _video_to_gif_bytes(self, data: bytes):
         """Convert video bytes to GIF bytes, hard-limiting to 10s before decode."""

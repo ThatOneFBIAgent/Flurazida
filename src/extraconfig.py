@@ -1,5 +1,6 @@
 # extraconfig.py
 # Global configuration variables that are used across multiple modules
+# (this prevents stupid circular imports)
 
 # File extension blacklist for image commands
 EXT_BLACKLIST = (".mp4", ".webm", ".MP4", ".WEBM", ".mp3", ".ogg", ".wav", ".mov", ".zip", ".7z", ".rar", ".db", ".exe", ".msi")

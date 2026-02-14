@@ -184,11 +184,11 @@ class GamblingCommands(app_commands.Group):
             self.embed.description = desc
             if result:
                 self.embed.color = 0xFF0000 if "lost" in result or "busted" in result else (0x00FF00 if "win" in result else 0xFFFF00)
-                self.clear_items()
-                # Add Play Again button
-                self.add_item(PlayAgainView(self.start_new_game, self.user_id, self.bet).children[0])
-            
-            await self.message.edit(embed=self.embed, view=self)
+                # Switch to a proper PlayAgainView instead of stealing its button
+                view = PlayAgainView(self.start_new_game, self.user_id, self.bet)
+                await self.message.edit(embed=self.embed, view=view)
+            else:
+                await self.message.edit(embed=self.embed, view=self)
 
         async def start_new_game(self, interaction, bet):
             pass 
@@ -307,16 +307,13 @@ class GamblingCommands(app_commands.Group):
             color=0x008000
         )
         
-        # Send initial message with embed but no view yet
-        await interaction.followup.send(embed=embed)
-        message = await interaction.original_response()
-        
-        # Instantiate the view and link it to the message
-        view = self.BlackjackView(user_id, bet, deck, player, dealer, embed, message)
-        # Hacky way to pass the callback for Play Again
+        # Instantiate the view first
+        view = self.BlackjackView(user_id, bet, deck, player, dealer, embed, None)
         view.start_new_game = self.run_blackjack
         
-        await message.edit(view=view)
+        # Send everything together via followup. Returns the message object.
+        message = await interaction.followup.send(embed=embed, view=view, wait=True)
+        view.message = message
 
     async def run_slots(self, interaction: discord.Interaction, bet: int):
         log.info(f"Slots started by {interaction.user.id} with bet {bet}")
@@ -585,21 +582,6 @@ class GamblingCommands(app_commands.Group):
              return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
         if bet > max(0, balance):
              log.warningtrace(f"HighLow blocked (funds) for {user_id}: {bet} > {balance}")
-             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
-
-        first_card = random.randint(1, 13)
-        
-        embed = discord.Embed(
-            title="⬆️ High or Low ⬇️",
-            description=f"Card is **{first_card}**. Will the next one be Higher or Lower?",
-            color=0x3498DB
-        )
-        
-        view = HighLowView(user_id, bet, first_card, self.run_highlow)
-        await interaction.followup.send(embed=embed, view=view)
-        if balance <= DEBT_FLOOR:
-             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
-        if bet > max(0, balance):
              return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         first_card = random.randint(1, 13)

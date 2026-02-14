@@ -23,11 +23,15 @@ def parse_dice_expression(dice: str) -> Tuple[List[Dict], int]:
     sanitized = dice.replace(" ", "")
 
     # Normalize shorthand like "20" or "+20" into "1d20"
+    # Also handles "-d20" or "d20"
     simple_roll_match = re.fullmatch(r'([+-]?)(?:d)?(\d+)', sanitized, re.IGNORECASE)
     if simple_roll_match:
         sign = simple_roll_match.group(1) or ''
-        sides = simple_roll_match.group(2)
-        sanitized = f"{sign}1d{sides}"
+        sides = int(simple_roll_match.group(2))
+        if sides > 0:
+            sanitized = f"{sign}1d{sides}"
+        else:
+            raise ValueError("Dice sides must be greater than 0.")
 
     sanitized_orig = sanitized  # keep the full original (contains & modifiers) for later parsing of &N+Z
     # Remove &N±Z fragments BEFORE tokenizing so the numeric N inside them is not treated as a standalone constant.
@@ -59,6 +63,14 @@ def parse_dice_expression(dice: str) -> Tuple[List[Dict], int]:
         parsed = parse_group(body)
         if not parsed:
             raise ValueError(f"Couldn't parse token: {body}")
+        
+        # Validation for dice groups
+        if parsed["type"] == "dice":
+            if parsed["num"] <= 0:
+                raise ValueError("Number of dice must be at least 1.")
+            if parsed["sides"] <= 0:
+                raise ValueError("Dice sides must be at least 1.")
+        
         parsed["sign"] = -1 if sign == "-" else 1
         groups.append(parsed)
         if parsed["type"] == "dice":

@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 import secrets
+import platform
 from datetime import timezone, timedelta, datetime
 from typing import Optional
 
@@ -867,6 +868,7 @@ class FunCommands(app_commands.Group):
         # Core data
         current_shard = interaction.guild.shard_id if interaction.guild else interaction.client.shard_id
         cpu_count = psutil.cpu_count(logical=True)
+        cpu = platform.processor()
         cpu_freq = psutil.cpu_freq()
         total_mem = psutil.virtual_memory().total / (1024 * 1024)
         used_mem = psutil.virtual_memory().used / (1024 * 1024)
@@ -919,7 +921,7 @@ class FunCommands(app_commands.Group):
         embed.add_field(
             name="🧠 Host System",
             value=(
-                f"**CPU:** `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
+                f"**CPU:** `{cpu}` `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
                 f"**RAM:** `{used_mem:.0f}` / `{total_mem:.0f}` MB\n"
                 f"**OS:** {platform.system()} {platform.release()}"
             ),

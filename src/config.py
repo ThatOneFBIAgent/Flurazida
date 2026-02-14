@@ -1,4 +1,4 @@
-# Secrets & others (geeneral config)
+# Secrets & others (general config)
 # config.py
 
 # Standard Library Imports
