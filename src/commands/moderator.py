@@ -521,7 +521,7 @@ class ModeratorCommands(app_commands.Group):
     ])
     @app_commands.checks.has_permissions(manage_messages=True)
     @app_commands.checks.bot_has_permissions(manage_messages=True)
-    @cooldown(cl=7, tm=20.0, ft=2) # some fucker made the bot get hit with 429s constantly
+    @cooldown(cl=7, tm=200.0, ft=2) # some fucker made the bot get hit with 429s constantly (and still was)
     async def purge(self, interaction: Interaction, user: Optional[discord.Member] = None, limit: int = 50, type: str = "all", reason: str = None):
         await interaction.response.defer(ephemeral=True)
         log.trace(f"Purge invoked by {interaction.user.id}: {limit} messages, {type} filter, {user}")
