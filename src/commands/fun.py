@@ -370,7 +370,7 @@ class FunCommands(app_commands.Group):
             embed.add_field(name="Favorite Password (leaked)", value=random.choice(fake_passwords), inline=True)
             embed.add_field(name="Last Known IP", value=random.choice(fake_ips), inline=True)
             embed.add_field(name="Top Secret Files", value=", ".join(random.sample(fake_files, (random.randint(1, 5)))), inline=False)
-            embed.add_field(name="Note", value="All results are fabricated for entertainment. No personal data was accessed.", inline=False)
+            embed.add_field(name="Note", value="All fake data!", inline=False)
             embed.set_footer(text=final_text)
 
         # Final send/replace

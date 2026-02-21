@@ -108,6 +108,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
 
             user_id = interaction.user.id
             command_name = func.__name__
+            key = (user_id, command_name)
             
             # --- cooldown check ---
             if cl > 0:
