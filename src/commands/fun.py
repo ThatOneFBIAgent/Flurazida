@@ -863,15 +863,14 @@ class FunCommands(app_commands.Group):
     @cooldown(cl=16, tm=15.0, ft=3)
     async def debug(self, interaction: discord.Interaction):
         log.trace(f"Debug invoked by {interaction.user.id}")
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         # Core data
         current_shard = interaction.guild.shard_id if interaction.guild else interaction.client.shard_id
         cpu_count = psutil.cpu_count(logical=True)
-        cpu = platform.processor()
         cpu_freq = psutil.cpu_freq()
-        total_mem = psutil.virtual_memory().total / (1024 * 1024)
-        used_mem = psutil.virtual_memory().used / (1024 * 1024)
+        total_mem = psutil.virtual_memory().total / (1024 * 1024 * 1024)
+        used_mem = psutil.virtual_memory().used / (1024 * 1024 * 1024) # GB
         mem = self.process.memory_full_info()
         latency = round(self.bot.latency * 1000, 2)
         now = time.time()
@@ -921,8 +920,8 @@ class FunCommands(app_commands.Group):
         embed.add_field(
             name="🧠 Host System",
             value=(
-                f"**CPU:** `{cpu}` `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
-                f"**RAM:** `{used_mem:.0f}` / `{total_mem:.0f}` MB\n"
+                f"**CPU:** `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
+                f"**RAM:** `{used_mem:.0f}` / `{total_mem:.0f}` GB\n"
                 f"**OS:** {platform.system()} {platform.release()}"
             ),
             inline=True
@@ -1047,8 +1046,12 @@ class FunCommands(app_commands.Group):
                 log.error("HTTP session missing for exchange command")
                 return await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
             try:
-                resp = await session.get(url, timeout=10)
-                data = await resp.json()
+                async with session.get(url, timeout=10) as resp:
+                    if resp.status != 200:
+                        log.error(f"Exchange API returned status {resp.status}: {await resp.text()}")
+                        return await interaction.followup.send(f"❌ API error: Status {resp.status}", ephemeral=True)
+                    
+                    data = await resp.json()
             except Exception as e:
                 log.error(f"Exchange API error: {e}")
                 return await interaction.followup.send(f"❌ API error: {e}", ephemeral=True)
@@ -1144,17 +1147,28 @@ class FunCommands(app_commands.Group):
                 return await interaction.followup.send('❌ HTTP session not available.', ephemeral=True)
 
             url = 'https://bored-api.appbrewery.com/random'
-            resp = await session.get(url, timeout=10)
-            data = await resp.json()
+            
+            async with session.get(url, timeout=10) as resp:
+                http_status = resp.status
+                
+                if http_status == 429:
+                    return await interaction.followup.send('❌ Slow down! You are making too many requests.', ephemeral=True)
+                
+                if http_status != 200:
+                    log.warning(f"Bored API returned status {http_status}")
+                    return await interaction.followup.send(f'❌ Failed to retrieve activity data (Status {http_status}).', ephemeral=True)
+
+                try:
+                    data = await resp.json()
+                except Exception as e:
+                    log.warning(f"Failed to decode Bored API JSON: {e}")
+                    # Try to be lenient and decode anyway if it's just a mimetype issue
+                    try:
+                        data = await resp.json(content_type=None)
+                    except Exception:
+                        return await interaction.followup.send('❌ Failed to parse activity data.', ephemeral=True)
 
             if data.get('error'):
-                return await interaction.followup.send('❌ Failed to retrieve activity data.', ephemeral=True)
-            
-            http_status = resp.status
-            if http_status == 429:
-                return await interaction.followup.send('❌ Slow down! You are making too many requests.', ephemeral=True)
-            
-            if http_status != 200:
                 return await interaction.followup.send('❌ Failed to retrieve activity data.', ephemeral=True)
 
             activity = data.get('activity')
