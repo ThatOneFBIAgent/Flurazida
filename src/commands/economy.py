@@ -23,7 +23,7 @@ from database import (
     update_item_uses,
     add_item_to_user
 )
-from config import cooldown
+from config import cooldown, check_cooldown, update_cooldown
 from logger import get_logger
 
 log = get_logger()
@@ -42,6 +42,23 @@ class PlayAgainView(ui.View):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("🚫 This isn't your command!", ephemeral=True)
         
+        # Cooldown mapping for economy commands
+        cooldowns = {
+            'run_crime': 8,
+            'run_slut': 10,
+            'run_work': 7
+        }
+        
+        cmd_name = self.callback.__name__
+        cl_duration = cooldowns.get(cmd_name, 5) # default 5s
+        
+        is_on_cooldown, retry_after = check_cooldown(self.user_id, cmd_name, cl_duration)
+        if is_on_cooldown:
+            return await interaction.response.send_message(
+                f"🕒 You're working too fast! Try again in {round(retry_after, 1)}s.",
+                ephemeral=True
+            )
+
         # Disable button and stop the view to prevent further clicks
         button.disabled = True
         self.stop()
@@ -51,6 +68,9 @@ class PlayAgainView(ui.View):
             await interaction.message.edit(view=self)
         except:
             pass  # Message might be deleted or inaccessible
+        
+        # Update cooldown timestamp before running
+        update_cooldown(self.user_id, cmd_name)
         
         # Run the callback with the new interaction (callback will respond)
         await self.callback(interaction, *self.args, **self.kwargs)
@@ -173,7 +193,7 @@ class EconomyCommands(app_commands.Group):
             messages = [
                 f"🕵️‍♂️ You successfully pickpocketed an old man and got 💰 `{amount}` coins.",
                 f"🔫 You robbed a small convenience store and walked away with 💰 `{amount}` coins.",
-                f"💻 You hacked into a bank’s system and stole 💰 `{amount}` coins. Nice job!",
+                f"💻 You hacked into a bank's system and stole 💰 `{amount}` coins. Nice job!",
                 f"💰 You successfully scammed someone and made 💰 `{amount}` coins.",
                 f"💵 You sold fake tickets and made 💰 `{amount}` coins."
             ]
@@ -263,7 +283,7 @@ class EconomyCommands(app_commands.Group):
         view.message = msg
 
     @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")
-    @cooldown(cl=6, tm=25.0, ft=3)
+    @cooldown(cl=7, tm=25.0, ft=3)
     async def work(self, interaction: discord.Interaction):
         await self.run_work(interaction)
 

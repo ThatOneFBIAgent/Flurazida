@@ -10,7 +10,7 @@ from discord.ui import Button, View
 
 # Local Imports
 from database import update_balance, get_balance
-from config import cooldown
+from config import cooldown, check_cooldown, update_cooldown
 from logger import get_logger
 
 log = get_logger()
@@ -30,6 +30,26 @@ class PlayAgainView(ui.View):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("🚫 This isn't your game!", ephemeral=True)
         
+        # Custom cooldown mapping for gambling commands
+        cooldowns = {
+            'run_blackjack': 20,
+            'run_slots': 5,
+            'run_coinflip': 5,
+            'run_war': 5,
+            'run_highlow': 5,
+            'run_roulette': 5
+        }
+        
+        cmd_name = self.callback.__name__
+        cl_duration = cooldowns.get(cmd_name, 5) # default 5s
+        
+        is_on_cooldown, retry_after = check_cooldown(self.user_id, cmd_name, cl_duration)
+        if is_on_cooldown:
+            return await interaction.response.send_message(
+                f"🕒 You're wagering too fast! Try again in {round(retry_after, 1)}s.",
+                ephemeral=True
+            )
+
         # Disable button and stop the view to prevent further clicks
         button.disabled = True
         self.stop()
@@ -39,6 +59,9 @@ class PlayAgainView(ui.View):
             await interaction.message.edit(view=self)
         except:
             pass  # Message might be deleted or inaccessible
+        
+        # Update cooldown timestamp before running
+        update_cooldown(self.user_id, cmd_name)
         
         # Run the callback with the new interaction (callback will respond)
         await self.callback(interaction, *self.args, **self.kwargs)
@@ -89,18 +112,28 @@ class HighLowView(ui.View):
 
     @ui.button(label="Higher ⬆️", style=discord.ButtonStyle.success)
     async def higher(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            return await interaction.response.send_message("🚫 Not your game!", ephemeral=True)
+        is_on_cooldown, retry_after = check_cooldown(self.user_id, "run_highlow", 5)
+        if is_on_cooldown:
+            return await interaction.response.send_message(
+                f"🕒 Slow down! Try again in {round(retry_after, 1)}s.",
+                ephemeral=True
+            )
         
+        update_cooldown(self.user_id, "run_highlow")
         next_card = random.randint(1, 13)
         won = next_card >= self.current_card
         await self.end_game(interaction, won, next_card)
 
     @ui.button(label="Lower ⬇️", style=discord.ButtonStyle.danger)
     async def lower(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.user_id:
-            return await interaction.response.send_message("🚫 Not your game!", ephemeral=True)
+        is_on_cooldown, retry_after = check_cooldown(self.user_id, "run_highlow", 5)
+        if is_on_cooldown:
+            return await interaction.response.send_message(
+                f"🕒 Slow down! Try again in {round(retry_after, 1)}s.",
+                ephemeral=True
+            )
         
+        update_cooldown(self.user_id, "run_highlow")
         next_card = random.randint(1, 13)
         won = next_card <= self.current_card
         await self.end_game(interaction, won, next_card)

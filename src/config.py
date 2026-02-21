@@ -71,6 +71,20 @@ log.propagate = False
 _user_command_cooldowns = {}
 _command_failures = {}
 
+def check_cooldown(user_id: int, command_name: str, cooldown_seconds: float) -> tuple[bool, float]:
+    """Check if a user is on cooldown for a command. Returns (is_on_cooldown, retry_after)"""
+    key = (user_id, command_name)
+    now = time.time()
+    if key in _user_command_cooldowns:
+        elapsed = now - _user_command_cooldowns[key]
+        if elapsed < cooldown_seconds:
+            return True, cooldown_seconds - elapsed
+    return False, 0.0
+
+def update_cooldown(user_id: int, command_name: str):
+    """Update the cooldown timestamp for a user and command."""
+    _user_command_cooldowns[(user_id, command_name)] = time.time()
+
 # reason we use equals to all three is so even if we forget one it still works with defaults, although that "none" error is annoying
 def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
     """
@@ -94,21 +108,19 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
 
             user_id = interaction.user.id
             command_name = func.__name__
-            key = (user_id, command_name)
-            now = time.time()
-
+            
             # --- cooldown check ---
-            if cl > 0 and key in _user_command_cooldowns:
-                elapsed = now - _user_command_cooldowns[key]
-                if elapsed < cl:
+            if cl > 0:
+                is_on_cooldown, retry_after = check_cooldown(user_id, command_name, cl)
+                if is_on_cooldown:
                     await interaction.response.send_message(
-                        f"🕒 That command's on cooldown! Try again in {round(cl - elapsed, 1)}s.",
+                        f"🕒 That command's on cooldown! Try again in {round(retry_after, 1)}s.",
                         ephemeral=True,
                     )
-                    log.warningtrace(f"[Cooldown] {command_name} by {user_id} (wait {round(cl - elapsed, 1)}s)")
+                    log.warningtrace(f"[Cooldown] {command_name} by {user_id} (wait {round(retry_after, 1)}s)")
                     return
 
-            _user_command_cooldowns[key] = now
+            update_cooldown(user_id, command_name)
 
             # --- main run + timeout ---
             if nw:
@@ -219,10 +231,10 @@ ACTIVITIES_V2 = {
     'UNCOMMON': [
         {'act': Game("finding Avogadro's number"), 'w': 5},
         {'act': Game("with unstable isotopes"), 'w': 4},
-        {'act': Game("reaction kinetics"), 'w': 5},
-        {'act': Game("aligning electron orbitals"), 'w': 4},
-        {'act': Game("titrating weak acids like a pro"), 'w': 4},
-        {'act': Game("predicting UV-Vis peaks"), 'w': 4},
+        {'act': Game("with reaction kinetics"), 'w': 5},
+        {'act': Game("the electron aligment game"), 'w': 4},
+        {'act': Game("Titrantus: The Acid-Base Chronicles"), 'w': 4},
+        {'act': Game("with UV-Vis peaks"), 'w': 4},
         {'act': Activity(type=ActivityType.listening, name="bubbling beakers"), 'w': 5},
         {'act': Activity(type=ActivityType.listening, name="periodic table diss tracks"), 'w': 3},
         {'act': Activity(type=ActivityType.listening, name="sonochemistry's rambunctiousness"), 'w': 3},
@@ -234,8 +246,8 @@ ACTIVITIES_V2 = {
     'RARE': [
         {'act': Game("with forbidden compounds"), 'w': 2},
         {'act': Game("quantum tunneling hide-and-seek"), 'w': 2},
-        {'act': Game("constructing molecular orbital diagrams"), 'w': 2},
-        {'act': Game("solving Schrödinger's equation for fun"), 'w': 2},
+        {'act': Game("Diagramus: The Orbital Alignment Saga"), 'w': 2},
+        {'act': Game("with Schrödinger's equation for fun"), 'w': 2},
         {'act': Game("with quantum dots"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="neutrino whispers"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="Pauli principle sermons"), 'w': 1},
@@ -250,7 +262,7 @@ ACTIVITIES_V2 = {
         {'act': Game("in the lab... unsupervised"), 'w': 10},
         {'act': Game("experiment roulette"), 'w': 9},
         {'act': Game("atomic tag"), 'w': 8},
-        {'act': Game("crystal hunting"), 'w': 6},
+        {'act': Game("with crystals"), 'w': 6},
         {'act': Activity(type=ActivityType.listening, name="a centrifuge"), 'w': 7},
         {'act': Activity(type=ActivityType.listening, name="laser hums"), 'w': 6},
         {'act': Activity(type=ActivityType.listening, name="to the fusion reactor"), 'w': 6},
@@ -263,9 +275,9 @@ ACTIVITIES_V2 = {
         {'act': Game("acid roulette"), 'w': 4},
         {'act': Game("with questionable solvents"), 'w': 4},
         {'act': Game("with radioactive decay"), 'w': 3},
-        {'act': Game("isolating carbocations safely"), 'w': 3},
-        {'act': Game("assembling a Grignard reagent"), 'w': 2},
-        {'act': Game("attempting a Williamson ether synthesis"), 'w': 2},
+        {'act': Game("Carbonicus: the isolation game"), 'w': 3},
+        {'act': Game("with Grignard reagents"), 'w': 2},
+        {'act': Game("in Williamson's beakers"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="radioactive decay beats"), 'w': 2},
         {'act': Activity(type=ActivityType.listening, name="a lab explosion"), 'w': 3},
         {'act': Activity(type=ActivityType.listening, name="John Dalton's schizophrenia"), 'w': 2},
@@ -280,10 +292,10 @@ ACTIVITIES_V2 = {
         {'act': Game("Minecraft: Nilered edition"), 'w': 1},
         {'act': Game("with superacids"), 'w': 1},
         {'act': Game("with positrons"), 'w': 1},
-        {'act': Game("DFT simulations for giggles"), 'w': 1},
-        {'act': Game("playing with organometallic catalysts"), 'w': 1},
+        {'act': Game("with DFT simulations for giggles"), 'w': 1},
+        {'act': Game("with organometallic catalysts"), 'w': 1},
         {'act': Activity(type=ActivityType.listening, name="a chemical spill"), 'w': 1},
-        {'act': Activity(type=ActivityType.listening, name="radioactive decay beats"), 'w': 1},
+        {'act': Activity(type=ActivityType.listening, name="cherekov radiation"), 'w': 1},
         {'act': Activity(type=ActivityType.listening, name="a lab explosion"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="the lab spontaneously combust"), 'w': 1},
         {'act': Activity(type=ActivityType.watching, name="moles commit tax fraud"), 'w': 1},

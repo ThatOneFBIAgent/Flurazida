@@ -340,7 +340,7 @@ class FunCommands(app_commands.Group):
             final_text = f"✅ Hack complete! Collected a tasteful pile of totally-fictional evidence on {target.display_name}."
 
         # perform stages with progress updates
-        total = min(len(stages), 15)
+        total = random.randint(4, 6)
         for i, stage in enumerate(random.sample(stages, k=total)):
             progress = int(((i + 1) / total) * 95)
             blocks = "█" * (progress * bar_len // 100)
