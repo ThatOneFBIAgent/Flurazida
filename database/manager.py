@@ -60,8 +60,8 @@ def log_mod_call(func):
     return wrapper
 
 # ===================== Google Drive Backup Settings =====================
-TOKEN_ENV = "GDRIVE_TOKEN_B64"
-CREDENTIALS_ENV = "GDRIVE_CREDENTIALS_B64"
+TOKEN_ENV = "DRIVE_TOKEN_B64"
+CREDENTIALS_ENV = "DRIVE_CREDENTIALS_B64"
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def load_creds_local():
@@ -70,19 +70,21 @@ def load_creds_local():
     return Credentials.from_authorized_user_info(token_info, SCOPES)
 
 def load_creds_from_env():
-    token_b64 = os.environ.get(TOKEN_ENV)
+    # Try the user's requested 'DRIVE_' prefix first, then fallback to 'GDRIVE_'
+    token_b64 = os.environ.get(TOKEN_ENV) or os.environ.get(f"G{TOKEN_ENV}")
     if not token_b64:
-        raise RuntimeError(f"{TOKEN_ENV} not set in environment")
+        raise RuntimeError(f"Neither {TOKEN_ENV} nor G{TOKEN_ENV} found in environment.")
     token_json = base64.b64decode(token_b64).decode()
     token_info = json.loads(token_json)
-    if ("client_id" not in token_info or "client_secret" not in token_info) and (CREDENTIALS_ENV in os.environ):
-        creds_b64 = os.environ.get(CREDENTIALS_ENV)
-        creds_json = base64.b64decode(creds_b64).decode()
-        creds_info = json.loads(creds_json)
-        client_block = creds_info.get("installed") or creds_info.get("web") or {}
-        token_info.setdefault("client_id", client_block.get("client_id"))
-        token_info.setdefault("client_secret", client_block.get("client_secret"))
-        token_info.setdefault("token_uri", client_block.get("token_uri") or "https://oauth2.googleapis.com/token")
+    if ("client_id" not in token_info or "client_secret" not in token_info):
+        creds_b64 = os.environ.get(CREDENTIALS_ENV) or os.environ.get(f"G{CREDENTIALS_ENV}")
+        if creds_b64:
+            creds_json = base64.b64decode(creds_b64).decode()
+            creds_info = json.loads(creds_json)
+            client_block = creds_info.get("installed") or creds_info.get("web") or {}
+            token_info.setdefault("client_id", client_block.get("client_id"))
+            token_info.setdefault("client_secret", client_block.get("client_secret"))
+            token_info.setdefault("token_uri", client_block.get("token_uri") or "https://oauth2.googleapis.com/token")
     creds = Credentials.from_authorized_user_info(token_info, SCOPES)
     if creds.expired and creds.refresh_token:
         try:
