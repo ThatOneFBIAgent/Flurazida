@@ -23,6 +23,7 @@ FORBIDDEN_GUILDS = {
 # Forbidden users (user_id: reason)
 FORBIDDEN_USERS = {
     935179133598711809: {"reason": "N/a"},
+    743858570776543404: {"reason": "Don't feel like it"},
 }
 
 # Image processing limits
