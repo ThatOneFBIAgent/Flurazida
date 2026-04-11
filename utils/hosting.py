@@ -4,7 +4,7 @@ import aiohttp
 import io
 import os
 from typing import Optional
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 

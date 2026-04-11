@@ -15,6 +15,10 @@ pyzbar
 numpy
 aiosqlite
 
+# Testing
+pytest
+pytest-asyncio
+
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
 # aiomysql                  # async client

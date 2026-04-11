@@ -50,12 +50,14 @@ Flurazide exists to provide a "one-stop shop" for Discord server utility and ent
 
 ### 🛠️ Moderation & Utility
 - **Automated Sanctions**: Efficiently manage bans, kicks, and message clearing.
+- **Case System**: Full moderation case management with search, edit, and pagination.
 - **Backup System**: Automated database backups to Google Drive via service account integration.
 - **Server Metrics**: Detailed `/serverinfo` and `/info` commands for deep insights.
 
 ### 🎲 Miscellaneous & Fun
 - **Interactive Games**: 8-ball, dice rolling with advanced expression support (`/roll 1d20+5`), and simulated "hacks".
 - **External APIs**: Integration with PokéAPI, XKCD, random cat/dog image providers and so much more.
+- **Utilities**: Currency exchange, height conversion, Urban Dictionary lookup, and Base64 encoding.
 
 ---
 
@@ -105,7 +107,8 @@ Flurazide exists to provide a "one-stop shop" for Discord server utility and ent
 ## 🚢 Deployment
 
 ### 🐳 Local Docker Build
-Run the bot locally in a containerized environment:
+The Dockerfile uses a **multi-stage build** to keep the final image slim and reduce memory consumption:
+
 1. **Build the image:**
    ```bash
    docker build -t flurazide-bot .
@@ -114,6 +117,8 @@ Run the bot locally in a containerized environment:
    ```bash
    docker run --env-file .env flurazide-bot
    ```
+
+> **RAM Note:** The optimized Dockerfile separates build-time dependencies (compilers, dev headers) from runtime, resulting in a significantly smaller image with lower memory footprint.
 
 ### ⚡ Railway Deployment
 Deploying to Railway is streamlined via the included `Dockerfile` and `Procfile`:
@@ -151,7 +156,7 @@ Create a `.env` file (or use the `.env/` directory) with the following:
 | `DRIVE_TOKEN_B64` | Base64 encoded Google Drive token (Optional for backups) |
 
 ### Internal Configuration
-Modify `src/extraconfig.py` for advanced settings:
+Modify `extraconfig.py` for advanced settings:
 - `BOT_OWNER`: Your Discord User ID.
 - `BACKUP_FOLDER_ID`: Google Drive folder ID for automated database backups.
 - `FORBIDDEN_GUILDS`/`FORBIDDEN_USERS`: Blacklist management.
@@ -162,30 +167,44 @@ Modify `src/extraconfig.py` for advanced settings:
 
 ```text
 Flurazide/
-├── src/
-│   ├── main.py            # Entry point
-│   ├── config.py          # Core configuration
-│   ├── database.py        # SQLite & Backup logic
-│   ├── logger.py          # Custom event logging
-│   ├── commands/          # Bot modules (Cogs)
-│   │   ├── economy.py     # Currency & Shop
-│   │   ├── fun.py         # Games & APIs
-│   │   ├── image.py       # PIL processing
-│   │   └── moderator.py   # Admin tools
-│   └── utils/             # Helper functions
-├── resources/             # Assets (Fonts, etc.)
-├── requirements.txt       # Dependencies
-└── LICENSE                # AGPLv3 License
+├── bot.py                  # Minimal entry point (signals & startup)
+├── main.py                 # Bot class & setup hook
+├── commands/               # Bot command cogs
+│   ├── economy.py          # Currency & Shop
+│   ├── fun.py              # Games & APIs
+│   ├── gambling.py         # Casino games
+│   ├── image.py            # PIL processing
+│   ├── moderator.py        # Admin tools
+│   └── shop.py             # Shop system
+├── data/                   # SQLite databases (auto-created)
+├── utils/                  # Helper functions
+├── database/               # Database management module
+│   ├── manager.py          # All DB operations and backups
+│   └── items.py            # Shop items definition and effects list
+├── logging_modules/        # Custom logging system
+│   └── custom_logger.py    # Environment-aware logging
+├── services/               # External service integrations
+│   └── cloudflare_ping.py  # Cloudflare latency checker
+├── tests/                  # Pytest suite
+│   └── test_database.py    # Economy, shop, items, moderation tests
+├── config.py               # Core configuration & cooldowns
+├── extraconfig.py          # Advanced settings & secrets
+├── resources/              # Assets (Fonts, etc.)
+├── requirements.txt        # Dependencies
+├── dockerfile              # Multi-stage Docker build
+├── Procfile                # Railway process definition
+├── pyproject.toml          # Pytest configuration
+└── LICENSE                 # AGPLv3 License
 ```
 
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] **Phase 0**: Clean up codebase and add tests.
-- [ ] **Phase 1**: Migration from SQLite to MySQL for better scalability.
-- [ ] **Phase 2**: Website dashboard for configurations.
-- [ ] **Phase 3**: Higher efficiency image manipulation.
+- [x] **Phase 0**: Clean up codebase, modular architecture, add tests.
+- [ ] **Phase 1**: Higher efficiency image manipulation.
+- [ ] **Phase 2**: Migration from SQLite to MySQL for better scalability.
+- [ ] **Phase 3**: Website dashboard for configurations.
 - [ ] **Phase 4**: Localization support.
 
 ---
@@ -205,7 +224,20 @@ Contributions are welcome! Please follow these steps:
 
 ## 🧪 Testing
 
-Unfortunately Flurazide does not come with any preinstalled tests (via Pytest). A major overhaul of the codebase for cleanups will be set in place.
+Flurazide includes a full Pytest suite. To run the tests:
+
+```bash
+python -m pytest tests/ -v
+```
+
+Tests cover:
+- **Economy operations**: Balance updates, debt floor clamping, user creation.
+- **Shop system**: Item purchasing, insufficient funds, inventory management.
+- **Item effects** (`use_item`): Use decrementing, last-use removal, robbery/defense modifiers, all 11 shop items.
+- **Gun defense**: Gun check, use decrement.
+- **Moderation**: Case insert/get/edit/delete, per-guild numbering.
+
+> All 29 tests are passing. Configuration is in `pyproject.toml` with `asyncio_mode = "auto"`.
 
 ---
 

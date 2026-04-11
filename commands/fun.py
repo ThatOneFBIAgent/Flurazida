@@ -27,11 +27,11 @@ from discord import app_commands, Interaction, Embed
 
 
 # Local Imports
-import CloudflarePing as cf
+import services.cloudflare_ping as cf
 import config
 from config import cooldown, IS_ALPHA
 from extraconfig import BOT_OWNER
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 from utils.roll_logic import execute_roll
 from utils.eightball_responses import EIGHTBALL_RESPONSES
 
@@ -48,7 +48,8 @@ class FunCommands(app_commands.Group):
         self.bot = bot
         self.process = psutil.Process(os.getpid())
         psutil.cpu_percent(interval=None) 
-
+        # channel_id: (comic_num, timestamp)
+        self.xkcd_history = {}
     # table tennis?
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(cl=10, tm=30.0, ft=3)
@@ -756,49 +757,103 @@ class FunCommands(app_commands.Group):
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-    @app_commands.command(name="xkcd", description="Get a random XKCD comic.")
-    @app_commands.describe(comic="The comic number to fetch (leave empty for random comic)")
-    @cooldown(cl=7, tm=25.0, ft=3)
-    async def xkcd(self, interaction: discord.Interaction, comic: int | None = None):
+    @app_commands.command(name="xkcd", description="Get an XKCD comic and optional explanation.")
+    @app_commands.describe(
+        comic="The comic number to fetch (leave empty for random or most recent)",
+        explain="Set to True to show the explanation from explainxkcd.com"
+    )
+    @cooldown(cl=7, tm=30.0, ft=3)
+    async def xkcd(self, interaction: discord.Interaction, comic: int | None = None, explain: bool = False):
         await interaction.response.defer(ephemeral=False)
-        log.trace(f"XKCD invoked by {interaction.user.id}: {comic}")
+        log.trace(f"XKCD invoked by {interaction.user.id}: comic={comic}, explain={explain}")
         session = self.bot.http_session
         if not session:
             await interaction.followup.send("❌ HTTP session not available.", ephemeral=True)
             return
-        # First get the latest comic number
-        async with session.get("https://xkcd.com/info.0.json") as resp:
-            if resp.status != 200:
-                log.error(f"XKCD API failed (latest): {resp.status}")
-                await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                return
-            latest_data = await resp.json()
-            latest_num = latest_data['num']
 
-        if comic:
-            if comic < 1 or comic > latest_num:
-                log.error(f"XKCD API failed (comic {comic}): Comic number must be between 1 and {latest_num}")
-                return await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
-            async with session.get(f"https://xkcd.com/{comic}/info.0.json") as resp:
-                if resp.status != 200:
-                    log.error(f"XKCD API failed (comic {comic}): {resp.status}")
-                    return await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                comic_data = await resp.json()
-        else:
-            rand_num = random.randint(1, latest_num)
-            async with session.get(f"https://xkcd.com/{rand_num}/info.0.json") as resp:
-                if resp.status != 200:
-                    log.error(f"XKCD API failed (comic {rand_num}): {resp.status}")
-                    return await interaction.followup.send("❌ Failed to fetch XKCD comic.", ephemeral=True)
-                comic_data = await resp.json()
+        # 1. Determine target comic number
+        latest_num = None
+        try:
+            async with session.get("https://xkcd.com/info.0.json") as resp:
+                if resp.status == 200:
+                    latest_data = await resp.json()
+                    latest_num = latest_data['num']
+        except Exception as e:
+            log.error(f"XKCD metadata error: {e}")
 
+        target_num = comic
+        if target_num is None:
+            if explain:
+                # If explaining without a number, check history
+                history = self.xkcd_history.get(interaction.channel_id)
+                if history and (time.time() - history[1] <= 3600):
+                    target_num = history[0]
+                else:
+                    # No recent history? Just pick random if latest_num exists
+                    if latest_num:
+                        target_num = random.randint(1, latest_num)
+                    else:
+                        return await interaction.followup.send("❌ Could not determine comic number.", ephemeral=True)
+            else:
+                # Just random
+                if latest_num:
+                    target_num = random.randint(1, latest_num)
+                else:
+                    return await interaction.followup.send("❌ Could not fetch metadata for random comic.", ephemeral=True)
+
+        if latest_num and (target_num < 1 or target_num > latest_num):
+            return await interaction.followup.send(f"❌ Comic number must be between 1 and {latest_num}.", ephemeral=True)
+
+        # 2. Fetch Comic Image Data
+        try:
+            async with session.get(f"https://xkcd.com/{target_num}/info.0.json") as resp:
+                if resp.status != 200:
+                    return await interaction.followup.send(f"❌ Failed to fetch comic #{target_num}.", ephemeral=True)
+                comic_data = await resp.json()
+        except Exception:
+            return await interaction.followup.send("❌ Error contacting XKCD API.", ephemeral=True)
+
+        # Update history
+        self.xkcd_history[interaction.channel_id] = (comic_data['num'], time.time())
+
+        # 3. Handle Explanation if requested
+        explanation_text = None
+        explain_url = f"https://www.explainxkcd.com/wiki/index.php/{target_num}"
+        
+        if explain:
+            try:
+                # We use the raw text scraping approach for speed
+                async with session.get(explain_url) as resp:
+                    if resp.status == 200:
+                        html = await resp.text()
+                        # Simple regex/split parsing for the "Explanation" section
+                        # We look for <span class="mw-headline" id="Explanation">Explanation</span>
+                        # and extract everything until the next header.
+                        parts = re.split(r'<h2><span class="mw-headline" id="Explanation">Explanation</span>.*?</h2>', html, flags=re.DOTALL)
+                        if len(parts) > 1:
+                            content = parts[1].split('<h2>')[0]
+                            # Clean up HTML tags
+                            explanation_text = re.sub(r'<[^>]+>', '', content).strip()
+                            # Truncate and clean whitespace
+                            explanation_text = " ".join(explanation_text.split())
+                            if len(explanation_text) > 800:
+                                explanation_text = explanation_text[:797] + "..."
+            except Exception as e:
+                log.error(f"Failed to scrape explanation for #{target_num}: {e}")
+
+        # 4. Build Embed
         embed = discord.Embed(
-            title=f"XKCD Comic #{comic_data['num']}: {comic_data['title']}",
+            title=f"XKCD #{comic_data['num']}: {comic_data['title']}",
             url=f"https://xkcd.com/{comic_data['num']}/",
             color=0x3498db
         )
-        embed.set_image(url=comic_data['img'].replace('-small', ''))  # Use full resolution image
+        embed.set_image(url=comic_data['img'].replace('-small', ''))
         embed.set_footer(text=comic_data.get('alt', ''))
+
+        if explain:
+            val = explanation_text or "Could not extract text. Click the link above to read!"
+            embed.add_field(name="💡 Explanation", value=val, inline=False)
+            embed.add_field(name="🔗 Source", value=f"[explainxkcd.com]({explain_url})", inline=False)
 
         await interaction.followup.send(embed=embed, ephemeral=False)
 
@@ -880,13 +935,18 @@ class FunCommands(app_commands.Group):
         else:
             uptime_seconds = int(now - bot_start_time)
 
+        total_rss_mb = mem.rss / (1024 * 1024)
+
         shard_stats = []
         for shard_id, shard in self.bot.shards.items():
             shard_latency = round(shard.latency * 1000, 2)
-            # estimate memory per shard
-            mem_mb = mem.rss / (len(self.bot.shards) or 1) / (1024 * 1024)
+            shard_guilds = [g for g in self.bot.guilds if g.shard_id == shard_id]
+            shard_members = sum(g.member_count or 0 for g in shard_guilds)
             marker = " < You're here" if shard_id == current_shard else ""
-            shard_stats.append(f"`Shard {shard_id}` | 🧠 {mem_mb:.1f} MB | 📶 {shard_latency} ms{marker}")
+            shard_stats.append(
+                f"`Shard {shard_id}` | 🏠 {len(shard_guilds)} guilds "
+                f"({shard_members} users) | 📶 {shard_latency} ms{marker}"
+            )
 
         def format_uptime(seconds: int):
             days, seconds = divmod(seconds, 86400)
@@ -921,7 +981,8 @@ class FunCommands(app_commands.Group):
             name="🧠 Host System",
             value=(
                 f"**CPU:** `{cpu_count}` cores @ `{cpu_freq.current:.0f}` MHz\n"
-                f"**RAM:** `{used_mem:.0f}` / `{total_mem:.0f}` GB\n"
+                f"**System RAM:** `{used_mem:.1f}` / `{total_mem:.1f}` GB\n"
+                f"**Bot RSS:** `{total_rss_mb:.1f}` MB\n"
                 f"**OS:** {platform.system()} {platform.release()}"
             ),
             inline=True

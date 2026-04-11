@@ -21,10 +21,11 @@ from database import (
     decrement_gun_use,
     remove_item_from_user,
     update_item_uses,
-    add_item_to_user
+    add_item_to_user,
+    atomic_deduct
 )
 from config import cooldown, check_cooldown, update_cooldown
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 from discord import ui
@@ -335,12 +336,11 @@ class EconomyCommands(app_commands.Group):
             await interaction.followup.send("❌ Invalid amount!", ephemeral=True)
             return
 
-        balance = await get_balance(user_id)
-        if balance < amount:
+        success = await atomic_deduct(user_id, amount)
+        if not success:
             await interaction.followup.send("❌ You don't have enough coins!", ephemeral=True)
             return
 
-        await update_balance(user_id, -amount)
         await update_balance(target_id, amount)
         log.successtrace(f"User {user_id} transferred {amount} coins to {target_id}")
 

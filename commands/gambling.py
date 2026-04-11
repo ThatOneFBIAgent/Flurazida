@@ -9,9 +9,9 @@ from discord import app_commands, Interaction, ui
 from discord.ui import Button, View
 
 # Local Imports
-from database import update_balance, get_balance
+from database import update_balance, get_balance, atomic_deduct
 from config import cooldown, check_cooldown, update_cooldown
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 
@@ -90,13 +90,12 @@ class HighLowView(ui.View):
 
     async def end_game(self, interaction, won, next_card):
         if won:
-            win = self.bet
+            win = self.bet * 2
             await update_balance(self.user_id, win)
-            log.successtrace(f"HighLow win for {self.user_id}: {win}")
-            result = f"✨ **Correct!** Next card was **{next_card}**. You won `{win}` coins! ✨"
+            log.successtrace(f"HighLow win for {self.user_id}: {self.bet}")
+            result = f"✨ **Correct!** Next card was **{next_card}**. You won `{self.bet}` coins! ✨"
             color = 0x00FF00
         else:
-            await update_balance(self.user_id, -self.bet)
             log.successtrace(f"HighLow loss for {self.user_id}: {self.bet}")
             result = f"❌ **Wrong!** Next card was **{next_card}**. You lost `{self.bet}` coins."
             color = 0xFF0000
@@ -258,15 +257,14 @@ class GamblingCommands(app_commands.Group):
             dealer_val = self.hand_value(self.dealer)
 
             if dealer_val > 21 or player_val > dealer_val:
-                await update_balance(self.user_id, self.bet)
+                await update_balance(self.user_id, self.bet * 2) # They already lost the bet initially, so win is bet * 2
                 log.successtrace(f"Blackjack win for {self.user_id}: {self.bet}")
                 result = f"✨ **You win `{self.bet * 2}` coins!** ✨"
             elif player_val < dealer_val:
-                await update_balance(self.user_id, -self.bet)
                 log.successtrace(f"Blackjack loss for {self.user_id}: {self.bet}")
                 result = "💀 **Dealer wins!**"
             else:
-                await update_balance(self.user_id, 0)
+                await update_balance(self.user_id, self.bet) # Bet returned
                 log.successtrace(f"Blackjack push for {self.user_id}")
                 result = "⚖️ **It's a tie! You get your bet back.**"
                 
@@ -298,13 +296,16 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
-        balance = await get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-             log.warningtrace(f"Blackjack blocked (debt) for {user_id}: {balance}")
-             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
-        if bet > max(0, balance):
-             log.warningtrace(f"Blackjack blocked (funds) for {user_id}: {bet} > {balance}")
-             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+        # Atomic deduction to prevent race conditions
+        success = await atomic_deduct(user_id, bet)
+        if not success:
+            balance = await get_balance(user_id)
+            if balance <= DEBT_FLOOR:
+                 log.warningtrace(f"Blackjack blocked (debt) for {user_id}: {balance}")
+                 return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+            else:
+                 log.warningtrace(f"Blackjack blocked (funds) for {user_id}: {bet} > {balance}")
+                 return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         # Deck setup
         ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
@@ -353,21 +354,23 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
 
         user_id = interaction.user.id
-        balance = await get_balance(user_id)
-
-        if balance <= DEBT_FLOOR:
-            log.warningtrace(f"Slots blocked (debt) for {user_id}: {balance}")
-            return await interaction.followup.send(
-                f'💸 You are too deep in debt ({balance} coins)! No gambling.',
-                ephemeral=True
-            )
-
-        if bet > max(0, balance):
-            log.warningtrace(f"Slots blocked (funds) for {user_id}: {bet} > {balance}")
-            return await interaction.followup.send(
-                f'❌ You don\'t have enough coins for this bet! (Balance: {balance})',
-                ephemeral=True
-            )
+        
+        # Atomic deduction to prevent race conditions
+        success = await atomic_deduct(user_id, bet)
+        if not success:
+            balance = await get_balance(user_id)
+            if balance <= DEBT_FLOOR:
+                log.warningtrace(f"Slots blocked (debt) for {user_id}: {balance}")
+                return await interaction.followup.send(
+                    f'💸 You are too deep in debt ({balance} coins)! No gambling.',
+                    ephemeral=True
+                )
+            else:
+                log.warningtrace(f"Slots blocked (funds) for {user_id}: {bet} > {balance}")
+                return await interaction.followup.send(
+                    f'❌ You don\'t have enough coins for this bet! (Balance: {balance})',
+                    ephemeral=True
+                )
 
         PAYOUT = {
             # commons
@@ -455,12 +458,16 @@ class GamblingCommands(app_commands.Group):
         win_amount = 0
         lose_amount = bet
 
-        # final balance update
+        # final balance update (bet already removed, only win needs to be updated)
         total_multiplier = evaluate_spin(grid)
-
         win_amount = int(bet * total_multiplier)
-        net = win_amount - bet
-        await update_balance(user_id, net)
+
+        # Net is what we showed they got.
+        net = win_amount - bet 
+        
+        if win_amount > 0:
+            await update_balance(user_id, win_amount)
+            
         log.successtrace(f"Slots result for {user_id}: net {net}")
 
         # build lines for display
@@ -503,25 +510,28 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
-        balance = await get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-             log.warningtrace(f"Coinflip blocked (debt) for {user_id}: {balance}")
-             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
-        if bet > max(0, balance):
-             log.warningtrace(f"Coinflip blocked (funds) for {user_id}: {bet} > {balance}")
-             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+        # Atomic deduction to prevent race conditions
+        success = await atomic_deduct(user_id, bet)
+        if not success:
+            balance = await get_balance(user_id)
+            if balance <= DEBT_FLOOR:
+                 log.warningtrace(f"Coinflip blocked (debt) for {user_id}: {balance}")
+                 return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+            else:
+                 log.warningtrace(f"Coinflip blocked (funds) for {user_id}: {bet} > {balance}")
+                 return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         outcome = random.choice(["heads", "tails"])
         won = choice.lower() == outcome
         
         if won:
-            win = bet
-            result = f"✨ It was **{outcome.title()}**! You won `{win}` coins! ✨"
+            win = bet * 2 # They won 2 times bet (original + profit)
+            result = f"✨ It was **{outcome.title()}**! You won `{bet}` coins! ✨"
             await update_balance(user_id, win)
-            log.successtrace(f"Coinflip win for {user_id}: {win}")
+            log.successtrace(f"Coinflip win for {user_id}: {bet}")
         else:
             result = f"❌ It was **{outcome.title()}**. You lost `{bet}` coins."
-            await update_balance(user_id, -bet)
+            # Bet already taken via atomic deduct
             log.successtrace(f"Coinflip loss for {user_id}: {bet}")
             
         embed = discord.Embed(
@@ -551,13 +561,16 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
-        balance = await get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-             log.warningtrace(f"War blocked (debt) for {user_id}: {balance}")
-             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
-        if bet > max(0, balance):
-             log.warningtrace(f"War blocked (funds) for {user_id}: {bet} > {balance}")
-             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+        # Atomic deduction to prevent race conditions
+        success = await atomic_deduct(user_id, bet)
+        if not success:
+            balance = await get_balance(user_id)
+            if balance <= DEBT_FLOOR:
+                 log.warningtrace(f"War blocked (debt) for {user_id}: {balance}")
+                 return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+            else:
+                 log.warningtrace(f"War blocked (funds) for {user_id}: {bet} > {balance}")
+                 return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         player_card = random.randint(1, 13)
         dealer_card = random.randint(1, 13)
@@ -570,20 +583,19 @@ class GamblingCommands(app_commands.Group):
             return str(val)
 
         if player_card > dealer_card:
-            win = bet
-            result = f"✨ **You won!** `{win}` coins! ✨"
+            win = bet * 2
+            result = f"✨ **You won!** `{bet}` coins! ✨"
             color = 0x00FF00
             await update_balance(user_id, win)
-            log.successtrace(f"War win for {user_id}: {win}")
+            log.successtrace(f"War win for {user_id}: {bet}")
         elif player_card < dealer_card:
             result = f"❌ **You lost!** `{bet}` coins."
             color = 0xFF0000
-            await update_balance(user_id, -bet)
             log.successtrace(f"War loss for {user_id}: {bet}")
         else:
             result = "⚖️ **It's a tie!** Bet returned."
             color = 0xFFFF00
-            await update_balance(user_id, 0)
+            await update_balance(user_id, bet)
             log.successtrace(f"War tie for {user_id}")
             
         embed = discord.Embed(
@@ -609,13 +621,16 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
-        balance = await get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-             log.warningtrace(f"HighLow blocked (debt) for {user_id}: {balance}")
-             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
-        if bet > max(0, balance):
-             log.warningtrace(f"HighLow blocked (funds) for {user_id}: {bet} > {balance}")
-             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+        # Atomic deduction to prevent race conditions
+        success = await atomic_deduct(user_id, bet)
+        if not success:
+            balance = await get_balance(user_id)
+            if balance <= DEBT_FLOOR:
+                 log.warningtrace(f"HighLow blocked (debt) for {user_id}: {balance}")
+                 return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+            else:
+                 log.warningtrace(f"HighLow blocked (funds) for {user_id}: {bet} > {balance}")
+                 return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         first_card = random.randint(1, 13)
         
@@ -649,13 +664,16 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
-        balance = await get_balance(user_id)
-        if balance <= DEBT_FLOOR:
-             log.warningtrace(f"Roulette blocked (debt) for {user_id}: {balance}")
-             return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
-        if bet > max(0, balance):
-             log.warningtrace(f"Roulette blocked (funds) for {user_id}: {bet} > {balance}")
-             return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
+        # Atomic deduction to prevent race conditions
+        success = await atomic_deduct(user_id, bet)
+        if not success:
+            balance = await get_balance(user_id)
+            if balance <= DEBT_FLOOR:
+                 log.warningtrace(f"Roulette blocked (debt) for {user_id}: {balance}")
+                 return await interaction.followup.send(f'💸 You are too deep in debt ({balance} coins)! No gambling.', ephemeral=True)
+            else:
+                 log.warningtrace(f"Roulette blocked (funds) for {user_id}: {bet} > {balance}")
+                 return await interaction.followup.send(f'❌ You don\'t have enough coins for this bet! (Balance: {balance})', ephemeral=True)
 
         # Parse choice
         choice = choice_str.lower().strip()
@@ -724,13 +742,12 @@ class GamblingCommands(app_commands.Group):
             win_amount = bet * multiplier
             net_win = win_amount - bet
             
-            payout = bet * (multiplier - 1)
+            payout = bet * multiplier # Add the multiplier correctly (bet already gone, we give them bet * multiplier)
             await update_balance(user_id, payout)
             
-            result_text = f"✨ **It landed on {result_color.title()} {result_num}!**\nYou won `{payout + bet}` coins! (Multiplier: {multiplier}x) ✨"
+            result_text = f"✨ **It landed on {result_color.title()} {result_num}!**\nYou won `{payout - bet}` coins! (Multiplier: {multiplier}x) ✨"
             color_hex = 0x00FF00
         else:
-            await update_balance(user_id, -bet)
             result_text = f"❌ **It landed on {result_color.title()} {result_num}.**\nYou lost `{bet}` coins."
             color_hex = 0xFF0000
 

@@ -4,7 +4,7 @@
 import random
 import re
 from typing import Dict, List, Tuple, Optional
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 

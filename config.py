@@ -18,7 +18,7 @@ from discord import File, Interaction, Game, Activity, ActivityType
 from dotenv import load_dotenv
 
 # Ensure we import get_logger used below
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 from extraconfig import (
     ALPHA,
     BOT_OWNER,
@@ -28,8 +28,17 @@ from extraconfig import (
     FORBIDDEN_USERS,
 )
 
-# Correctly load .env from project root's .env folder (project_root/.env/.env)
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env", ".env"))
+# Load .env — try subfolder first (.env/.env), then root (.env)
+_project_root = os.path.dirname(os.path.abspath(__file__))
+_env_subfolder = os.path.join(_project_root, ".env", ".env")
+_env_root = os.path.join(_project_root, ".env")
+
+if os.path.isfile(_env_subfolder):
+    load_dotenv(dotenv_path=_env_subfolder)
+elif os.path.isfile(_env_root):
+    load_dotenv(dotenv_path=_env_root)
+else:
+    load_dotenv()  # fallback: let python-dotenv search normally
 
 IS_ALPHA = ALPHA  # Set to False when you're ready to switch to the main bot
 

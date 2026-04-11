@@ -27,14 +27,9 @@ from discord.ext import commands
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-import socket
-import sys
-import time
-import contextlib
-from typing import Optional
 
 # Local Application Imports
-import CloudflarePing as cf
+import services.cloudflare_ping as cf
 import config
 from config import IS_ALPHA, get_activity
 from database import (
@@ -47,7 +42,7 @@ from database import (
     backup_all_dbs_to_gdrive_env,
     restore_all_dbs_from_gdrive_env,
 )
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 
@@ -306,6 +301,17 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
 
     return True
 
+BACKUP_DELAY_HOURS = 1
+async def delayed_backup_starter(delay_hours):
+    """Waits for delay_hours then starts the periodic backup loop."""
+    if IS_ALPHA:
+        log.warning("Skipping backup as this is an alpha version.")
+        return
+    await bot.wait_until_ready()
+    await asyncio.sleep(delay_hours * 3600)
+    asyncio.create_task(periodic_backup(delay_hours))
+    log.info(f"Periodic backup started after {delay_hours}h delay.")
+
 async def cycle_activities():
     global last_activity_signature
     await bot.wait_until_ready()
@@ -375,133 +381,3 @@ async def kill_all_tasks():
         if task is current: continue
         task.cancel()
     await asyncio.sleep(1)
-
-async def graceful_shutdown():
-    log.info("Shutdown signal received — performing cleanup...")
-
-    # Prevent new interactions (optional but good practice)
-    bot._is_shutting_down = True
-
-    # Let ongoing tasks wrap up
-    await asyncio.sleep(1)
-
-    # Final backup
-    if not IS_ALPHA:
-        try:
-            log.info("Performing final database backup before shutdown...")
-            await asyncio.wait_for(
-                backup_all_dbs_to_gdrive_env(
-                    [
-                        (ECONOMY_DB_PATH, "economy.db"),
-                        (MODERATOR_DB_PATH, "moderator.db")
-                    ],
-                    BACKUP_FOLDER_ID
-                ),
-                timeout=25  # must complete before Railway kills us
-            )
-            log.info("Backup completed successfully.")
-        except asyncio.TimeoutError:
-            log.critical("Backup timed out — Railway may have killed us mid-upload.")
-        except Exception as e:
-            log.critical(f"Backup failed: {e}")
-    else:
-        log.warning("Skipping final backup as this is an alpha version.")
-
-    # Close shared HTTP session
-    if bot.http_session and not bot.http_session.closed:
-        await bot.http_session.close()
-        log.network("Closed shared HTTP session")
-        
-    # Close bot connections
-    await kill_all_tasks()
-    with contextlib.suppress(Exception):
-        await bot.close()
-
-    log.info("Shutdown complete.")
-    log.info("Flurazide says: Goodbye!")
-    sys.exit(0)
-
-    # if discord.py is still not closing shit, throw the interpreter (and everything) into the void
-    await asyncio.sleep(10)
-    os._exit(0)
-
-BACKUP_DELAY_HOURS = 1
-async def delayed_backup_starter(delay_hours):
-    if IS_ALPHA:
-        log.warning("Skipping backup as this is an alpha version.")
-        return
-    await bot.wait_until_ready()
-    await asyncio.sleep(delay_hours * 3600)
-    asyncio.create_task(periodic_backup(delay_hours))
-    log.info(f"Periodic backup started after {delay_hours}h delay.")
-
-async def main():
-    # Attempt restore and surface any problem (was being called silently)
-    try:
-        restored_ok = await restore_all_dbs_from_gdrive_env(BACKUP_FOLDER_ID,
-            {
-                "economy.db": ECONOMY_DB_PATH,
-                "moderator.db": MODERATOR_DB_PATH,
-            }
-        )
-        if restored_ok is False:
-            log.warning("Drive restore returned False (no files restored or an error occurred).")
-    except Exception:
-        log.exception("Exception while restoring databases from Drive")
-
-    # Initialize database tables
-    await init_databases()
-
-    async with bot:
-        bot.tree.interaction_check = global_blacklist_check
-
-        shutdown_signal = asyncio.get_event_loop().create_future()
-
-        def _signal_handler():
-            if not shutdown_signal.done():
-                shutdown_signal.set_result(True)
-
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(sig, _signal_handler)
-            except NotImplementedError:
-                # Windows: loop.add_signal_handler usually isn't implemented for SIGTERM
-                log.warning(f"Cannot register signal handler for {sig!r} on this platform; falling back to default behaviour.")
-            except Exception as e:
-                log.exception(f"Failed to register signal handler for {sig!r}: {e}")
-
-        bot_task = asyncio.create_task(bot.start(config.BOT_TOKEN))
-
-        try:
-            # Wait for our shutdown future. If the process receives a KeyboardInterrupt
-            await shutdown_signal
-        except asyncio.CancelledError:
-            log.info("Shutdown future was cancelled; initiating cleanup.")
-        except KeyboardInterrupt:
-            log.info("KeyboardInterrupt received; initiating cleanup.")
-        finally:
-            # Ensure bot.start task is cancelled and awaited so discord cleans up
-            if not bot_task.done():
-                bot_task.cancel()
-                try:
-                    await bot_task
-                except asyncio.CancelledError:
-                    pass
-            # Ensure final graceful shutdown (closes http session, backups, bot.close)
-            try:
-                await graceful_shutdown()
-            except Exception as e:
-                log.exception(f"Error during graceful shutdown: {e}", exc_info=True)
-                sys.exit(1)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        log.critical(f"Fatal crash as {e}", exc_info=True)
-        sys.exit(1)
-else:
-    log.critical("Main.py should be run as the main module.")
-    log.info("Did you forget to set worker?")
-    sys.exit(1)

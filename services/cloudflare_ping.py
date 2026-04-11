@@ -11,7 +11,7 @@ from typing import Optional, TypedDict, Dict, Union
 import aiohttp
 
 # Local Imports
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 
@@ -77,7 +77,9 @@ async def _loop(interval: float, session: Optional[aiohttp.ClientSession] = None
                     _CACHE["ipv6"] = v6
                     _CACHE["ts"] = time.time()
                     _CACHE["error"] = None
-                    log.successtrace(f"Updated CF cache: v4={v4:.2f}ms, v6={v6 if v6 else 'N/A'}")
+                    v4_str = f"{v4:.2f}ms" if v4 is not None else "N/A"
+                    v6_str = f"{v6:.2f}ms" if v6 is not None else "N/A"
+                    log.successtrace(f"Updated CF cache: v4={v4_str}, v6={v6_str}")
             finally:
                 # Only close if we created a temporary session
                 if not use_shared:

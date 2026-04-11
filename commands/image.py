@@ -34,7 +34,7 @@ except ImportError:
 
 # Local Imports
 from config import cooldown
-from logger import get_logger
+from logging_modules.custom_logger import get_logger
 from utils.hosting import upload_to_litterbox
 
 log = get_logger()
@@ -311,6 +311,15 @@ class ImageCommands(app_commands.Group):
             log.exception("Failed to fetch URL: %s", e)
             return None
 
+    async def _send_image_bytes(self, interaction: discord.Interaction, data: bytes, filename: str):
+        """Helper to send image bytes as a Discord file with size metadata."""
+        size_kb = len(data) / 1024
+        size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.2f} MB"
+        
+        bio = io.BytesIO(data)
+        file = discord.File(bio, filename=filename)
+        await interaction.followup.send(content=f"`{filename}` | **{size_str}**", file=file)
+
     def _load_frames_from_bytes(self, data: bytes) -> Tuple[List[Image.Image], int]:
         """Return list of PIL frames and a default duration (ms)."""
         bio = io.BytesIO(data)
@@ -334,119 +343,70 @@ class ImageCommands(app_commands.Group):
         return frames, duration
 
     def _frames_to_gif_bytes(self, frames: List[Image.Image], duration_ms: int = 80, loop: int = 0) -> bytes:
-        """Save frames to GIF bytes (PIL save_all)."""
+        """
+        Saves frames to bytes with professional quality.
+        - Single frame: PNG (losless)
+        - Multiple: GIF with adaptive palette and smart transparency.
+        """
         bio = io.BytesIO()
+        
+        # 1. Performance balancing (High Quality / Efficiency)
+        if len(frames) > 200:
+            log.info(f"Optimizing {len(frames)} frames for performance.")
+            w, h = frames[0].size
+            if max(w, h) > 500:
+                frames = self._resize_if_needed(frames, max_dim=480)
+            
+            if len(frames) > 200:
+                frames = frames[::2]
+                duration_ms *= 2
+            
+            if len(frames) > 300:
+                frames = frames[:300]
+
         if len(frames) == 1:
-            # Convert to RGB first, then quantize to ensure proper color handling
             frame = frames[0]
-            if frame.mode == 'RGBA':
-                # Create white background for transparency
-                rgb = Image.new('RGB', frame.size, (255, 255, 255))
-                rgb.paste(frame, mask=frame.split()[3])  # Use alpha channel as mask
-                frame = rgb
-            elif frame.mode != 'RGB':
-                frame = frame.convert('RGB')
-            # Quantize with dither=0 to preserve white
-            quantized = frame.quantize(colors=256, dither=Image.Dither.NONE)
-            quantized.save(bio, format="GIF")
-        else:
-            first, rest = frames[0], frames[1:]
-            # Convert all frames to RGB with white background for transparency
-            processed_frames = []
-            for f in [first] + rest:
-                if f.mode == 'RGBA':
-                    rgb = Image.new('RGB', f.size, (255, 255, 255))
-                    rgb.paste(f, mask=f.split()[3])
-                    f = rgb
-                elif f.mode != 'RGB':
-                    f = f.convert('RGB')
-                processed_frames.append(f)
+            if frame.mode != "RGBA":
+                frame = frame.convert("RGBA")
+            frame.save(bio, format="PNG", optimize=True)
+            return bio.getvalue()
+
+        # 2. Professional GIF Encoding (Adaptive Palette + Transparency)
+        processed_frames = []
+        has_transparency = False
+        
+        first_rgba = frames[0].convert("RGBA")
+        extrema = first_rgba.getextrema()
+        if len(extrema) == 4 and extrema[3][0] < 255:
+            has_transparency = True
+
+        for f in frames:
+            rgb = f.convert("RGB")
+            # MAXCOVERAGE gives much better results for gradients and photos
+            p_frame = rgb.quantize(colors=255 if has_transparency else 256, method=Image.Quantize.MAXCOVERAGE)
             
-            # Quantize first frame and use it as palette for others
-            first_quantized = processed_frames[0].quantize(colors=256, dither=Image.Dither.NONE)
-            rest_quantized = [f.quantize(colors=256, palette=first_quantized, dither=Image.Dither.NONE) for f in processed_frames[1:]]
+            if has_transparency:
+                alpha = f.convert("RGBA").split()[3]
+                mask = Image.eval(alpha, lambda a: 255 if a < 128 else 0)
+                p_frame.paste(255, mask)
             
-            first_quantized.save(
-                bio,
-                format="GIF",
-                save_all=True,
-                append_images=rest_quantized,
-                loop=loop,
-                duration=duration_ms,
-                disposal=2,
-            )
-        bio.seek(0)
-        return bio.read()
+            processed_frames.append(p_frame)
 
-    async def _send_image_bytes(self, interaction: discord.Interaction, data: bytes, filename: str, ephemeral: bool = False):
-        """Helper to reply with a file and size info. Handles large files with temporal hosting."""
-        size_bytes = len(data)
-        size_mb = size_bytes / (1024 * 1024)
-        size_str = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{size_mb * 1024:.0f} KB"
+        save_kwargs = {
+            "format": "GIF",
+            "save_all": True,
+            "append_images": processed_frames[1:],
+            "loop": loop,
+            "duration": duration_ms,
+            "disposal": 2 if has_transparency else 1,
+            "optimize": True
+        }
+        
+        if has_transparency:
+            save_kwargs["transparency"] = 255
 
-        # Check Discord's local limit (8MB fallback if unknown)
-        limit = 8 * 1024 * 1024
-        if interaction.guild:
-            limit = interaction.guild.filesize_limit
-
-        if size_bytes > limit:
-            log.warning(f"File {filename} ({size_str}) exceeds limit ({limit/1024/1024:.1f} MB). Attempting temporal hosting...")
-            
-            # Send a placeholder/loading if it takes a bit
-            # (deferred interaction already exists usually, but we might need to update)
-            
-            link = await upload_to_litterbox(data, filename, "12h")
-            if link:
-                content = (
-                    f"📎 **{filename}** · {size_str} ([Download]({link}))\n"
-                    f"⚠️ *This file has been temporarily uploaded due to its size. Consider saving!*"
-                )
-                return await interaction.followup.send(content=content, ephemeral=ephemeral)
-            else:
-                log.error("Temporal hosting failed. Attempting direct send anyway...")
-
-        file = discord.File(io.BytesIO(data), filename=filename)
-        try:
-            await interaction.followup.send(
-                content=f"📎 **{filename}** · {size_str}",
-                file=file,
-                ephemeral=ephemeral
-            )
-        except discord.HTTPException as e:
-            if e.code == 40005:  # Request entity too large
-                 await interaction.followup.send(
-                     "❌ The file is just too massive for me to send (and hosting failed). Try a shorter or smaller image.",
-                     ephemeral=True
-                 )
-            else:
-                 raise e
-   
-    async def _video_to_gif_bytes(self, data: bytes):
-        """Convert video bytes to GIF bytes, hard-limiting to 10s before decode."""
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_in:
-            tmp_in.write(data)
-            tmp_in.flush()
-            gif_path = tmp_in.name.replace(".mp4", ".gif")
-
-            # Use ffmpeg directly to cut and convert only first 10s
-            subprocess.run([
-                "ffmpeg",
-                "-y",                # overwrite
-                "-t", "10",          # hard limit to 10 seconds
-                "-i", tmp_in.name,
-                "-vf", "fps=15,scale=320:-1:flags=lanczos",  # reasonable quality
-                "-loop", "0",
-                gif_path
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-            with open(gif_path, "rb") as f:
-                gif_data = f.read()
-
-        os.remove(tmp_in.name)
-        os.remove(gif_path)
-        return gif_data
-
-    # Utility transforms
+        processed_frames[0].save(bio, **save_kwargs)
+        return bio.getvalue()
 
     def wrap_text(self, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
         lines = []
@@ -486,9 +446,11 @@ class ImageCommands(app_commands.Group):
         bg_color: Tuple[int,int,int,int] = (255, 255, 255, 255)
     ) -> Image.Image:
 
-        # work in RGB only to avoid GIF palette corruption later, UNLESS we want to preserve alpha for PNG
-        if img.mode != "RGBA" and img.mode != "RGB":
-             img = img.convert("RGB")
+        is_transparent = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+        target_mode = "RGBA" if is_transparent else "RGB"
+        
+        if img.mode != target_mode:
+             img = img.convert(target_mode)
 
         w, h = img.size
         font_size = max_font_size
@@ -513,19 +475,22 @@ class ImageCommands(app_commands.Group):
             lh = font.getbbox("Ay")[3]
             box_h = len(wrapped_lines) * lh + 2 * padding
 
-        # make new RGB canvas
+        # make new canvas retaining transparency properly
         new_h = h + box_h
-        new_img = Image.new("RGB", (w, new_h), (255, 255, 255))
+        
+        bg_canvas_col = (255, 255, 255, 0) if target_mode == "RGBA" else (255, 255, 255)
+        new_img = Image.new(target_mode, (w, new_h), bg_canvas_col)
 
         if bottom:
-            new_img.paste(img, (0, 0))
+            new_img.paste(img, (0, 0)) # Direct paste preserves alpha values
             box_y = h
         else:
             new_img.paste(img, (0, box_h))
             box_y = 0
 
         draw = ImageDraw.Draw(new_img)
-        draw.rectangle([0, box_y, w, box_y + box_h], fill=(255,255,255))
+        # Draw pure white background for caption
+        draw.rectangle([0, box_y, w, box_y + box_h], fill=bg_color)
 
         # centered text
         for i, line in enumerate(wrapped_lines):
