@@ -253,6 +253,9 @@ class DatabaseManager:
     def __init__(self):
         self._economy_conn = None
         self._moderator_conn = None
+        self._init_lock = asyncio.Lock()
+        self._economy_lock = asyncio.Lock()
+        self._moderator_lock = asyncio.Lock()
         self.health_ok = True
         self._bot = None  # Set by bot.py during startup for DM notifications
 
@@ -272,27 +275,31 @@ class DatabaseManager:
 
     async def get_economy(self):
         if not self._economy_conn:
-            try:
-                self._economy_conn = await aiosqlite.connect(ECONOMY_DB_PATH)
-                await self._economy_conn.execute("PRAGMA foreign_keys = ON")
-            except Exception as e:
-                self.health_ok = False
-                msg = f"CRITICAL: Failed to connect to Economy database at {ECONOMY_DB_PATH}: {e}"
-                log.critical(msg)
-                await self._notify_owner(msg)
-                raise
+            async with self._init_lock:
+                if not self._economy_conn:
+                    try:
+                        self._economy_conn = await aiosqlite.connect(ECONOMY_DB_PATH)
+                        await self._economy_conn.execute("PRAGMA foreign_keys = ON")
+                    except Exception as e:
+                        self.health_ok = False
+                        msg = f"CRITICAL: Failed to connect to Economy database at {ECONOMY_DB_PATH}: {e}"
+                        log.critical(msg)
+                        await self._notify_owner(msg)
+                        raise
         return self._economy_conn
 
     async def get_moderator(self):
         if not self._moderator_conn:
-            try:
-                self._moderator_conn = await aiosqlite.connect(MODERATOR_DB_PATH)
-            except Exception as e:
-                self.health_ok = False
-                msg = f"CRITICAL: Failed to connect to Moderator database at {MODERATOR_DB_PATH}: {e}"
-                log.critical(msg)
-                await self._notify_owner(msg)
-                raise
+            async with self._init_lock:
+                if not self._moderator_conn:
+                    try:
+                        self._moderator_conn = await aiosqlite.connect(MODERATOR_DB_PATH)
+                    except Exception as e:
+                        self.health_ok = False
+                        msg = f"CRITICAL: Failed to connect to Moderator database at {MODERATOR_DB_PATH}: {e}"
+                        log.critical(msg)
+                        await self._notify_owner(msg)
+                        raise
         return self._moderator_conn
 
     async def close(self):
@@ -632,17 +639,28 @@ async def insert_case(guild_id, user_id, username, reason, action_type, moderato
     """
     if timestamp is None:
         timestamp = int(time.time())
-    conn = await db.get_moderator()
-    await conn.execute("BEGIN IMMEDIATE")
-    async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
-        row = await cursor.fetchone()
-    next_case_number = (row[0] or 0) + 1
-    await conn.execute("""
-        INSERT INTO cases (case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (next_case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
-    await conn.commit()
-    return next_case_number
+    
+    # Ensure reason is not None as per schema
+    if reason is None:
+        reason = "No reason provided"
+
+    async with db._moderator_lock:
+        conn = await db.get_moderator()
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with conn.execute("SELECT MAX(case_number) FROM cases WHERE guild_id = ?", (guild_id,)) as cursor:
+                row = await cursor.fetchone()
+            next_case_number = (row[0] or 0) + 1
+            await conn.execute("""
+                INSERT INTO cases (case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (next_case_number, guild_id, user_id, username, reason, action_type, timestamp, moderator_id, expiry))
+            await conn.commit()
+            return next_case_number
+        except Exception as e:
+            await conn.rollback()
+            log.error(f"Error in insert_case: {e}")
+            raise
 
 @log_mod_call
 async def get_cases_for_guild(guild_id, limit=50, offset=0):
