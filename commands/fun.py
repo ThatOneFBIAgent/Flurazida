@@ -86,9 +86,7 @@ class FunCommands(app_commands.Group):
             if ipv6 is not None:
                 embed.add_field(name="🟣 CF IPv6 RTT", value=f"`{ipv6:.1f} ms`", inline=False)
             else:
-                if is_railway:
-                    ipv6_text = "Not available"
-                elif is_docker:
+                if is_docker:
                     ipv6_text = "Not available, Docker lacks IPv6"
                 else:
                     ipv6_text = "N/A"
@@ -101,7 +99,7 @@ class FunCommands(app_commands.Group):
                     f"CF cached: {datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
             if is_railway:
-                footer_note.append("Running on Railway (IPv6 disabled)")
+                footer_note.append("Running on Railway (IPv6 Enabled)")
             elif is_docker:
                 footer_note.append("Running in Docker (IPv6 disabled)")
 

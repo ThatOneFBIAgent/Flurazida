@@ -64,14 +64,14 @@ async def _loop(interval: float, session: Optional[aiohttp.ClientSession] = None
                     v4 = None
                     log.warning("CF IPv4 ping failed: %s", e)
                 v6 = None
-                if not IS_RAILWAY and not IS_DOCKER:
+                if not IS_DOCKER:
                     try:
                         v6 = await _ping_once(ping_session, f"https://[{CLOUD_FLARE_IPV6}]/cdn-cgi/trace")
                     except Exception as e:
                         v6 = None
                         log.warning("CF IPv6 ping failed: %s", e)
                 else:
-                    log.debug("Skipping IPv6 ping (unsupported in Railway/Docker).")
+                    log.debug("Skipping IPv6 ping (unsupported in Docker).")
                 async with _CACHE_LOCK:
                     _CACHE["ipv4"] = v4
                     _CACHE["ipv6"] = v6
