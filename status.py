@@ -42,7 +42,10 @@ class StatusReporter:
     """Signs and sends status payloads to the dashboard server."""
 
     def __init__(self, api_url: str, private_key_pem: str, bot_id: str):
-        self.api_url = api_url.rstrip("/")
+        api_url = api_url.rstrip("/")
+        if not api_url.startswith(("http://", "https://")):
+            api_url = f"http://{api_url}"
+        self.api_url = api_url
         self.bot_id = bot_id
         self._private_key = serialization.load_pem_private_key(
             private_key_pem.encode() if isinstance(private_key_pem, str) else private_key_pem,
