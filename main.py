@@ -43,6 +43,13 @@ from database import (
     restore_all_dbs_from_gdrive_env,
 )
 from logging_modules.custom_logger import get_logger
+from status import StatusReporter, BotMonitor
+
+reporter = StatusReporter(
+    api_url=os.getenv("DASHBOARD_URL"),          # Railway internal link
+    private_key_pem=os.getenv("RSA_PRIVATE_KEY"), # PEM string
+    bot_id="flurazide",
+)
 
 log = get_logger()
 
@@ -83,6 +90,8 @@ class Main(commands.AutoShardedBot):
         cf.ensure_started(session=self.http_session)
 
         log.info("Starting background tasks")
+        monitor = BotMonitor(reporter, self)
+        asyncio.create_task(monitor.run_forever())
         self.cycle_activities_task = asyncio.create_task(cycle_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
         self.delayed_backup_starter_task = asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
