@@ -120,10 +120,7 @@ class StatusReporter:
 class BotMonitor:
     """
     Collects real metrics from a discord.py / Pycord Bot instance
-    and feeds them to a StatusReporter on two cadences:
-
-      • Fast  (60s)  — shards, latency, uptime, host info
-      • Slow  (600s) — guild count, member count (API-heavy)
+    and feeds them to a StatusReporter on a single 60s cadence.
     """
 
     def __init__(
@@ -131,33 +128,24 @@ class BotMonitor:
         reporter: StatusReporter,
         bot: "discord.Bot | discord.AutoShardedBot",
         *,
-        fast_interval: int = 60,
-        slow_interval: int = 600,
+        interval: int = 60,
     ):
         self.reporter = reporter
         self.bot = bot
-        self.fast_interval = fast_interval
-        self.slow_interval = slow_interval
+        self.interval = interval
         self._start_time = time.monotonic()
 
     async def run_forever(self):
-        """Launch both metric loops concurrently.  Never raises."""
-        await asyncio.gather(
-            self._loop_fast(),
-            self._loop_slow(),
-        )
-
-    # -- fast metrics (non-blocking) ----------------------------------------
-
-    async def _loop_fast(self):
+        """Launch the metric loop. Never raises."""
+        await asyncio.sleep(15)  # Warm up cache
         while True:
             try:
-                await self.reporter.send(self._collect_fast())
+                await self.reporter.send(self._collect_all())
             except Exception as exc:
-                logger.error("Fast metric loop error: %s", exc)
-            await asyncio.sleep(self.fast_interval)
+                logger.error("Metric loop error: %s", exc)
+            await asyncio.sleep(self.interval)
 
-    def _collect_fast(self) -> Dict[str, Any]:
+    def _collect_all(self) -> Dict[str, Any]:
         uptime = time.monotonic() - self._start_time
         shards = []
         if hasattr(self.bot, "shards") and self.bot.shards:
@@ -174,33 +162,17 @@ class BotMonitor:
                 "is_closed": self.bot.is_closed(),
             })
 
+        guilds = self.bot.guilds
         return {
-            "type": "fast",
+            "type": "all",
             "uptime_seconds": round(uptime),
             "shards": shards,
             "host": {
                 "python": platform.python_version(),
                 "os": platform.system(),
             },
-        }
-
-    # -- slow metrics (may hit Discord API) ---------------------------------
-
-    async def _loop_slow(self):
-        # Wait a bit on first run so the bot cache is warm
-        await asyncio.sleep(30)
-        while True:
-            try:
-                await self.reporter.send(await self._collect_slow())
-            except Exception as exc:
-                logger.error("Slow metric loop error: %s", exc)
-            await asyncio.sleep(self.slow_interval)
-
-    async def _collect_slow(self) -> Dict[str, Any]:
-        guilds = self.bot.guilds
-        return {
-            "type": "slow",
             "guild_count": len(guilds),
             "member_count": sum(g.member_count or 0 for g in guilds),
             "channel_count": sum(len(g.channels) for g in guilds),
         }
+
