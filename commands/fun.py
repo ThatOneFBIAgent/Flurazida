@@ -478,12 +478,12 @@ class FunCommands(app_commands.Group):
         )
         embed.add_field(
             name="📋 Terms of Service",
-            value="[View Terms of Service](https://github.com/ThatOneFBIAgent/Flurazida/blob/main/other/TOS.md)",
+            value="[View Terms of Service](https://tonic.up.railway.app/viewer.html?bot=flurazide&page=tos)",
             inline=False
         )
         embed.add_field(
             name="🔒 Privacy policy",
-            value="[View Privacy policy](https://github.com/ThatOneFBIAgent/Flurazida/blob/main/other/Privacy.md)",
+            value="[View Privacy policy](https://tonic.up.railway.app/viewer.html?bot=flurazide&page=privacy)",
             inline=False
         )
         embed.set_footer(text=f"Fun Fact: {fun_fact}")

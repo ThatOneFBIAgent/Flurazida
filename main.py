@@ -90,7 +90,12 @@ class Main(commands.AutoShardedBot):
         cf.ensure_started(session=self.http_session)
 
         log.info("Starting background tasks")
-        monitor = BotMonitor(reporter, self)
+        # Flurazide is do-it-all, so we can add more metrics here later
+        monitor = BotMonitor(
+            reporter, 
+            self,
+            custom_metrics_callback=lambda: {} # Placeholder for now
+        )
         asyncio.create_task(monitor.run_forever())
         self.cycle_activities_task = asyncio.create_task(cycle_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())

@@ -129,11 +129,13 @@ class BotMonitor:
         bot: "discord.Bot | discord.AutoShardedBot",
         *,
         interval: int = 60,
+        custom_metrics_callback=None,
     ):
         self.reporter = reporter
         self.bot = bot
         self.interval = interval
         self._start_time = time.monotonic()
+        self.custom_metrics_callback = custom_metrics_callback
 
     async def run_forever(self):
         """Launch the metric loop. Never raises."""
@@ -147,24 +149,46 @@ class BotMonitor:
 
     def _collect_all(self) -> Dict[str, Any]:
         uptime = time.monotonic() - self._start_time
+        import math
+        def safe_latency(lat):
+            if lat is None or math.isnan(lat) or math.isinf(lat):
+                return -1.0
+            return round(lat * 1000, 1)
+
+        guilds = self.bot.guilds
+        guilds_by_shard = {}
+        for g in guilds:
+            sid = getattr(g, "shard_id", 0)
+            guilds_by_shard[sid] = guilds_by_shard.get(sid, 0) + 1
+
         shards = []
         if hasattr(self.bot, "shards") and self.bot.shards:
             for sid, shard in self.bot.shards.items():
                 shards.append({
                     "id": sid,
-                    "latency_ms": round(shard.latency * 1000, 1),
+                    "latency_ms": safe_latency(shard.latency),
                     "is_closed": shard.is_closed(),
+                    "guild_count": guilds_by_shard.get(sid, 0),
                 })
         else:
             shards.append({
                 "id": 0,
-                "latency_ms": round(self.bot.latency * 1000, 1),
+                "latency_ms": safe_latency(self.bot.latency),
                 "is_closed": self.bot.is_closed(),
+                "guild_count": guilds_by_shard.get(0, len(guilds)),
             })
 
-        guilds = self.bot.guilds
-        return {
+        custom_data = {}
+        if self.custom_metrics_callback:
+            try:
+                custom_data = self.custom_metrics_callback()
+            except Exception as exc:
+                logger.error("Custom metrics error: %s", exc)
+
+        payload = {
             "type": "all",
+            "name": self.bot.user.name,
+            "avatar_url": str(self.bot.user.display_avatar.url) if self.bot.user.avatar else None,
             "uptime_seconds": round(uptime),
             "shards": shards,
             "host": {
@@ -175,4 +199,5 @@ class BotMonitor:
             "member_count": sum(g.member_count or 0 for g in guilds),
             "channel_count": sum(len(g.channels) for g in guilds),
         }
-
+        payload.update(custom_data)
+        return payload
