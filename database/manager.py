@@ -469,6 +469,14 @@ async def add_user(user_id, username):
     )
     await conn.commit()
 
+@log_db_call
+async def get_total_economy_sum():
+    """Calculates the sum of all non-negative user balances in the economy."""
+    conn = await db.get_economy()
+    async with conn.execute("SELECT SUM(balance) FROM users WHERE balance > 0") as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result and result[0] else 0
+
 # ===================== Item Handling Functions =====================
 @log_db_call
 async def add_user_item(user_id, item_id, item_name, uses_left=1, effect_modifier=0):

@@ -41,6 +41,7 @@ from database import (
     BACKUP_FOLDER_ID,
     backup_all_dbs_to_gdrive_env,
     restore_all_dbs_from_gdrive_env,
+    get_total_economy_sum,
 )
 from logging_modules.custom_logger import get_logger
 from status import StatusReporter, BotMonitor
@@ -80,6 +81,7 @@ class Main(commands.AutoShardedBot):
         self._activity_sync_lock = asyncio.Lock()
         self.start_time = time.time()
         self.http_session: Optional[aiohttp.ClientSession] = None
+        self.cached_economy = 0
 
     async def setup_hook(self):
         # Initialize shared HTTP session
@@ -94,9 +96,10 @@ class Main(commands.AutoShardedBot):
         monitor = BotMonitor(
             reporter, 
             self,
-            custom_metrics_callback=lambda: {} # Placeholder for now
+            custom_metrics_callback=lambda: {"economy": self.cached_economy}
         )
         asyncio.create_task(monitor.run_forever())
+        asyncio.create_task(self.update_economy_metrics())
         self.cycle_activities_task = asyncio.create_task(cycle_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
         self.delayed_backup_starter_task = asyncio.create_task(delayed_backup_starter(BACKUP_DELAY_HOURS))
@@ -168,6 +171,16 @@ class Main(commands.AutoShardedBot):
                     log.trace(f"[Shard {shard_id}] Synced activity: {pershardactivity} ({activity.type.name})")
                 except Exception as e:
                     log.warning(f"[Shard {shard_id}] Failed to sync activity: {e}")
+
+    async def update_economy_metrics(self):
+        """Background task to update the economy cache every 5 minutes."""
+        while True:
+            try:
+                self.cached_economy = await get_total_economy_sum()
+                log.trace(f"Updated cached global economy: {self.cached_economy}")
+            except Exception as e:
+                log.error(f"Failed to update economy metrics: {e}")
+            await asyncio.sleep(300) # 5 minutes
 
 bot = Main()
 bot.help_command = None
