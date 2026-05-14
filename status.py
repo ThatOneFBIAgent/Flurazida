@@ -201,3 +201,106 @@ class BotMonitor:
         }
         payload.update(custom_data)
         return payload
+
+
+class ConfigSync:
+    """
+    Pulls guild configs from the dashboard API on a periodic cadence.
+    Bots call config.get(guild_id) to get the latest settings dict.
+
+    Usage:
+        config_sync = ConfigSync(
+            api_url=os.getenv("DASHBOARD_URL"),
+            bot_id="flurazide",
+            bot=bot,
+        )
+        asyncio.create_task(config_sync.run_forever())
+
+        # Later, in a command or event:
+        settings = config_sync.get(guild_id)
+    """
+
+    def __init__(
+        self,
+        api_url: str,
+        bot_id: str,
+        bot: "discord.Bot | discord.AutoShardedBot",
+        *,
+        interval: int = 30,
+    ):
+        api_url = api_url.rstrip("/")
+        if not api_url.startswith(("http://", "https://")):
+            api_url = f"http://{api_url}"
+        self.api_url = api_url
+        self.bot_id = bot_id
+        self.bot = bot
+        self.interval = interval
+        self._cache: Dict[str, Dict[str, Any]] = {}  # guild_id -> settings
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._last_sync: float = 0
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+        return self._session
+
+    def get(self, guild_id: int | str) -> Dict[str, Any]:
+        """Get cached config for a guild. Returns empty dict if none."""
+        return self._cache.get(str(guild_id), {})
+
+    async def pull_one(self, guild_id: int | str) -> Dict[str, Any]:
+        """Pull config for a single guild from the dashboard."""
+        try:
+            session = await self._get_session()
+            url = f"{self.api_url}/config/pull/{self.bot_id}/{guild_id}"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    settings = data.get("settings", {})
+                    self._cache[str(guild_id)] = settings
+                    return settings
+                else:
+                    logger.debug("Config pull for guild %s returned %d", guild_id, resp.status)
+        except Exception as exc:
+            logger.warning("Config pull failed for guild %s: %s", guild_id, exc)
+        return self._cache.get(str(guild_id), {})
+
+    async def sync_all(self):
+        """Bulk pull config for all guilds the bot is in."""
+        if not self.bot.is_ready():
+            return
+
+        try:
+            session = await self._get_session()
+            url = f"{self.api_url}/config/pull_all/{self.bot_id}"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Keep local cache clean by replacing it entirely
+                    self._cache = data
+                    
+                    self._last_sync = time.monotonic()
+                    logger.debug(
+                        "ConfigSync: bulk synced config for %d guilds for %s",
+                        len(data), self.bot_id,
+                    )
+                else:
+                    logger.debug("Bulk config pull returned %d", resp.status)
+        except Exception as exc:
+            logger.warning("Bulk config pull failed: %s", exc)
+
+    async def run_forever(self):
+        """Background loop. Never raises."""
+        await asyncio.sleep(20)  # Wait for bot to be ready
+        while True:
+            try:
+                await self.sync_all()
+            except Exception as exc:
+                logger.error("ConfigSync loop error: %s", exc)
+            await asyncio.sleep(self.interval)
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()

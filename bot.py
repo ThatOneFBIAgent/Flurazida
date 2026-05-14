@@ -58,6 +58,10 @@ async def graceful_shutdown():
         await bot.http_session.close()
         log.network("Closed shared HTTP session")
         
+    # Close ConfigSync session
+    if hasattr(bot, "config_sync"):
+        await bot.config_sync.close()
+        
     # Close bot connections
     await kill_all_tasks()
     with contextlib.suppress(Exception):

@@ -44,7 +44,7 @@ from database import (
     get_total_economy_sum,
 )
 from logging_modules.custom_logger import get_logger
-from status import StatusReporter, BotMonitor
+from status import StatusReporter, BotMonitor, ConfigSync
 
 reporter = StatusReporter(
     api_url=os.getenv("DASHBOARD_URL"),          # Railway internal link
@@ -99,6 +99,18 @@ class Main(commands.AutoShardedBot):
             custom_metrics_callback=lambda: {"economy": self.cached_economy}
         )
         asyncio.create_task(monitor.run_forever())
+        
+        # Start config polling
+        self.config_sync = ConfigSync(
+            api_url=os.getenv("DASHBOARD_URL"),
+            bot_id="flurazide",
+            bot=self,
+        )
+        asyncio.create_task(self.config_sync.run_forever())
+        
+        # Dynamic cooldown tracking (user_id -> command_name -> timestamp)
+        self._custom_cooldowns = {}
+
         asyncio.create_task(self.update_economy_metrics())
         self.cycle_activities_task = asyncio.create_task(cycle_activities())
         self.moderation_expiry_task = asyncio.create_task(moderation_expiry_task())
@@ -325,6 +337,65 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
             ephemeral=True
         )
         return False
+
+    # Check dashboard config overrides (if in a guild and it's a command)
+    if guild_id and interaction.type == discord.InteractionType.application_command:
+        settings = getattr(bot, "config_sync", None)
+        if settings:
+            guild_cfg = settings.get(guild_id)
+            if guild_cfg:
+                cmd_name = interaction.command.name if interaction.command else ""
+                
+                # 1. Module (Cog) Check
+                cog_name = getattr(interaction.command, "binding", None)
+                if cog_name:
+                    cog_name = cog_name.__class__.__name__.lower()
+                    if guild_cfg.get("enabled_modules", {}).get(cog_name) is False:
+                        await interaction.response.send_message(
+                            f"❌ The `{cog_name}` module is disabled in this server.",
+                            ephemeral=True
+                        )
+                        return False
+                
+                # 2. Command Toggle Check
+                toggles = guild_cfg.get("command_toggles", {})
+                if cmd_name in toggles and toggles[cmd_name] is False:
+                    await interaction.response.send_message(
+                        f"❌ The `/{cmd_name}` command is disabled in this server.",
+                        ephemeral=True
+                    )
+                    return False
+                    
+                # 3. Dynamic Cooldown Overrides
+                cooldowns = guild_cfg.get("command_cooldowns", {})
+                if cmd_name in cooldowns:
+                    cd = cooldowns[cmd_name]
+                    rate, per = cd.get("rate", 1), cd.get("per", 5.0)
+                    now = time.time()
+                    
+                    if user_id not in bot._custom_cooldowns:
+                        bot._custom_cooldowns[user_id] = {}
+                    
+                    user_history = bot._custom_cooldowns[user_id].setdefault(cmd_name, [])
+                    # Clean up old timestamps
+                    user_history = [t for t in user_history if now - t < per]
+                    
+                    if len(user_history) >= rate:
+                        retry_after = per - (now - user_history[0])
+                        await interaction.response.send_message(
+                            f"⏳ You are on cooldown for `/{cmd_name}`. Try again in {retry_after:.1f}s.",
+                            ephemeral=True
+                        )
+                        return False
+                        
+                    user_history.append(now)
+                    bot._custom_cooldowns[user_id][cmd_name] = user_history
+                    
+                    # Prevent memory leak by removing users with no active cooldowns
+                    if not bot._custom_cooldowns[user_id][cmd_name]:
+                        del bot._custom_cooldowns[user_id][cmd_name]
+                    if not bot._custom_cooldowns[user_id]:
+                        del bot._custom_cooldowns[user_id]
 
     return True
 
