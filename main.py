@@ -357,45 +357,37 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
                         )
                         return False
                 
-                # 2. Command Toggle Check
-                toggles = guild_cfg.get("command_toggles", {})
-                if cmd_name in toggles and toggles[cmd_name] is False:
-                    await interaction.response.send_message(
-                        f"❌ The `/{cmd_name}` command is disabled in this server.",
-                        ephemeral=True
-                    )
-                    return False
+                # 2. Command Overrides Check (Unified Toggles & Cooldowns)
+                overrides = guild_cfg.get("command_overrides", [])
+                override = next((o for o in overrides if o.get("name") == cmd_name), None)
+                
+                if override:
+                    cooldown = override.get("cooldown", 0)
                     
-                # 3. Dynamic Cooldown Overrides
-                cooldowns = guild_cfg.get("command_cooldowns", {})
-                if cmd_name in cooldowns:
-                    cd = cooldowns[cmd_name]
-                    rate, per = cd.get("rate", 1), cd.get("per", 5.0)
-                    now = time.time()
-                    
-                    if user_id not in bot._custom_cooldowns:
-                        bot._custom_cooldowns[user_id] = {}
-                    
-                    user_history = bot._custom_cooldowns[user_id].setdefault(cmd_name, [])
-                    # Clean up old timestamps
-                    user_history = [t for t in user_history if now - t < per]
-                    
-                    if len(user_history) >= rate:
-                        retry_after = per - (now - user_history[0])
+                    # Negative cooldown means disabled
+                    if cooldown < 0:
                         await interaction.response.send_message(
-                            f"⏳ You are on cooldown for `/{cmd_name}`. Try again in {retry_after:.1f}s.",
+                            f"❌ The `/{cmd_name}` command is disabled in this server.",
                             ephemeral=True
                         )
                         return False
-                        
-                    user_history.append(now)
-                    bot._custom_cooldowns[user_id][cmd_name] = user_history
                     
-                    # Prevent memory leak by removing users with no active cooldowns
-                    if not bot._custom_cooldowns[user_id][cmd_name]:
-                        del bot._custom_cooldowns[user_id][cmd_name]
-                    if not bot._custom_cooldowns[user_id]:
-                        del bot._custom_cooldowns[user_id]
+                    # Dynamic Cooldown Override
+                    if cooldown > 0:
+                        now = time.time()
+                        if user_id not in bot._custom_cooldowns:
+                            bot._custom_cooldowns[user_id] = {}
+                        
+                        last_use = bot._custom_cooldowns[user_id].get(cmd_name, 0)
+                        if now - last_use < cooldown:
+                            retry_after = cooldown - (now - last_use)
+                            await interaction.response.send_message(
+                                f"⏳ You are on cooldown for `/{cmd_name}`. Try again in {retry_after:.1f}s.",
+                                ephemeral=True
+                            )
+                            return False
+                            
+                        bot._custom_cooldowns[user_id][cmd_name] = now
 
     return True
 
