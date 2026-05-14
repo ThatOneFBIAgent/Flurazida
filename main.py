@@ -107,6 +107,9 @@ class Main(commands.AutoShardedBot):
             bot=self,
         )
         asyncio.create_task(self.config_sync.run_forever())
+
+        # Register global checks
+        self.tree.interaction_check = global_blacklist_check
         
         # Dynamic cooldown tracking (user_id -> command_name -> timestamp)
         self._custom_cooldowns = {}
