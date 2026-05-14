@@ -350,9 +350,10 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
                 cmd_name = interaction.command.name if interaction.command else ""
                 
                 # 1. Module (Cog) Check
-                cog_name = getattr(interaction.command, "binding", None)
-                if cog_name:
-                    cog_name = cog_name.__class__.__name__.lower()
+                cog_binding = getattr(interaction.command, "binding", None)
+                if cog_binding:
+                    # Normalize: FunCommands -> fun, EconomyCog -> economy
+                    cog_name = cog_binding.__class__.__name__.replace("Commands", "").replace("Cog", "").lower()
                     if guild_cfg.get("enabled_modules", {}).get(cog_name) is False:
                         await interaction.response.send_message(
                             f"❌ The `{cog_name}` module is disabled in this server.",
