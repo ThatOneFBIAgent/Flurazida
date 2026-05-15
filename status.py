@@ -242,7 +242,11 @@ class ConfigSync:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
+            headers = {
+                "X-Bot-Token": os.getenv("DASHBOARD_BOT_SECRET", "molecular_internal_secret")
+            }
             self._session = aiohttp.ClientSession(
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             )
         return self._session
