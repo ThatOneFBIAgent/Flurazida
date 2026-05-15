@@ -26,6 +26,7 @@ import json
 import logging
 import platform
 import time
+import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import aiohttp
