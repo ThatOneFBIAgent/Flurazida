@@ -282,8 +282,8 @@ class ConfigSync:
                     self._cache = data
                     
                     self._last_sync = time.monotonic()
-                    logger.debug(
-                        "ConfigSync: bulk synced config for %d guilds for %s",
+                    logger.info(
+                        "ConfigSync: Successfully synced config for %d guilds for bot '%s'",
                         len(data), self.bot_id,
                     )
                 else:
@@ -293,7 +293,7 @@ class ConfigSync:
 
     async def run_forever(self):
         """Background loop. Never raises."""
-        await asyncio.sleep(20)  # Wait for bot to be ready
+        await asyncio.sleep(5)  # Wait for bot to be ready
         while True:
             try:
                 await self.sync_all()
