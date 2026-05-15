@@ -343,37 +343,59 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
 
     # Check dashboard config overrides (if in a guild and it's a command)
     if guild_id and interaction.type == discord.InteractionType.application_command:
-        settings = getattr(bot, "config_sync", None)
+        client = interaction.client
+        settings = getattr(client, "config_sync", None)
         if settings:
             guild_cfg = settings.get(guild_id)
             if guild_cfg:
-                cmd_name = interaction.command.name if interaction.command else ""
-                
-                # 1. Module (Group) Check
-                # If command is '/fun xkcd', root_parent is 'fun'
                 cmd = interaction.command
+                cmd_name = cmd.name if cmd else "unknown"
+                
+                # 1. Module Resolution
+                # We check root_parent, then the binding class name, then the cog name
+                module_names = []
                 if cmd:
-                    module_name = cmd.root_parent.name if cmd.root_parent else cmd.name
-                    module_name = module_name.lower()
+                    if cmd.root_parent:
+                        module_names.append(cmd.root_parent.name.lower())
+                    module_names.append(cmd.name.lower())
                     
-                    if guild_cfg.get("enabled_modules", {}).get(module_name) is False:
-                        await interaction.response.send_message(
-                            f"❌ The `{module_name}` module is disabled in this server.",
-                            ephemeral=True
-                        )
-                        return False
+                    # Check binding (Group or Cog)
+                    if hasattr(cmd, "binding"):
+                        binding_name = cmd.binding.__class__.__name__.lower()
+                        # Strip 'Commands', 'Cog', etc.
+                        for suffix in ["commands", "cog", "commandsgroup"]:
+                            if binding_name.endswith(suffix) and len(binding_name) > len(suffix):
+                                binding_name = binding_name[:-len(suffix)]
+                        module_names.append(binding_name)
+
+                enabled_modules = guild_cfg.get("enabled_modules", {})
+                
+                # Block if ANY resolved module name is disabled
+                blocked_module = None
+                for m in module_names:
+                    if enabled_modules.get(m) is False:
+                        blocked_module = m
+                        break
+                
+                if blocked_module:
+                    log.info(f"Blocking command /{cmd.qualified_name} in guild {guild_id}: module '{blocked_module}' is disabled.")
+                    await interaction.response.send_message(
+                        f"❌ The `{blocked_module}` module is disabled in this server.",
+                        ephemeral=True
+                    )
+                    return False
                 
                 # 2. Command Overrides Check (Unified Toggles & Cooldowns)
                 overrides = guild_cfg.get("command_overrides", [])
-                override = next((o for o in overrides if o.get("name") == cmd_name), None)
+                # Check both base name and qualified name
+                override = next((o for o in overrides if o.get("name") in [cmd_name, cmd.qualified_name]), None)
                 
                 if override:
-                    cooldown = override.get("cooldown", 0)
-                    
-                    # Negative cooldown means disabled
-                    if cooldown < 0:
+                    cooldown_val = override.get("cooldown", 0)
+                    if cooldown_val < 0:
+                        log.info(f"Blocking command /{cmd.qualified_name} in guild {guild_id}: command is explicitly disabled.")
                         await interaction.response.send_message(
-                            f"❌ The `/{cmd_name}` command is disabled in this server.",
+                            f"❌ The `/{cmd.qualified_name}` command is disabled in this server.",
                             ephemeral=True
                         )
                         return False
