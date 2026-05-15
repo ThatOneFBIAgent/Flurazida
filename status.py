@@ -238,6 +238,7 @@ class ConfigSync:
         self._cache: Dict[str, Dict[str, Any]] = {}  # guild_id -> settings
         self._session: Optional[aiohttp.ClientSession] = None
         self._last_sync: float = 0
+        self.maintenance_mode: bool = False
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -247,8 +248,27 @@ class ConfigSync:
         return self._session
 
     def get(self, guild_id: int | str) -> Dict[str, Any]:
-        """Get cached config for a guild. Returns empty dict if none."""
+        """Get cached config for a guild. Returns empty dict if none or in maintenance."""
+        if self.maintenance_mode:
+            return {}
         return self._cache.get(str(guild_id), {})
+
+    async def push_config(self, guild_id: int | str, settings: Dict[str, Any]):
+        """Push internal state to the dashboard."""
+        try:
+            session = await self._get_session()
+            url = f"{self.api_url}/config/push/{self.bot_id}/{guild_id}"
+            async with session.post(url, json={"settings": settings}) as resp:
+                if resp.status == 200:
+                    logger.info("ConfigSync: Successfully pushed state for guild %s", guild_id)
+                    # Update local cache to match what we just pushed
+                    self._cache[str(guild_id)] = settings
+                    return True
+                else:
+                    logger.debug("Config push for guild %s returned %d", guild_id, resp.status)
+        except Exception as exc:
+            logger.warning("Config push failed for guild %s: %s", guild_id, exc)
+        return False
 
     async def pull_one(self, guild_id: int | str) -> Dict[str, Any]:
         """Pull config for a single guild from the dashboard."""
@@ -274,6 +294,22 @@ class ConfigSync:
 
         try:
             session = await self._get_session()
+            
+            # Check maintenance status first
+            url_mt = f"{self.api_url}/config/maintenance"
+            async with session.get(url_mt) as resp_mt:
+                if resp_mt.status == 200:
+                    mt_data = await resp_mt.json()
+                    self.maintenance_mode = mt_data.get("maintenance", False)
+                elif resp_mt.status == 418:
+                    self.maintenance_mode = True
+            
+            if self.maintenance_mode:
+                if self._last_sync != -1: # Log only once
+                    logger.warning("ConfigSync: Dashboard is in MAINTENANCE mode. Bypassing dashboard settings.")
+                    self._last_sync = -1 
+                return
+
             url = f"{self.api_url}/config/pull_all/{self.bot_id}"
             async with session.get(url) as resp:
                 if resp.status == 200:
@@ -286,6 +322,8 @@ class ConfigSync:
                         "ConfigSync: Successfully synced config for %d guilds for bot '%s'",
                         len(data), self.bot_id,
                     )
+                elif resp.status == 418:
+                    self.maintenance_mode = True
                 else:
                     logger.debug("Bulk config pull returned %d", resp.status)
         except Exception as exc:
