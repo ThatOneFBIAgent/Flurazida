@@ -401,14 +401,14 @@ async def global_blacklist_check(interaction: Interaction) -> bool:
                         return False
                     
                     # Dynamic Cooldown Override
-                    if cooldown > 0:
+                    if cooldown_val > 0:
                         now = time.time()
                         if user_id not in bot._custom_cooldowns:
                             bot._custom_cooldowns[user_id] = {}
                         
                         last_use = bot._custom_cooldowns[user_id].get(cmd_name, 0)
-                        if now - last_use < cooldown:
-                            retry_after = cooldown - (now - last_use)
+                        if now - last_use < cooldown_val:
+                            retry_after = cooldown_val - (now - last_use)
                             await interaction.response.send_message(
                                 f"⏳ You are on cooldown for `/{cmd_name}`. Try again in {retry_after:.1f}s.",
                                 ephemeral=True

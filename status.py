@@ -228,6 +228,7 @@ class ConfigSync:
         bot: "discord.Bot | discord.AutoShardedBot",
         *,
         interval: int = 30,
+        on_maintenance_cleared=None,
     ):
         api_url = api_url.rstrip("/")
         if not api_url.startswith(("http://", "https://")):
@@ -240,6 +241,7 @@ class ConfigSync:
         self._session: Optional[aiohttp.ClientSession] = None
         self._last_sync: float = 0
         self.maintenance_mode: bool = False
+        self._on_maintenance_cleared = on_maintenance_cleared
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -275,6 +277,29 @@ class ConfigSync:
             logger.warning("Config push failed for guild %s: %s", guild_id, exc)
         return False
 
+    async def bulk_sync(self, guilds_data: Dict[str, Dict[str, Any]]):
+        """Bulk push all guild settings to seed the dashboard's database."""
+        try:
+            session = await self._get_session()
+            url = f"{self.api_url}/config/sync/{self.bot_id}"
+            async with session.post(url, json={"guilds": guilds_data}) as resp:
+                if resp.status == 200:
+                    res_data = await resp.json()
+                    logger.info(
+                        "ConfigSync: Successfully bulk synced %d guilds (%d created, %d skipped)",
+                        len(guilds_data), res_data.get("created", 0), res_data.get("skipped", 0)
+                    )
+                    # Update local cache
+                    for gid, settings in guilds_data.items():
+                        if gid not in self._cache:
+                            self._cache[str(gid)] = settings
+                    return True
+                else:
+                    logger.debug("Bulk sync returned %d", resp.status)
+        except Exception as exc:
+            logger.warning("Bulk sync failed: %s", exc)
+        return False
+
     async def pull_one(self, guild_id: int | str) -> Dict[str, Any]:
         """Pull config for a single guild from the dashboard."""
         try:
@@ -296,6 +321,8 @@ class ConfigSync:
         """Bulk pull config for all guilds the bot is in."""
         if not self.bot.is_ready():
             return
+
+        was_in_maintenance = self.maintenance_mode
 
         try:
             session = await self._get_session()
@@ -327,6 +354,16 @@ class ConfigSync:
                         "ConfigSync: Successfully synced config for %d guilds for bot '%s'",
                         len(data), self.bot_id,
                     )
+                    
+                    # If we just left maintenance, fire the callback so the bot
+                    # can re-seed any missing guilds into the dashboard.
+                    if was_in_maintenance and self._on_maintenance_cleared:
+                        logger.info("ConfigSync: Maintenance cleared — triggering re-seed.")
+                        try:
+                            asyncio.create_task(self._on_maintenance_cleared())
+                        except Exception as exc:
+                            logger.error("ConfigSync: Re-seed callback failed: %s", exc)
+
                 elif resp.status == 418:
                     self.maintenance_mode = True
                 else:
@@ -347,3 +384,4 @@ class ConfigSync:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
+
