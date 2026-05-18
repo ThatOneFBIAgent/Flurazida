@@ -197,6 +197,7 @@ class BotMonitor:
                 "os": platform.system(),
             },
             "guild_count": len(guilds),
+            "guild_ids": [str(g.id) for g in guilds],
             "member_count": sum(g.member_count or 0 for g in guilds),
             "channel_count": sum(len(g.channels) for g in guilds),
         }
