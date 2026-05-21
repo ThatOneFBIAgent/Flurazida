@@ -31,6 +31,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 # Local Application Imports
 import services.cloudflare_ping as cf
 import config
+import health
 from config import IS_ALPHA, get_activity
 from database import (
     get_expired_cases,
@@ -198,6 +199,7 @@ class Main(commands.AutoShardedBot):
             await asyncio.sleep(300) # 5 minutes
 
 bot = Main()
+health.attach(bot)
 bot.help_command = None
 
 @bot.event
