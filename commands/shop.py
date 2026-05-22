@@ -10,7 +10,7 @@ from discord import app_commands, Interaction
 
 
 # Local Imports
-from database import buy_item, modify_robber_multiplier, use_item
+from database import buy_item, use_item
 from config import cooldown
 from logging_modules.custom_logger import get_logger
 
