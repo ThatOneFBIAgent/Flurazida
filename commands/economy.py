@@ -1,7 +1,7 @@
-
 # Standard Library Imports
 import asyncio
 import random
+import time
 
 
 # Third-Party Imports
@@ -17,18 +17,29 @@ from database import (
     add_user,
     get_user_items,
     get_robbery_modifier,
+    get_victim_rob_modifier,
+    consume_robber_item_uses,
     check_gun_defense,
     decrement_gun_use,
+    check_taser_defense,
+    decrement_taser_use,
     remove_item_from_user,
     update_item_uses,
     add_item_to_user,
-    atomic_deduct
+    atomic_deduct,
+    get_last_claim,
+    set_last_claim,
 )
 from config import cooldown, check_cooldown, update_cooldown
 from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 from discord import ui
+
+# ===================== Constants =====================
+DAILY_COOLDOWN    = 43_200      # 12 hours — the minimum gap between claims
+MONTHLY_COOLDOWN  = 2_548_800   # ~29.5 days (30 days − 12 h margin of error)
+DAILY_STREAK_RESET = 129_600    # 36 h gap resets daily streak
 
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
@@ -102,69 +113,76 @@ class EconomyCommands(app_commands.Group):
         target_id = target.id
         log.trace(f"User {user_id} attempting to rob {target_id}")
 
+        # ── Guards ─────────────────────────────────────────────────────
         if user_id == target_id:
-            await interaction.followup.send("❌ You can't rob yourself!", ephemeral=True)
-            return
+            return await interaction.followup.send("❌ You can't rob yourself!", ephemeral=True)
 
         await add_user(user_id, interaction.user.name)
         await add_user(target_id, target.name)
 
-        # Get robbery modifier for the user (could be items, perks, etc.)
-        modifier = await get_robbery_modifier(user_id)
-        # Base success chance is 40%
-        base_success_chance = 0.4
-        success_chance = base_success_chance + modifier
-
-        if success_chance > 0.95:
-            success_chance = 0.95  # Cap at 95%
-        elif success_chance < 0.05:
-            success_chance = 0.05  # Minimum 5%
-        
-        # 2nd amendment rights in a nutshell
-        gun_defense = await check_gun_defense(target_id)
-        if gun_defense:
-            await decrement_gun_use(target_id)
-            await interaction.followup.send(
-            f"🔫 {target.mention} defended themselves with a gun! Your robbery failed.",
-            ephemeral=False
-            )
-            return
-
-        success = random.random() < success_chance
-
-        robber_balancer = await get_balance(user_id)
-        if robber_balancer < -50:
+        if await get_balance(user_id) < -50:
             return await interaction.followup.send("💸 You can't afford risking another crime!")
 
         target_balance = await get_balance(target_id)
         if target_balance < 100:
-            return await interaction.followup.send(f"💸 {target.mention} doesn't have enough coins to rob!", ephemeral=True)
+            return await interaction.followup.send(
+                f"💸 {target.mention} doesn't have enough coins to rob!", ephemeral=True
+            )
 
+        # ── Victim defenses (checked in power order: gun › taser) ────────────
+        if await check_gun_defense(target_id):
+            await decrement_gun_use(target_id)
+            fine = random.randint(100, 350)
+            await update_balance(user_id, -fine)
+            log.warningtrace(f"{user_id} was shot by {target_id}'s gun, fined {fine}")
+            return await interaction.followup.send(
+                f"🔫 {target.mention} drew their gun and fired! "
+                f"You scrambled away and dropped 💰 `{fine}` coins."
+            )
+
+        if await check_taser_defense(target_id):
+            await decrement_taser_use(target_id)
+            fine = random.randint(30, 120)
+            await update_balance(user_id, -fine)
+            log.warningtrace(f"{user_id} was tased by {target_id}'s taser, fined {fine}")
+            return await interaction.followup.send(
+                f"⚡ {target.mention} tased you before you could act! "
+                f"You stumbled away and dropped 💰 `{fine}` coins."
+            )
+
+        # ── Compute effective success chance ─────────────────────────────
+        robber_mod = await get_robbery_modifier(user_id)    # e.g. +0.50 from Bolt Cutters
+        victim_mod  = await get_victim_rob_modifier(target_id)  # e.g. +0.50 from Padlocked Wallet (decrements it)
+        success_chance = max(0.05, min(0.95, 0.40 + robber_mod - victim_mod))
+        success = random.random() < success_chance
+
+        # Consume robber's passive item uses (Bolt Cutters, Hackatron) for this attempt
+        await consume_robber_item_uses(user_id)
+
+        # ── Resolve ───────────────────────────────────────────────────
         if success:
             amount = random.randint(50, min(300, target_balance))
             await update_balance(user_id, amount)
             await update_balance(target_id, -amount)
-            log.successtrace(f"User {user_id} robbed {target_id} for {amount} coins")
+            log.successtrace(f"{user_id} robbed {target_id} for {amount} coins")
             messages = [
                 f"🦹 You successfully robbed {target.mention} and stole 💰 `{amount}` coins!",
                 f"💰 You snuck up on {target.mention} and got away with `{amount}` coins!",
                 f"🔪 You threatened {target.mention} and took `{amount}` coins!",
                 f"💵 You pickpocketed {target.mention} and made off with `{amount}` coins!",
             ]
-            msg_content = random.choice(messages)
         else:
             penalty = random.randint(50, 400)
             await update_balance(user_id, -penalty)
-            log.warningtrace(f"User {user_id} failed to rob {target_id} and lost {penalty} coins")
+            log.warningtrace(f"{user_id} failed to rob {target_id} and lost {penalty} coins")
             messages = [
                 f"🚨 You got caught trying to rob {target.mention}! You paid a fine of 💰 `{penalty}` coins.",
                 f"👮 The police stopped your robbery attempt. Lost 💰 `{penalty}` coins.",
                 f"😬 {target.mention} fought back! You lost 💰 `{penalty}` coins.",
-                f"🚓 {target.mention} made you trip and the police caught you! You lost 💰`{penalty} coins.`"
+                f"🚣 {target.mention} made you trip and the police caught you! You lost 💰 `{penalty}` coins."
             ]
-            msg_content = random.choice(messages)
-            
-        await interaction.followup.send(msg_content, ephemeral=False)
+
+        await interaction.followup.send(random.choice(messages), ephemeral=False)
 
     @app_commands.command(name="rob", description="Rob someone for cash. Risky!")
     @cooldown(cl=600, tm=25.0, ft=3)
@@ -354,39 +372,132 @@ class EconomyCommands(app_commands.Group):
         target_id = target.id
 
         if user_id == target_id:
-            await interaction.followup.send("❌ You can't give items to yourself!", ephemeral=True)
-            return
+            return await interaction.followup.send("❌ You can't give items to yourself!", ephemeral=True)
 
         await add_user(user_id, interaction.user.name)
         await add_user(target_id, target.name)
 
         if amount <= 0:
-            await interaction.followup.send("❌ Invalid amount!", ephemeral=True)
-            return
+            return await interaction.followup.send("❌ Invalid amount!", ephemeral=True)
 
         items = await get_user_items(user_id)
-        item = next((item for item in items if item['item_id'] == item_id), None)
+        item = next((i for i in items if str(i['item_id']) == str(item_id)), None)
 
         if not item or item['uses_left'] < amount:
-            await interaction.followup.send("❌ You don't have enough of that item!", ephemeral=True)
-            return
+            return await interaction.followup.send("❌ You don't have enough of that item!", ephemeral=True)
 
-        # Decrement the item's uses from the sender's inventory
-        item['uses_left'] -= amount
-
-        # Remove the item from sender if uses_left is 0
-        if item['uses_left'] == 0:
-            # Remove the item from the user's inventory in the database
+        new_uses = item['uses_left'] - amount
+        if new_uses == 0:
             await remove_item_from_user(user_id, item_id)
         else:
-            # Update the item uses in the database
-            await update_item_uses(user_id, item_id, item['uses_left'])
+            await update_item_uses(user_id, item_id, new_uses)
 
-        # Add the item to the target's inventory
-        await add_item_to_user(target_id, item_id, amount)
-        log.successtrace(f"User {user_id} gave {amount} of item {item_id} to {target_id}")
+        await add_item_to_user(target_id, item_id, item['item_name'], uses_left=amount)
+        log.successtrace(f"User {user_id} gave {amount}x '{item['item_name']}' (ID {item_id}) to {target_id}")
 
-        await interaction.followup.send(f"🎁 You gave {target.mention} {amount} of item ID `{item_id}`!", ephemeral=False)
+        await interaction.followup.send(
+            f"🎁 You gave {target.mention} **{amount}x {item['item_name']}**!", ephemeral=False
+        )
+
+    # ===================== Daily / Monthly =====================
+    async def run_daily(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        await add_user(user_id, interaction.user.name)
+
+        now = int(time.time())
+        last_claim, streak = await get_last_claim(user_id, "daily")
+        elapsed = now - last_claim
+
+        # Cooldown check
+        if last_claim > 0 and elapsed < DAILY_COOLDOWN:
+            remaining = DAILY_COOLDOWN - elapsed
+            hours   = int(remaining // 3600)
+            minutes = int((remaining % 3600) // 60)
+            return await interaction.followup.send(
+                f"⏳ You already claimed your daily! Come back in **{hours}h {minutes}m**.",
+                ephemeral=True
+            )
+
+        # Streak logic: gap > 36 h resets the chain
+        if last_claim > 0 and elapsed > DAILY_STREAK_RESET:
+            streak = 0
+        streak += 1
+
+        # Reward & multiplier
+        base_reward = random.randint(300, 700)
+        if   streak >= 30: multiplier = 5.0
+        elif streak >= 14: multiplier = 3.0
+        elif streak >= 7:  multiplier = 2.0
+        elif streak >= 3:  multiplier = 1.5
+        else:              multiplier = 1.0
+        reward = int(base_reward * multiplier)
+
+        await update_balance(user_id, reward)
+        await set_last_claim(user_id, "daily", now, streak)
+        log.successtrace(f"Daily claimed by {user_id}: {reward} coins (streak {streak}, x{multiplier})")
+
+        # Build embed
+        embed = discord.Embed(
+            title="📅 Daily Reward!",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="Coins Earned",  value=f"💰 **{reward:,}**", inline=True)
+        embed.add_field(name="Current Streak", value=f"🔥 **{streak}** day(s)", inline=True)
+        if multiplier > 1.0:
+            embed.add_field(name="Streak Bonus", value=f"✨ **{multiplier}x**", inline=True)
+
+        milestones = [3, 7, 14, 30]
+        next_ms = next((m for m in milestones if m > streak), None)
+        if next_ms:
+            embed.set_footer(text=f"📊 {next_ms - streak} more day(s) until {next_ms}-day streak bonus!")
+        else:
+            embed.set_footer(text="👑 Max streak bonus reached. Legendary grind.")
+
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="daily", description="Claim your daily coins. Streak bonuses await!")
+    @cooldown(cl=5, tm=25.0, ft=3)
+    async def daily(self, interaction: discord.Interaction):
+        await self.run_daily(interaction)
+
+    async def run_monthly(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        await add_user(user_id, interaction.user.name)
+
+        now = int(time.time())
+        last_claim, _ = await get_last_claim(user_id, "monthly")
+        elapsed = now - last_claim
+
+        if last_claim > 0 and elapsed < MONTHLY_COOLDOWN:
+            remaining = MONTHLY_COOLDOWN - elapsed
+            days  = int(remaining // 86_400)
+            hours = int((remaining % 86_400) // 3600)
+            return await interaction.followup.send(
+                f"⏳ Already claimed your monthly! Come back in **{days}d {hours}h**.",
+                ephemeral=True
+            )
+
+        reward = random.randint(8_000, 18_000)
+        await update_balance(user_id, reward)
+        await set_last_claim(user_id, "monthly", now, 0)
+        log.successtrace(f"Monthly claimed by {user_id}: {reward} coins")
+
+        embed = discord.Embed(
+            title="🗓️ Monthly Reward!",
+            description="A fat stack of coins, on the house.",
+            color=discord.Color.purple()
+        )
+        embed.add_field(name="Coins Earned", value=f"💰 **{reward:,}**", inline=False)
+        embed.set_footer(text="See you next month!")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="monthly", description="Claim your monthly coins haul.")
+    @cooldown(cl=5, tm=25.0, ft=3)
+    async def monthly(self, interaction: discord.Interaction):
+        await self.run_monthly(interaction)
+
 
 
 class EconomyCog(commands.Cog):

@@ -4,6 +4,7 @@
 
 # Standard Library Imports
 import asyncio
+import random
 import base64
 import io
 import json
@@ -332,6 +333,15 @@ async def init_databases():
             PRIMARY KEY (user_id, item_id)
         )
         """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_claims (
+            user_id INTEGER NOT NULL,
+            claim_type TEXT NOT NULL,
+            last_claim INTEGER NOT NULL,
+            streak INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, claim_type)
+        )
+        """)
         await conn.commit()
         log.database("Economy database initialized successfully")
 
@@ -363,42 +373,96 @@ async def init_databases():
 
 # ===================== Robbery Modifier =====================
 @log_db_call
-async def modify_robber_multiplier(user_id, change, duration=None):
+async def get_robbery_modifier(user_id: int) -> float:
     """
-    Modifies the user's robbery success/failure rate.
-
-    Args:
-        user_id (int): The user's ID
-        change (int): The amount to add (or subtract if negative)
-        duration (int): Optional duration in seconds for temporary effects
+    Returns the robber's total offense modifier as a float offset
+    (e.g. 0.50 = +50% success chance). Reads directly from ITEM_EFFECTS
+    for items the user currently owns — no stale effect_modifier column.
     """
-    current_modifier = await get_robbery_modifier(user_id)
-    new_modifier = max(min(current_modifier + change, 100), -100)
     conn = await db.get_economy()
-    await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
-                      (new_modifier, user_id))
-    await conn.commit()
-    log.trace(f"Updated robbery modifier for {user_id}: {new_modifier}%")
-    if duration:
-        asyncio.create_task(schedule_effect_decay(user_id, current_modifier, duration))
+    async with conn.execute(
+        "SELECT item_id FROM user_items WHERE user_id = ? AND uses_left > 0", (user_id,)
+    ) as cursor:
+        rows = await cursor.fetchall()
+    total = 0
+    for (item_id,) in rows:
+        effects = ITEM_EFFECTS.get(int(item_id), {})
+        # Skip victim-only items (taser / gun_defense) — they don't boost the robber
+        if not effects.get("taser") and not effects.get("gun_defense"):
+            total += effects.get("robbery_modifier", 0)
+    log.trace(f"Robbery modifier for {user_id}: {total}% ({total / 100:+.2f})")
+    return total / 100
 
 @log_db_call
-async def get_robbery_modifier(user_id):
-    """Gets the total robbery modifier for a user (from items)."""
+async def get_victim_rob_modifier(victim_id: int) -> float:
+    """
+    Returns the victim's passive defensive modifier as a positive float
+    (e.g. 0.50 = reduces robber's success chance by 50%).
+    Automatically decrements Padlocked Wallet (item 4) uses on call.
+    """
     conn = await db.get_economy()
-    async with conn.execute("SELECT SUM(effect_modifier) FROM user_items WHERE user_id = ?", (user_id,)) as cursor:
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 4 AND uses_left > 0",
+        (victim_id,)
+    ) as cursor:
         result = await cursor.fetchone()
-        return result[0] if result and result[0] else 0
+    if not result:
+        return 0.0
+    # Decrement Padlocked Wallet
+    new_uses = result[0] - 1
+    if new_uses <= 0:
+        await conn.execute(
+            "DELETE FROM user_items WHERE user_id = ? AND item_id = 4", (victim_id,)
+        )
+        log.trace(f"Padlocked Wallet exhausted for victim {victim_id}")
+    else:
+        await conn.execute(
+            "UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 4",
+            (new_uses, victim_id)
+        )
+    await conn.commit()
+    penalty = abs(ITEM_EFFECTS.get(4, {}).get("robbery_modifier", 0))
+    log.trace(f"Victim {victim_id} Padlocked Wallet active: -{penalty}% to robber ({new_uses} uses left)")
+    return penalty / 100
+
+@log_db_call
+async def consume_robber_item_uses(user_id: int):
+    """
+    Decrements 1 use from each passive robbery-modifier item the robber owns
+    (e.g. Bolt Cutters, Hackatron 9900). Called once per rob attempt.
+    """
+    conn = await db.get_economy()
+    # Collect item IDs that provide passive offense bonuses
+    passive_rob_item_ids = [
+        iid for iid, eff in ITEM_EFFECTS.items()
+        if "robbery_modifier" in eff and not eff.get("taser") and not eff.get("gun_defense")
+    ]
+    for item_id in passive_rob_item_ids:
+        async with conn.execute(
+            "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ? AND uses_left > 0",
+            (user_id, item_id)
+        ) as cursor:
+            result = await cursor.fetchone()
+        if not result:
+            continue
+        new_uses = result[0] - 1
+        if new_uses <= 0:
+            await conn.execute(
+                "DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)
+            )
+            log.trace(f"Item {item_id} exhausted for robber {user_id}")
+        else:
+            await conn.execute(
+                "UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?",
+                (new_uses, user_id, item_id)
+            )
+    await conn.commit()
 
 @log_db_call
 async def schedule_effect_decay(user_id, original_value, duration):
-    """Waits for the effect duration to expire and then reverts the modifier."""
+    """Waits for a temporary effect to expire and logs its completion."""
     await asyncio.sleep(duration)
-    conn = await db.get_economy()
-    await conn.execute("UPDATE user_items SET effect_modifier = ? WHERE user_id = ?",
-                      (original_value, user_id))
-    await conn.commit()
-    log.trace(f"Restored robbery modifier for {user_id} to {original_value}%")
+    log.trace(f"Temporary effect expired for {user_id} (was {original_value}%)")
 
 # ===================== Economy Functions =====================
 @log_db_call
@@ -550,20 +614,22 @@ async def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modif
 
 # ===================== Special Item Effects =====================
 @log_db_call
-async def use_item(user_id, item_id):
+async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> str:
     """
     Handles item use and applies effects dynamically.
-    FIX: Now properly decrements uses, removes exhausted items, and returns a message.
 
     Args:
-        user_id (int): The user's ID
-        item_id (int): The item's ID
+        user_id (int): The user using the item.
+        item_id (int): The item's ID.
+        target_id (int | None): Optional target player for targeted items (e.g. Taser active use).
 
     Returns:
-        str: A message describing the result of using the item.
+        str: A message describing the result.
     """
     conn = await db.get_economy()
-    async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)) as cursor:
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)
+    ) as cursor:
         result = await cursor.fetchone()
 
     if not result:
@@ -577,65 +643,167 @@ async def use_item(user_id, item_id):
     if not item_data:
         return "❌ Failed to load item details."
 
-    # Handle last use case
+    # ── Taser: active offensive use (targeting another player) ──────────────
+    if item_id == 5 and target_id is not None:
+        target_balance = await get_balance(target_id)
+        if target_balance < 50:
+            return "❌ Your target is too broke to bother tasing! Save the charge."
+
+    # Decrement uses (shared path for all items)
     last_use_warning = ""
     if uses_left == 1:
-        last_use_warning = f"⚠️ **This is the last use of your {item_data['name']}!**\n"
+        last_use_warning = f"⚠️ **Last use of your {item_data['name']}!**\n"
 
-    # FIX: Decrement uses
     new_uses = uses_left - 1
     if new_uses <= 0:
         await remove_item_from_user(user_id, item_id)
     else:
         await update_item_uses(user_id, item_id, new_uses)
 
-    # Apply effect if item has one
+    # ── Resolve taser active use after decrement ─────────────────────────────
+    if item_id == 5 and target_id is not None:
+        target_balance = await get_balance(target_id)
+        if random.random() < 0.70:
+            stolen = random.randint(50, min(150, target_balance))
+            await update_balance(user_id, stolen)
+            await update_balance(target_id, -stolen)
+            effect_applied = (
+                f"⚡ **Zap!** You tased <@{target_id}> and swiped 💰 `{stolen}` coins "
+                f"while they were twitching! ({new_uses} taser charges left)"
+            )
+        else:
+            effect_applied = (
+                f"⚡ **Misfire!** Your taser sputtered. <@{target_id}> laughed at you. "
+                f"({new_uses} charges left)"
+            )
+        return f"{last_use_warning}{effect_applied}"
+
+    # ── General item effects ─────────────────────────────────────────────────
     effect_applied = f"Used **{item_data['name']}** ({new_uses} uses remaining)."
 
     if item_id in ITEM_EFFECTS:
         effect_data = ITEM_EFFECTS[item_id]
 
-        # Apply Robbery Modifiers
         if "robbery_modifier" in effect_data and not effect_data.get("taser") and not effect_data.get("gun_defense"):
-            mod_val = effect_data["robbery_modifier"]
-            duration = effect_data.get("duration")
-            await modify_robber_multiplier(user_id, mod_val, duration=duration)
-            effect_applied = f"🔧 **Your robbery success rate changed!**"
+            direction = "+" if effect_data["robbery_modifier"] > 0 else ""
+            mod_pct = effect_data["robbery_modifier"]
+            effect_applied = (
+                f"🔧 **{item_data['name']} equipped!** Robbery success rate {direction}{mod_pct}% "
+                f"as long as you hold it ({new_uses} uses left)."
+            )
+            if effect_data.get("temporary_effect"):
+                effect_applied += f"\n⏳ *Temporary effect — decays after {effect_data.get('duration', 0) // 60} minutes.*"
 
-        # Apply temporary effects (like Resin Sample) — handled inside modify_robber_multiplier via duration
-        if "temporary_effect" in effect_data:
-            effect_applied += f"\n⏳ *Effect will decay after {effect_data.get('duration', 0) // 60} minutes.*"
+        elif effect_data.get("taser"):
+            # Passive equip (no target provided) — just confirm it's in inventory
+            effect_applied = (
+                f"⚡ **Taser equipped passively!** You are protected — it will automatically fire at the "
+                f"next person who tries to rob you. ({new_uses} charges left)\n"
+                f"*Tip: use `/shop use taser @target` to tase someone offensively.*"
+            )
 
-        # Apply defensive effects
-        if effect_data.get("taser"):
-            await modify_robber_multiplier(user_id, effect_data["robbery_modifier"])
-            effect_applied = "⚡ **You are now protected from robbery for one attempt!**"
+        elif effect_data.get("gun_defense"):
+            effect_applied = (
+                f"🔫 **Loaded Gun equipped!** You're armed — any robber will get shot. "
+                f"({new_uses} rounds left)"
+            )
 
-        if effect_data.get("gun_defense"):
-            effect_applied = "🔫 **You are armed. Good luck, robber.**"
+        elif effect_data.get("drain_percent"):
+            effect_applied = "💸 **Financial Drain... activated?** Nothing happens. Nothing at all. Probably fine."
 
-        if effect_data.get("drain_percent"):
-            effect_applied = "💸 **Financial Drain activated!** Your balance will slowly decay..."
+        elif effect_data.get("gambling_placebo"):
+            effect_applied = "🪙 **Lucky Coin rubbed!** ...you feel luckier. (Placebo effect is real!)"
 
-        if effect_data.get("gambling_placebo"):
-            effect_applied = "🪙 **Lucky Coin activated!** ...you feel luckier. (Placebo effect is real!)"
-
-    # FIX: Actually return the message
     return f"{last_use_warning}{effect_applied}"
 
 @log_db_call
-async def check_gun_defense(victim_id):
-    """Checks if a user has a gun defense item."""
+async def check_gun_defense(victim_id: int) -> int:
+    """Returns the remaining uses of the victim's Loaded Gun (0 if unarmed)."""
     conn = await db.get_economy()
-    async with conn.execute("SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)) as cursor:
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10 AND uses_left > 0",
+        (victim_id,)
+    ) as cursor:
         result = await cursor.fetchone()
-        return result[0] if result and result[0] > 0 else 0
+    return result[0] if result else 0
 
 @log_db_call
-async def decrement_gun_use(victim_id):
-    """Decrements the uses left for a user's gun defense item."""
+async def decrement_gun_use(victim_id: int):
+    """Decrements 1 use from the victim's Loaded Gun; removes it if exhausted."""
     conn = await db.get_economy()
-    await conn.execute("UPDATE user_items SET uses_left = uses_left - 1 WHERE user_id = ? AND item_id = 10 AND uses_left > 0", (victim_id,))
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)
+    ) as cursor:
+        result = await cursor.fetchone()
+    if not result:
+        return
+    new_uses = result[0] - 1
+    if new_uses <= 0:
+        await conn.execute(
+            "DELETE FROM user_items WHERE user_id = ? AND item_id = 10", (victim_id,)
+        )
+    else:
+        await conn.execute(
+            "UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 10",
+            (new_uses, victim_id)
+        )
+    await conn.commit()
+
+@log_db_call
+async def check_taser_defense(victim_id: int) -> bool:
+    """Returns True if the victim has a Taser with uses remaining."""
+    conn = await db.get_economy()
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 5 AND uses_left > 0",
+        (victim_id,)
+    ) as cursor:
+        result = await cursor.fetchone()
+    return result is not None
+
+@log_db_call
+async def decrement_taser_use(victim_id: int):
+    """Decrements 1 use from the victim's Taser; removes it if exhausted."""
+    conn = await db.get_economy()
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 5", (victim_id,)
+    ) as cursor:
+        result = await cursor.fetchone()
+    if not result:
+        return
+    new_uses = result[0] - 1
+    if new_uses <= 0:
+        await conn.execute(
+            "DELETE FROM user_items WHERE user_id = ? AND item_id = 5", (victim_id,)
+        )
+        log.trace(f"Taser exhausted for {victim_id}")
+    else:
+        await conn.execute(
+            "UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 5",
+            (new_uses, victim_id)
+        )
+    await conn.commit()
+
+# ===================== Claim Functions (daily / monthly) =====================
+@log_db_call
+async def get_last_claim(user_id: int, claim_type: str) -> tuple[int, int]:
+    """Returns (last_claim_unix, streak) for a user's claim type. (0, 0) if never claimed."""
+    conn = await db.get_economy()
+    async with conn.execute(
+        "SELECT last_claim, streak FROM user_claims WHERE user_id = ? AND claim_type = ?",
+        (user_id, claim_type)
+    ) as cursor:
+        result = await cursor.fetchone()
+    return result if result else (0, 0)
+
+@log_db_call
+async def set_last_claim(user_id: int, claim_type: str, timestamp: int, streak: int):
+    """Upserts the claim timestamp and streak for a user."""
+    conn = await db.get_economy()
+    await conn.execute("""
+        INSERT INTO user_claims (user_id, claim_type, last_claim, streak)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, claim_type) DO UPDATE SET last_claim = ?, streak = ?
+    """, (user_id, claim_type, timestamp, streak, timestamp, streak))
     await conn.commit()
 
 # ===================== Moderator Logging Functions =====================

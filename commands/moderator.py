@@ -26,6 +26,117 @@ from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 
+
+def parse_duration(duration_str: str) -> Optional[int]:
+    """
+    Parses a highly flexible duration string and returns total seconds.
+    Supports units like:
+    - Years: y, yr, yrs, year, years
+    - Months: mo, mon, mons, month, months (approximated as 30 days)
+    - Weeks: w, wk, wks, week, weeks
+    - Days: d, dy, dys, day, days
+    - Hours: h, hr, hrs, hour, hours
+    - Minutes: m, mn, min, mins, minute, minutes
+    - Seconds: s, sec, secs, second, seconds
+
+    Returns None if the duration is completely invalid or has unparsed content.
+    """
+    if not duration_str:
+        return None
+
+    # Normalize input
+    s = duration_str.lower().strip()
+
+    # Match patterns like "10y", "10 yr", "10 years"
+    pattern = r"(\d+)\s*([a-zA-Z]+)"
+    matches = re.findall(pattern, s)
+
+    if not matches:
+        return None
+
+    # Map units to seconds
+    unit_map = {
+        # Years
+        'y': 31536000, 'yr': 31536000, 'yrs': 31536000, 'year': 31536000, 'years': 31536000,
+        # Months
+        'mo': 2592000, 'mon': 2592000, 'mons': 2592000, 'month': 2592000, 'months': 2592000,
+        # Weeks
+        'w': 604800, 'wk': 604800, 'wks': 604800, 'week': 604800, 'weeks': 604800,
+        # Days
+        'd': 86400, 'dy': 86400, 'dys': 86400, 'day': 86400, 'days': 86400,
+        # Hours
+        'h': 3600, 'hr': 3600, 'hrs': 3600, 'hour': 3600, 'hours': 3600,
+        # Minutes
+        'm': 60, 'mn': 60, 'min': 60, 'mins': 60, 'minute': 60, 'minutes': 60,
+        # Seconds
+        's': 1, 'sec': 1, 'secs': 1, 'second': 1, 'seconds': 1
+    }
+
+    total_seconds = 0
+    reconstructed = s
+
+    for val_str, unit in matches:
+        if unit not in unit_map:
+            return None
+        total_seconds += int(val_str) * unit_map[unit]
+        # Remove matched pattern from reconstructed string to check for leftovers
+        reconstructed = re.sub(rf"{val_str}\s*{unit}", "", reconstructed, count=1)
+
+    # Clean up reconstructed string from ignorable fillers: whitespace, commas, "and"
+    reconstructed = re.sub(r"[\s,]|and", "", reconstructed)
+    if reconstructed:  # If there's still unrecognized content, invalid format
+        return None
+
+    return total_seconds
+
+
+async def check_moderation_target(
+    interaction: Interaction,
+    target: discord.Member,
+    bot: commands.Bot,
+    action: str,
+    check_self: bool = True,
+    check_admin: bool = True
+) -> Optional[str]:
+    """
+    Performs standard moderation checks on a target user.
+    Returns an error message if a check fails, otherwise None.
+    """
+    # Note: DM execution check is handled by @app_commands.guild_only(),
+    # but we still double check interaction.guild just in case.
+    if not interaction.guild:
+        log.warningtrace(f"{action.capitalize()} used outside guild by {interaction.user.id}")
+        return "❌ This command must be used in a guild."
+
+    if check_self and target.id == interaction.user.id:
+        log.warningtrace(f"{action.capitalize()} self-target by {interaction.user.id}")
+        return f"❌ You cannot {action} yourself!"
+
+    if target.id == bot.user.id:
+        log.warningtrace(f"{action.capitalize()} bot-target by {interaction.user.id}")
+        return f"❌ You cannot {action} the bot!"
+
+    # Hierarchy checks: User executing vs target
+    if not interaction.user.top_role or (target.top_role and target.top_role >= interaction.user.top_role):
+        log.warningtrace(f"{action.capitalize()} hierarchy check failed for {interaction.user.id} on {target.id}")
+        return f"❌ You cannot {action} someone with a higher or equal role!"
+
+    # Hierarchy checks: Bot vs target
+    bot_member = interaction.guild.me or interaction.guild.get_member(bot.user.id)
+    if not bot_member:
+        bot_member = await interaction.guild.fetch_member(bot.user.id)
+
+    if not bot_member.top_role or (target.top_role and target.top_role >= bot_member.top_role):
+        log.warningtrace(f"{action.capitalize()} bot hierarchy check failed for {interaction.user.id} on {target.id}")
+        return f"❌ I cannot {action} a user with a higher or equal role than my own!"
+
+    if check_admin and target.guild_permissions.administrator:
+        log.warningtrace(f"{action.capitalize()} admin-target by {interaction.user.id} on {target.id}")
+        return f"❌ You cannot {action} an administrator!"
+
+    return None
+
+
 class ModeratorCommands(app_commands.Group):
     def __init__(self, bot):
         super().__init__(name="moderator", description="Moderation related commands")
@@ -35,54 +146,26 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to mute", duration="Duration (e.g., 1h, 30m, 7d)", reason="Reason for the mute")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def mute(self, interaction: Interaction, user: discord.Member, duration: str, reason: str = None):
         log.trace(f"Mute invoked by {interaction.user.id} on {user.id} for {duration}")
         await interaction.response.defer(ephemeral=True)
 
-        if not interaction.guild:
-            log.warningtrace(f"Mute used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-
-        if user == interaction.user:
-            log.warningtrace(f"Mute self-target by {interaction.user.id}")
-            return await interaction.followup.send("❌ You cannot mute yourself!", ephemeral=True)
-        if user.id == self.bot.user.id:
-            log.warningtrace(f"Mute bot-target by {interaction.user.id}")
-            return await interaction.followup.send("❌ You cannot mute the bot!", ephemeral=True)
-        if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
-            log.warningtrace(f"Mute hierarchy check failed for {interaction.user.id} on {user.id}")
-            return await interaction.followup.send("❌ You cannot mute someone with a higher or equal role!", ephemeral=True)
-        if user.guild_permissions.administrator:
-            log.warningtrace(f"Mute admin-target by {interaction.user.id} on {user.id}")
-            return await interaction.followup.send("❌ You cannot mute an administrator!", ephemeral=True)
+        error_msg = await check_moderation_target(interaction, user, self.bot, "mute")
+        if error_msg:
+            return await interaction.followup.send(error_msg, ephemeral=True)
 
         # Parse duration
-        duration_seconds = 0
-        try:
-            if duration.endswith("d"):
-                duration_seconds = int(duration[:-1]) * 86400
-            elif duration.endswith("h"):
-                duration_seconds = int(duration[:-1]) * 3600
-            elif duration.endswith("m"):
-                duration_seconds = int(duration[:-1]) * 60
-            elif duration.endswith("s"):
-                duration_seconds = int(duration[:-1])
-            else:
-                log.warningtrace(f"Mute invalid duration format by {interaction.user.id}: {duration}")
-                return await interaction.followup.send("❌ Invalid duration format! Use `1h`, `30m`, `7d`, `45s`, etc.", ephemeral=True)
-            
-            if duration_seconds <= 0:
-                log.warningtrace(f"Mute invalid duration (<=0) by {interaction.user.id}: {duration}")
-                return await interaction.followup.send("❌ Duration must be greater than 0!", ephemeral=True)
-            if duration_seconds > 2419200:
-                log.warningtrace(f"Mute duration too long by {interaction.user.id}: {duration}")
-                return await interaction.followup.send("❌ Duration cannot exceed 28 days (Discord's maximum timeout limit)!", ephemeral=True)
-        except ValueError:
+        duration_seconds = parse_duration(duration)
+        if duration_seconds is None or duration_seconds <= 0:
             log.warningtrace(f"Mute invalid duration format by {interaction.user.id}: {duration}")
-            return await interaction.followup.send("❌ Invalid duration format! Use `1h`, `30m`, `7d`, etc.", ephemeral=True)
+            return await interaction.followup.send("❌ Invalid duration format! Use `1h`, `30m`, `7d`, `10 years`, etc.", ephemeral=True)
+        
+        if duration_seconds > 2419200:
+            log.warningtrace(f"Mute duration too long by {interaction.user.id}: {duration}")
+            return await interaction.followup.send("❌ Duration cannot exceed 28 days (Discord's maximum timeout limit)!", ephemeral=True)
 
-        expiry_time = int(time.time()) + duration_seconds
         until_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=duration_seconds)
 
         if reason is None:
@@ -98,7 +181,6 @@ class ModeratorCommands(app_commands.Group):
                 )
             except Exception as db_error:
                 log.error(f"Failed to log mute case to database: {db_error}", exc_info=True)
-                # Still send success message since the mute succeeded
 
             log.successtrace(f"Mute successful: {user.id} for {duration} by {interaction.user.id}")
             await interaction.followup.send(
@@ -117,14 +199,11 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to unmute", reason="Reason for unmuting (optional)")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.checks.bot_has_permissions(moderate_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def unmute(self, interaction: Interaction, user: discord.Member, reason: str = None):
         log.trace(f"Unmute invoked by {interaction.user.id} on {user.id}")
         await interaction.response.defer(ephemeral=True)
-
-        if not interaction.guild:
-            log.warningtrace(f"Unmute used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         if not user.is_timed_out():
             log.warningtrace(f"Unmute failed (not muted) for {user.id} by {interaction.user.id}")
@@ -145,35 +224,15 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user="The user to kick", reason="The reason for the kick")
     @app_commands.checks.has_permissions(kick_members=True)
     @app_commands.checks.bot_has_permissions(kick_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def kick(self, interaction: Interaction, user: discord.Member, reason: str = None):
         log.trace(f"Kick invoked by {interaction.user.id} on {user.id}")
         await interaction.response.defer(ephemeral=False)
         
-        if not interaction.guild:
-            log.warningtrace(f"Kick used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-        
-        if user == interaction.user:
-            log.warningtrace(f"Kick self-target by {interaction.user.id}")
-            return await interaction.followup.send("❌ You cannot kick yourself!", ephemeral=True)
-        if user.id == self.bot.user.id:
-            log.warningtrace(f"Kick bot-target by {interaction.user.id}")
-            return await interaction.followup.send("❌ You cannot kick the bot!", ephemeral=True)
-        if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
-            log.warningtrace(f"Kick hierarchy check failed for {interaction.user.id} on {user.id}")
-            return await interaction.followup.send("❌ You cannot kick a user with a higher or equal role!", ephemeral=True)
-        
-        bot_member = interaction.guild.get_member(self.bot.user.id)
-        if bot_member is None:
-            bot_member = await interaction.guild.fetch_member(self.bot.user.id)
-        if not bot_member.top_role or user.top_role >= bot_member.top_role:
-            log.warningtrace(f"Kick bot hierarchy check failed for {interaction.user.id} on {user.id}")
-            return await interaction.followup.send("❌ I cannot kick a user with a higher or equal role than my own!", ephemeral=True)
-        
-        if user.guild_permissions.administrator:
-            log.warningtrace(f"Kick admin-target by {interaction.user.id} on {user.id}")
-            return await interaction.followup.send("❌ You cannot kick an administrator!", ephemeral=True)
+        error_msg = await check_moderation_target(interaction, user, self.bot, "kick")
+        if error_msg:
+            return await interaction.followup.send(error_msg, ephemeral=True)
 
         if reason is None:
             reason = "No reason provided"
@@ -197,11 +256,12 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.command(name="ban", description="Bans a user from the server (optionally timed).")
     @app_commands.describe(
         user="User to ban",
-        duration="Ban duration (e.g. 1d, 12h, 30m). Default is 7 days.",
+        duration="Ban duration (e.g. 1d, 12h, 30m, 7 days). Default is 7 days.",
         reason="Reason for the ban"
     )
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def ban(
         self,
@@ -213,43 +273,19 @@ class ModeratorCommands(app_commands.Group):
         log.trace(f"Ban invoked by {interaction.user.id} on {user.id} for {duration}")
         await interaction.response.defer(ephemeral=False)
 
-        if not interaction.guild:
-            log.warningtrace(f"Ban used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-
-        # Permission safety checks
-        if user == interaction.user:
-            return await interaction.followup.send("❌ You can't ban yourself.", ephemeral=True)
-        if user.id == self.bot.user.id:
-            return await interaction.followup.send("❌ You can't ban the bot.", ephemeral=True)
-        if user.guild_permissions.administrator:
-            return await interaction.followup.send("❌ You can't ban an administrator.", ephemeral=True)
-        if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
-            return await interaction.followup.send("❌ You can't ban someone with equal or higher role.", ephemeral=True)
-
-        bot_member = interaction.guild.me or await interaction.guild.fetch_member(self.bot.user.id)
-        if not bot_member.top_role or user.top_role >= bot_member.top_role:
-            return await interaction.followup.send("❌ That user's role is higher or equal to mine!", ephemeral=True)
+        error_msg = await check_moderation_target(interaction, user, self.bot, "ban")
+        if error_msg:
+            return await interaction.followup.send(error_msg, ephemeral=True)
 
         # Duration parsing
-        total_seconds = 0
-        matches = re.findall(r"(\d+)([dhm])", duration)
-        if not matches:
+        duration_seconds = parse_duration(duration)
+        if duration_seconds is None or duration_seconds <= 0:
             return await interaction.followup.send(
-                "❌ Invalid duration format. Try something like `3d`, `12h`, or `30m`.",
+                "❌ Invalid duration format. Try something like `3d`, `12h`, `30m`, or `7 days`.",
                 ephemeral=True
             )
 
-        for value, unit in matches:
-            value = int(value)
-            if unit == "d":
-                total_seconds += value * 86400
-            elif unit == "h":
-                total_seconds += value * 3600
-            elif unit == "m":
-                total_seconds += value * 60
-
-        expiry = int(time.time()) + total_seconds if total_seconds > 0 else 0
+        expiry = int(time.time()) + duration_seconds
 
         # Execute ban
         try:
@@ -261,7 +297,7 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"[{interaction.guild.name}] Error banning user {user.id}: {e}", exc_info=True)
             return await interaction.followup.send("❌ An error occurred while trying to ban the user.", ephemeral=True)
 
-        # Log case to DB (expiry handled by your main unban task)
+        # Log case to DB
         try:
             await insert_case(
                 interaction.guild.id,
@@ -275,12 +311,10 @@ class ModeratorCommands(app_commands.Group):
             )
         except Exception as db_error:
             log.error(f"Failed to log ban case to database: {db_error}", exc_info=True)
-            # Still send success message since the ban succeeded
 
         # Confirmation message
-        duration_text = duration if expiry else "permanently"
         await interaction.followup.send(
-            f"✅ **{user.mention} has been banned for {duration_text}.**\nReason: `{reason}`",
+            f"✅ **{user.mention} has been banned for {duration}.**\nReason: `{reason}`",
             ephemeral=False
         )
 
@@ -288,14 +322,11 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(user_id="The ID of the user to unban", reason="Reason for unban")
     @app_commands.checks.has_permissions(ban_members=True)
     @app_commands.checks.bot_has_permissions(ban_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def unban(self, interaction: Interaction, user_id: str, reason: str = None):
         log.trace(f"Unban invoked by {interaction.user.id} on {user_id}")
         await interaction.response.defer(ephemeral=False)
-
-        if not interaction.guild:
-            log.warningtrace(f"Unban used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         try:
             user_obj = await self.bot.fetch_user(int(user_id))
@@ -319,28 +350,15 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.command(name="warn", description="Warns a user.")
     @app_commands.describe(user="The user to warn", reason="The reason for the warning")
     @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def warn(self, interaction: Interaction, user: discord.Member, reason: str):
         log.trace(f"Warn invoked by {interaction.user.id} on {user.id}")
         await interaction.response.defer(ephemeral=False)
 
-        if not interaction.guild:
-            log.warningtrace(f"Warn used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
-
-        if user.id == self.bot.user.id:
-            log.warningtrace(f"Warn bot-target by {interaction.user.id}")
-            return await interaction.followup.send("❌ You cannot warn the bot!", ephemeral=True)
-        if not interaction.user.top_role or user.top_role >= interaction.user.top_role:
-            return await interaction.followup.send("❌ You cannot warn a user with a higher or equal role!", ephemeral=True)
-
-        bot_member = interaction.guild.get_member(self.bot.user.id)
-        if bot_member is None:
-            bot_member = await interaction.guild.fetch_member(self.bot.user.id)
-        if not bot_member.top_role or user.top_role >= bot_member.top_role:
-            return await interaction.followup.send("❌ I cannot warn a user with a higher or equal role than my own!", ephemeral=True)
-        if user.guild_permissions.administrator:
-            return await interaction.followup.send("❌ You cannot warn an administrator!", ephemeral=True)
+        error_msg = await check_moderation_target(interaction, user, self.bot, "warn", check_self=False)
+        if error_msg:
+            return await interaction.followup.send(error_msg, ephemeral=True)
 
         try:
             case_num = await insert_case(interaction.guild.id, user.id, user.name, reason, "warn", interaction.user.id, int(time.time()))
@@ -353,13 +371,11 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.command(name="cases", description="View all cases for the server with pagination.")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
+    @app_commands.guild_only()
     @cooldown(cl=10, tm=20.0, ft=3)
     async def cases(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=False)
         log.trace(f"Cases invoked by {interaction.user.id}")
-        if not interaction.guild:
-            log.warningtrace(f"Cases used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
         try:
             cases = await get_cases_for_guild(interaction.guild.id)
@@ -394,27 +410,27 @@ class ModeratorCommands(app_commands.Group):
                 super().__init__(timeout=120)
                 self.page = 0
                 self.max_page = (len(cases) - 1) // CASES_PER_PAGE
+                self._sync_buttons()
 
-            @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, disabled=True)
+            def _sync_buttons(self):
+                self.previous.disabled = (self.page == 0)
+                self.next.disabled = (self.page >= self.max_page)
+
+            @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
             async def previous(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
                 self.page -= 1
-                if self.page == 0:
-                    self.previous.disabled = True
-                self.next.disabled = False
+                self._sync_buttons()
                 await interaction_btn.response.edit_message(embed=get_page(self.page), view=self)
 
-            @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, disabled=(len(cases) <= CASES_PER_PAGE))
+            @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
             async def next(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
                 self.page += 1
-                if self.page == self.max_page:
-                    self.next.disabled = True
-                self.previous.disabled = False
+                self._sync_buttons()
                 await interaction_btn.response.edit_message(embed=get_page(self.page), view=self)
 
             async def on_timeout(self):
                 for item in self.children:
                     item.disabled = True
-                # Try to edit the message to disable buttons
                 try:
                     await self.message.edit(view=self)
                 except Exception:
@@ -432,12 +448,11 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(case_id="The ID of the case to view")
     @app_commands.checks.has_permissions(view_audit_log=True)
     @app_commands.checks.bot_has_permissions(view_audit_log=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=False)
         log.trace(f"Case invoked by {interaction.user.id}: #{case_id}")
-        if not interaction.guild:
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
         try:
             case = await get_case(interaction.guild.id, case_id)
@@ -469,12 +484,11 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.describe(case_id="The ID of the case to delete, Please be sure before continuing.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.bot_has_permissions(administrator=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def delete_case(self, interaction: Interaction, case_id: int):
         await interaction.response.defer(ephemeral=True)
         log.trace(f"DeleteCase invoked by {interaction.user.id}: #{case_id}")
-        if not interaction.guild:
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         
         try:
             case = await get_case(interaction.guild.id, case_id)
@@ -490,14 +504,11 @@ class ModeratorCommands(app_commands.Group):
     @app_commands.command(name="edit_case", description="Edit the reason for a specific case.")
     @app_commands.describe(case_number="The case number to edit", new_reason="The new reason")
     @app_commands.checks.has_permissions(moderate_members=True)
+    @app_commands.guild_only()
     @cooldown(cl=5, tm=15.0, ft=3)
     async def edit_case(self, interaction: Interaction, case_number: int, new_reason: str):
         log.info(f"EditCase invoked by {interaction.user.id}: #{case_number}")
         await interaction.response.defer(ephemeral=True)
-
-        if not interaction.guild:
-            log.warningtrace(f"EditCase used outside guild by {interaction.user.id}")
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         try:
             await edit_case_reason(interaction.guild.id, case_number, new_reason)
@@ -521,12 +532,13 @@ class ModeratorCommands(app_commands.Group):
     ])
     @app_commands.checks.has_permissions(manage_messages=True)
     @app_commands.checks.bot_has_permissions(manage_messages=True)
+    @app_commands.guild_only()
     @cooldown(cl=7, tm=200.0, ft=2) # some fucker made the bot get hit with 429s constantly (and still was)
     async def purge(self, interaction: Interaction, user: Optional[discord.Member] = None, limit: int = 50, type: str = "all", reason: str = None):
         await interaction.response.defer(ephemeral=True)
         log.trace(f"Purge invoked by {interaction.user.id}: {limit} messages, {type} filter, {user}")
         
-        if not interaction.guild or not interaction.channel:
+        if not interaction.channel:
             return await interaction.followup.send("❌ This command must be used in a guild channel.", ephemeral=True)
         
         # Discord API limit, do not increases unless you want a nastly worded email.
@@ -561,11 +573,9 @@ class ModeratorCommands(app_commands.Group):
             response_lines = [f"🧹 Deleted **{total}** message{'s' if total != 1 else ''}"]
             
             # Add breakdown by user (always show if multiple users, or if filtering by specific user)
-            # Show breakdown if: multiple authors OR specific user filter (to show their count)
             if len(author_counts) > 1 or user is not None:
                 response_lines.append("")  # Empty line separator
                 for author_name, count in author_counts.most_common():
-                    # Use "Msg." for plural, "Message" for singular
                     msg_text = "Msg." if count != 1 else "Message"
                     response_lines.append(f"**{author_name}**: {count} {msg_text}")
             
@@ -579,12 +589,10 @@ class ModeratorCommands(app_commands.Group):
 
     @app_commands.command(name="whois", description="Get detailed information about a user.")
     @app_commands.describe(user="The user to look up (defaults to yourself).")
+    @app_commands.guild_only()
     @cooldown(cl=3, tm=15.0, ft=2)
     async def whois(self, interaction: discord.Interaction, user: discord.User | discord.Member = None):
         await interaction.response.defer(thinking=True)
-
-        if not interaction.guild:
-            return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
 
         member = user or interaction.user
         if isinstance(member, discord.User):
@@ -670,12 +678,14 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"WHOIS failed for {member}: {e}", exc_info=True)
             await interaction.followup.send("❌ Failed to fetch user info. Check logs for details.", ephemeral=True)
 
+
 class ModeratorCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
     async def cog_load(self):
         self.bot.tree.add_command(ModeratorCommands(self.bot))
+
 
 async def setup(bot):
     await bot.add_cog(ModeratorCog(bot))

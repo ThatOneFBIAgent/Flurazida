@@ -320,3 +320,177 @@ class TestModeration:
         await db_mod.edit_case_reason(4000, 1, "New Reason")
         case = await db_mod.get_case(4000, 1)
         assert case[3] == "New Reason"
+
+# ===================== Player Interaction Item Tests =====================
+
+class TestPlayerInteractions:
+    @pytest.mark.asyncio
+    async def test_robbery_modifier_no_items(self):
+        """User with no items should have 0.0 robbery modifier."""
+        await db_mod.add_user(800, "NoItems")
+        mod = await db_mod.get_robbery_modifier(800)
+        assert mod == 0.0
+
+    @pytest.mark.asyncio
+    async def test_robbery_modifier_from_bolt_cutters(self):
+        """Bolt Cutters (ID 3, +50%) should give +0.50 modifier."""
+        await db_mod.add_user(801, "BoltCutter")
+        await db_mod.add_user_item(801, 3, "Bolt Cutters", uses_left=4)
+        mod = await db_mod.get_robbery_modifier(801)
+        assert mod == pytest.approx(0.50)
+
+    @pytest.mark.asyncio
+    async def test_robbery_modifier_stacks(self):
+        """Bolt Cutters (+50%) + Hackatron (+20%) should give +0.70 combined."""
+        await db_mod.add_user(802, "StackRobber")
+        await db_mod.add_user_item(802, 3, "Bolt Cutters",   uses_left=4)
+        await db_mod.add_user_item(802, 8, "Hackatron 9900", uses_left=5)
+        mod = await db_mod.get_robbery_modifier(802)
+        assert mod == pytest.approx(0.70)
+
+    @pytest.mark.asyncio
+    async def test_taser_excluded_from_robber_modifier(self):
+        """Taser (victim-only) should not contribute to the robber's modifier."""
+        await db_mod.add_user(803, "TaserOwner")
+        await db_mod.add_user_item(803, 5, "Taser", uses_left=2)
+        mod = await db_mod.get_robbery_modifier(803)
+        assert mod == 0.0
+
+    @pytest.mark.asyncio
+    async def test_victim_padlock_returns_modifier(self):
+        """Victim with Padlocked Wallet should return +0.50 defensive modifier."""
+        await db_mod.add_user(810, "Padlocked")
+        await db_mod.add_user_item(810, 4, "Padlocked Wallet", uses_left=5)
+        mod = await db_mod.get_victim_rob_modifier(810)
+        assert mod == pytest.approx(0.50)
+
+    @pytest.mark.asyncio
+    async def test_victim_padlock_decrements_on_call(self):
+        """get_victim_rob_modifier should consume 1 Padlocked Wallet use."""
+        await db_mod.add_user(811, "PadlockDecrement")
+        await db_mod.add_user_item(811, 4, "Padlocked Wallet", uses_left=3)
+        await db_mod.get_victim_rob_modifier(811)
+        items = await db_mod.get_user_items(811)
+        padlock = next((i for i in items if str(i["item_id"]) == "4"), None)
+        assert padlock is not None
+        assert padlock["uses_left"] == 2
+
+    @pytest.mark.asyncio
+    async def test_victim_padlock_removes_on_last_use(self):
+        """Padlocked Wallet with 1 use left should vanish after get_victim_rob_modifier."""
+        await db_mod.add_user(812, "PadlockLast")
+        await db_mod.add_user_item(812, 4, "Padlocked Wallet", uses_left=1)
+        await db_mod.get_victim_rob_modifier(812)
+        items = await db_mod.get_user_items(812)
+        assert not any(str(i["item_id"]) == "4" for i in items), "Wallet should be removed"
+
+    @pytest.mark.asyncio
+    async def test_victim_no_padlock_returns_zero(self):
+        """Victim with no Padlocked Wallet should return 0.0."""
+        await db_mod.add_user(813, "NoPadlock")
+        mod = await db_mod.get_victim_rob_modifier(813)
+        assert mod == 0.0
+
+    @pytest.mark.asyncio
+    async def test_check_taser_defense_with_taser(self):
+        """Victim with Taser should return True."""
+        await db_mod.add_user(820, "TaserVictim")
+        await db_mod.add_user_item(820, 5, "Taser", uses_left=2)
+        assert await db_mod.check_taser_defense(820) is True
+
+    @pytest.mark.asyncio
+    async def test_check_taser_defense_without_taser(self):
+        """Victim without a Taser should return False."""
+        await db_mod.add_user(821, "NoTaser")
+        assert await db_mod.check_taser_defense(821) is False
+
+    @pytest.mark.asyncio
+    async def test_decrement_taser_reduces_uses(self):
+        """decrement_taser_use should reduce Taser uses by 1."""
+        await db_mod.add_user(822, "TaserDecrement")
+        await db_mod.add_user_item(822, 5, "Taser", uses_left=2)
+        await db_mod.decrement_taser_use(822)
+        items = await db_mod.get_user_items(822)
+        taser = next((i for i in items if str(i["item_id"]) == "5"), None)
+        assert taser is not None and taser["uses_left"] == 1
+
+    @pytest.mark.asyncio
+    async def test_decrement_taser_removes_on_last_use(self):
+        """Taser with 1 use should be removed after decrement_taser_use."""
+        await db_mod.add_user(823, "TaserLast")
+        await db_mod.add_user_item(823, 5, "Taser", uses_left=1)
+        await db_mod.decrement_taser_use(823)
+        assert await db_mod.check_taser_defense(823) is False
+        items = await db_mod.get_user_items(823)
+        assert not any(str(i["item_id"]) == "5" for i in items)
+
+    @pytest.mark.asyncio
+    async def test_taser_active_use_broke_target_does_not_consume(self):
+        """Taser active use on a target with <50 coins should not consume a charge."""
+        await db_mod.add_user(830, "TaserUser")
+        await db_mod.add_user(831, "BrokeTarget")
+        await db_mod.add_user_item(830, 5, "Taser", uses_left=2)
+        # BrokeTarget has 0 coins
+        msg = await db_mod.use_item(830, 5, target_id=831)
+        assert "too broke" in msg.lower()
+        items = await db_mod.get_user_items(830)
+        taser = next((i for i in items if str(i["item_id"]) == "5"), None)
+        assert taser is not None and taser["uses_left"] == 2
+
+    @pytest.mark.asyncio
+    async def test_consume_robber_item_uses_decrements_bolt_cutters(self):
+        """consume_robber_item_uses should decrement Bolt Cutters by 1."""
+        await db_mod.add_user(840, "RobberWithCutters")
+        await db_mod.add_user_item(840, 3, "Bolt Cutters", uses_left=4)
+        await db_mod.consume_robber_item_uses(840)
+        items = await db_mod.get_user_items(840)
+        cutter = next((i for i in items if str(i["item_id"]) == "3"), None)
+        assert cutter is not None and cutter["uses_left"] == 3
+
+    @pytest.mark.asyncio
+    async def test_consume_robber_item_uses_removes_on_last(self):
+        """Bolt Cutters with 1 use should be removed after consume_robber_item_uses."""
+        await db_mod.add_user(841, "LastCutter")
+        await db_mod.add_user_item(841, 3, "Bolt Cutters", uses_left=1)
+        await db_mod.consume_robber_item_uses(841)
+        items = await db_mod.get_user_items(841)
+        assert not any(str(i["item_id"]) == "3" for i in items)
+
+
+# ===================== Claim (Daily / Monthly) Tests =====================
+
+class TestClaims:
+    @pytest.mark.asyncio
+    async def test_get_last_claim_default(self):
+        """First-time caller should return (0, 0)."""
+        await db_mod.add_user(900, "Claimer")
+        last, streak = await db_mod.get_last_claim(900, "daily")
+        assert last == 0 and streak == 0
+
+    @pytest.mark.asyncio
+    async def test_set_and_get_claim(self):
+        """set_last_claim should persist and be retrievable."""
+        await db_mod.add_user(901, "ClaimSetter")
+        await db_mod.set_last_claim(901, "daily", 1_000_000, 5)
+        last, streak = await db_mod.get_last_claim(901, "daily")
+        assert last == 1_000_000 and streak == 5
+
+    @pytest.mark.asyncio
+    async def test_claim_upsert_overwrites(self):
+        """Calling set_last_claim twice should overwrite previous values."""
+        await db_mod.add_user(902, "ClaimOverwrite")
+        await db_mod.set_last_claim(902, "daily", 1_000, 1)
+        await db_mod.set_last_claim(902, "daily", 2_000, 3)
+        last, streak = await db_mod.get_last_claim(902, "daily")
+        assert last == 2_000 and streak == 3
+
+    @pytest.mark.asyncio
+    async def test_daily_and_monthly_are_independent(self):
+        """'daily' and 'monthly' should be stored independently per user."""
+        await db_mod.add_user(903, "MultiClaimer")
+        await db_mod.set_last_claim(903, "daily",   1_000, 7)
+        await db_mod.set_last_claim(903, "monthly", 2_000, 0)
+        d_last, d_streak = await db_mod.get_last_claim(903, "daily")
+        m_last, m_streak = await db_mod.get_last_claim(903, "monthly")
+        assert d_last == 1_000 and d_streak == 7
+        assert m_last == 2_000 and m_streak == 0

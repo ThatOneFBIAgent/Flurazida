@@ -1,4 +1,3 @@
-
 # Standard Library Imports
 import asyncio
 import io
@@ -45,6 +44,7 @@ USER_SELECTED: Dict[int, Tuple[str, float]] = {}
 # Import config from extraconfig
 from extraconfig import EXT_BLACKLIST, MAX_JPEG_RECURSIONS, MAX_JPEG_QUALITY
 
+
 # View for selecting an image from multiple attachments
 class ImageSelectView(View):
     def __init__(self, interaction: discord.Interaction, attachments: list[discord.Attachment]):
@@ -54,7 +54,7 @@ class ImageSelectView(View):
         self.selected_url = None
         self.selected_index = None
 
-        for i, att in enumerate(attachments[:5]):  # only show up to 5 buttons to avoid clutter - 25/10/25 ermm arent there up to 10 attachments? i mean atp just download them all lol
+        for i, att in enumerate(attachments[:5]):
             button = Button(label=f"Image {i+1}", custom_id=f"img_{i}")
             async def button_callback(inter, index=i, att=att):
                 # Only allow the original user to press these buttons
@@ -87,6 +87,7 @@ class ImageSelectView(View):
         cancel.callback = cancel_callback
         self.add_item(cancel)
 
+
 @app_commands.context_menu(name="Select image")
 async def select_image(interaction: discord.Interaction, message: discord.Message):
     """Context menu: choose an image/gif/link from a message and store it for 30 minutes."""
@@ -101,15 +102,12 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
 
     # 2) Embeds (images/thumbnails/provider url)
     for e in message.embeds:
-        # embed.image
         if getattr(e, "image", None) and getattr(e.image, "url", None):
             url = e.image.url
             valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
-        # embed.thumbnail
         if getattr(e, "thumbnail", None) and getattr(e.thumbnail, "url", None):
             url = e.thumbnail.url
             valid_attachments.append((url, os.path.basename(urllib.parse.urlparse(url).path) or url))
-        # embed.url (sometimes direct link to media)
         if getattr(e, "url", None):
             url = e.url
             if url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
@@ -122,42 +120,31 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
     async def resolve_media_url(session: aiohttp.ClientSession, url: str) -> Optional[str]:
         """Return a direct media URL (or same URL) if it appears to be image/video by checking headers or Tenor fallback."""
         try:
-            # Try HEAD first to pick up Content-Type without downloading content
             async with session.head(url, allow_redirects=True, timeout=6) as h:
                 ctype = h.headers.get("Content-Type", "").lower()
                 if ctype.startswith("image/") or "gif" in ctype or "webp" in ctype or ctype.startswith("video/"):
                     return str(h.url)
-                # Some hosts don't return good Content-Type on HEAD (or disallow HEAD), fall through
         except Exception:
-            # HEAD can fail — fallback to small GET
             pass
 
-        # GET a tiny range to get headers and small body
         try:
-            headers = {"Range": "bytes=0-8191"}  # small chunk to avoid full download
+            headers = {"Range": "bytes=0-8191"}
             async with session.get(url, allow_redirects=True, headers=headers, timeout=8) as g:
                 ctype = g.headers.get("Content-Type", "").lower()
                 final = str(g.url)
-                # Accept if server says image or video
                 if ctype.startswith("image/") or "gif" in ctype or "webp" in ctype or ctype.startswith("video/"):
                     return final
 
-                # If content-type absent or generic, try to sniff URL extension
                 path = urllib.parse.urlparse(final).path.lower()
                 if any(path.endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm')):
                     return final
 
-                # Tenor special: page HTML sometimes; try to extract JSON blob for main media
                 if "tenor.com" in final:
                     text = await g.text()
-                    # Try __NEXT_DATA__ JSON first (better)
                     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', text, re.DOTALL)
                     if m:
                         try:
                             data = json.loads(m.group(1))
-                            # dig for main media URL
-                            media = None
-                            # structure can vary; try common paths
                             media = (
                                 data.get("props", {})
                                     .get("pageProps", {})
@@ -165,44 +152,35 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
                                     .get("media")
                             )
                             if media and isinstance(media, list) and media:
-                                # pick the first media item (main gif)
                                 main = media[0]
-                                # many entries have gif/mediumgif/mp4 keys
                                 for key in ("gif", "mediumgif", "mp4", "preview", "tinygif"):
                                     if isinstance(main.get(key), dict) and main[key].get("url"):
                                         return main[key]["url"]
-                                # sometimes it's a URL string
                                 for key in ("url",):
                                     if main.get(key):
                                         return main.get(key)
                         except Exception:
                             pass
 
-                    # fallback: parse og:image meta
                     m2 = re.search(r'<meta[^>]+property=["\']og:(?:image|video)["\'][^>]+content=["\']([^"\']+)["\']', text)
                     if m2:
                         return m2.group(1)
-                # Giphy or other services might have similar embedded media URLs in HTML; we could add more parsers here
         except Exception:
             pass
 
         return None
 
-    # Use shared session to resolve found links
     session = interaction.client.http_session
     if session:
         for link in found_links:
-            # skip obvious non-media shorteners / trackers quickly
             try:
                 resolved = await resolve_media_url(session, link)
                 if resolved:
                     fname = os.path.basename(urllib.parse.urlparse(resolved).path) or resolved
                     valid_attachments.append((resolved, fname))
             except Exception:
-                # ignore per-url failures
                 pass
 
-    # Remove duplicates preserving order
     seen = set()
     filtered = []
     for url, fname in valid_attachments:
@@ -216,15 +194,13 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
         await interaction.followup.send("❌ No valid images or GIFs found in that message.", ephemeral=True)
         return None, None
 
-    # If single result, auto-select
     if len(valid_attachments) == 1:
         url, fname = valid_attachments[0]
         USER_SELECTED[interaction.user.id] = (url, time.time() + 30 * 60)
         await interaction.followup.send(f"✅ Image selected automatically: `{fname}`", ephemeral=True)
         return url, fname
 
-    # Multiple — create UI for selecting among urls (up to 5)
-    class ImageSelectView(View):
+    class MultiImageSelectView(View):
         def __init__(self, interaction: discord.Interaction, attachments: List[Tuple[str,str]]):
             super().__init__(timeout=60)
             self.interaction = interaction
@@ -234,11 +210,6 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
 
             for idx, (url, fname) in enumerate(attachments[:5], start=1):
                 btn = Button(label=f"{idx}: {fname[:40]}", custom_id=f"img_{idx}")
-                async def cb(i, b_url=url, b_idx=idx, b_fname=fname):
-                    def _cb(inter: discord.Interaction):
-                        return None
-                    return None
-                # create proper closure callback
                 async def make_cb(inter, b_url=url, b_idx=idx, b_fname=fname):
                     if inter.user.id != self.interaction.user.id:
                         await inter.response.send_message("🚫 Not your selection!", ephemeral=True)
@@ -261,7 +232,7 @@ async def select_image(interaction: discord.Interaction, message: discord.Messag
             cancel.callback = cancel_cb
             self.add_item(cancel)
 
-    view = ImageSelectView(interaction, valid_attachments)
+    view = MultiImageSelectView(interaction, valid_attachments)
     await interaction.followup.send("🖼️ Multiple images found — pick one:", view=view, ephemeral=True)
     await view.wait()
 
@@ -277,7 +248,6 @@ class ImageCommands(app_commands.Group):
         super().__init__(name="image", description="Image manipulation commands")
         self.bot = bot
 
-    # Selection / helpers
     def _get_user_selection(self, user_id: int) -> Optional[str]:
         entry = USER_SELECTED.get(user_id)
         if not entry:
@@ -321,25 +291,44 @@ class ImageCommands(app_commands.Group):
         await interaction.followup.send(content=f"`{filename}` | **{size_str}**", file=file)
 
     def _load_frames_from_bytes(self, data: bytes) -> Tuple[List[Image.Image], int]:
-        """Return list of PIL frames and a default duration (ms)."""
+        """Return list of PIL frames and a default duration (ms) with proper GIF reconstruction."""
         bio = io.BytesIO(data)
         im = Image.open(bio)
         frames: List[Image.Image] = []
         duration = 80
         try:
+            try:
+                duration = im.info.get("duration", duration)
+            except Exception:
+                pass
+
             if getattr(im, "is_animated", False):
+                current = Image.new("RGBA", im.size)
                 for frame in ImageSequence.Iterator(im):
-                    frames.append(frame.convert("RGBA"))
-                # try to get duration from original
-                try:
-                    duration = im.info.get("duration", duration)
-                except Exception:
-                    pass
+                    dispose = frame.info.get("disposal", 0)
+                    if dispose == 2:
+                        current = Image.new("RGBA", im.size)
+                    
+                    rgba_frame = frame.convert("RGBA")
+                    if frame.tile:
+                        try:
+                            crop_box = frame.tile[0][1]
+                            current.paste(rgba_frame.crop(crop_box), crop_box, rgba_frame.crop(crop_box))
+                        except Exception:
+                            current.alpha_composite(rgba_frame)
+                    else:
+                        current.alpha_composite(rgba_frame)
+                    
+                    frames.append(current.copy())
             else:
                 frames = [im.convert("RGBA")]
-        except Exception:
-            # fallback single frame
-            frames = [im.convert("RGBA")]
+        except Exception as e:
+            log.error(f"Error loading frames: {e}", exc_info=True)
+            try:
+                im.seek(0)
+                frames = [im.convert("RGBA")]
+            except Exception:
+                frames = []
         return frames, duration
 
     def _frames_to_gif_bytes(self, frames: List[Image.Image], duration_ms: int = 80, loop: int = 0) -> bytes:
@@ -350,7 +339,6 @@ class ImageCommands(app_commands.Group):
         """
         bio = io.BytesIO()
         
-        # 1. Performance balancing (High Quality / Efficiency)
         if len(frames) > 200:
             log.info(f"Optimizing {len(frames)} frames for performance.")
             w, h = frames[0].size
@@ -371,7 +359,6 @@ class ImageCommands(app_commands.Group):
             frame.save(bio, format="PNG", optimize=True)
             return bio.getvalue()
 
-        # 2. Professional GIF Encoding (Adaptive Palette + Transparency)
         processed_frames = []
         has_transparency = False
         
@@ -382,7 +369,6 @@ class ImageCommands(app_commands.Group):
 
         for f in frames:
             rgb = f.convert("RGB")
-            # MAXCOVERAGE gives much better results for gradients and photos
             p_frame = rgb.quantize(colors=255 if has_transparency else 256, method=Image.Quantize.MAXCOVERAGE)
             
             if has_transparency:
@@ -411,7 +397,6 @@ class ImageCommands(app_commands.Group):
     def wrap_text(self, text: str, font: ImageFont.ImageFont, max_width: int) -> List[str]:
         lines = []
         for word in text.split():
-            # break long words
             while font.getlength(word) > max_width:
                 for i in range(1, len(word)+1):
                     if font.getlength(word[:i]) > max_width:
@@ -437,15 +422,15 @@ class ImageCommands(app_commands.Group):
     def _draw_text_centered(
         self,
         img: Image.Image,
-        text: str,
+        wrapped_lines: List[str],
+        font: ImageFont.ImageFont,
+        box_h: int,
         *,
         bottom: bool = False,
-        font_path: str = os.path.join(os.getcwd(), "resources", "impact.ttf"),
-        max_font_size: int = 64,
         padding: int = 10,
         bg_color: Tuple[int,int,int,int] = (255, 255, 255, 255)
     ) -> Image.Image:
-
+        """Pastes the image onto a larger canvas containing a centered text caption block."""
         is_transparent = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
         target_mode = "RGBA" if is_transparent else "RGB"
         
@@ -453,48 +438,24 @@ class ImageCommands(app_commands.Group):
              img = img.convert(target_mode)
 
         w, h = img.size
-        font_size = max_font_size
-        wrapped_lines = []
-
-        # shrink until it fits
-        while font_size > 6:
-            font = ImageFont.truetype(font_path, font_size)
-            lines = []
-            for para in text.split("\n"):
-                lines.extend(self.wrap_text(para, font, w - 2 * padding))
-            lh = font.getbbox("Ay")[3]
-            box_h = len(lines) * lh + 2 * padding
-            if box_h <= h // 2:
-                wrapped_lines = lines
-                break
-            font_size -= 2
-
-        if not wrapped_lines:
-            font = ImageFont.truetype(font_path, font_size)
-            wrapped_lines = self.wrap_text(text, font, w - 2 * padding)
-            lh = font.getbbox("Ay")[3]
-            box_h = len(wrapped_lines) * lh + 2 * padding
-
-        # make new canvas retaining transparency properly
         new_h = h + box_h
         
         bg_canvas_col = (255, 255, 255, 0) if target_mode == "RGBA" else (255, 255, 255)
         new_img = Image.new(target_mode, (w, new_h), bg_canvas_col)
 
         if bottom:
-            new_img.paste(img, (0, 0)) # Direct paste preserves alpha values
+            new_img.paste(img, (0, 0))
             box_y = h
         else:
             new_img.paste(img, (0, box_h))
             box_y = 0
 
         draw = ImageDraw.Draw(new_img)
-        # Draw pure white background for caption
         draw.rectangle([0, box_y, w, box_y + box_h], fill=bg_color)
 
-        # centered text
+        lh = font.getbbox("Ay")[3]
         for i, line in enumerate(wrapped_lines):
-            tw, th = draw.textbbox((0,0), line, font=font)[2:]
+            tw = draw.textbbox((0,0), line, font=font)[2]
             tx = (w - tw) // 2
             ty = box_y + padding + i * lh
             draw.text((tx, ty), line, font=font, fill=(0, 0, 0))
@@ -507,21 +468,61 @@ class ImageCommands(app_commands.Group):
         elif axis == "vertical":
             return frame.transpose(Image.FLIP_TOP_BOTTOM)
         else:
-            # both
             return frame.transpose(Image.FLIP_LEFT_RIGHT).transpose(Image.FLIP_TOP_BOTTOM)
 
-    def _jpegify_bytes(self, frames: List[Image.Image], recursions: int = 1, quality: int = 20) -> List[Image.Image]:
-        """Apply jpeg artifact recursion to each frame. Returns frames (RGBA)."""
+    def _jpegify_bytes(self, frames: List[Image.Image], recursions: int = 1, quality: int = 10, scale_down: bool = True) -> List[Image.Image]:
+        """Apply jpeg artifact recursion to each frame with optional downscale/upscale to amplify artifacts."""
         out_frames = []
         for frame in frames:
-            img = frame.convert("RGB")  # JPEG doesn't support alpha
+            w, h = frame.size
+            img = frame.convert("RGB")
+            
+            if scale_down:
+                factor = 3
+                dw = max(64, w // factor)
+                dh = max(64, h // factor)
+                img = img.resize((dw, dh), Image.Resampling.BILINEAR)
+                
             for _ in range(max(1, recursions)):
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=quality)
                 buf.seek(0)
                 img = Image.open(buf).convert("RGB")
+                
+            if scale_down:
+                img = img.resize((w, h), Image.Resampling.NEAREST)
+                
             out_frames.append(img.convert("RGBA"))
         return out_frames
+
+    def _motion_blur_frame(self, img: Image.Image, radius: float, angle: float) -> Image.Image:
+        """Applies high-quality motion blur by shifting and blending the image."""
+        R = int(round(radius))
+        if R <= 1:
+            return img
+
+        rad = math.radians(angle)
+        dx = math.cos(rad)
+        dy = math.sin(rad)
+
+        blended = img.convert("RGBA")
+        steps = min(30, R)
+        step_dist = R / steps
+
+        for i in range(1, steps):
+            factor = 1.0 / (i + 1)
+            offset_x = int(round(dx * i * step_dist))
+            offset_y = int(round(dy * i * step_dist))
+            
+            shifted = img.transform(
+                img.size,
+                Image.Transform.AFFINE,
+                (1, 0, offset_x, 0, 1, offset_y),
+                resample=Image.Resampling.BILINEAR
+            )
+            blended = Image.blend(blended, shifted.convert("RGBA"), factor)
+
+        return blended.convert(img.mode)
 
     def _resize_if_needed(self, frames: List[Image.Image], max_dim: int = 900) -> List[Image.Image]:
         """Resize frames so largest side <= max_dim to avoid massive processing."""
@@ -534,9 +535,6 @@ class ImageCommands(app_commands.Group):
         resized = [f.resize(new_size, Image.LANCZOS) for f in frames]
         return resized
 
-
-    # Commands
-
     async def _resolve_image_bytes(
         self,
         interaction: discord.Interaction,
@@ -544,26 +542,22 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str],
     ) -> Optional[bytes]:
         """Combine sources: explicit attachment -> explicit url -> user's selection -> referenced message attachment."""
-        # 1) explicit attachment
         if attachment:
             b = await self._fetch_bytes(attachment, None)
             if b:
                 return b
 
-        # 2) explicit url
         if image_url:
             b = await self._fetch_bytes(None, image_url)
             if b:
                 return b
 
-        # 3) user selection
         sel = self._get_user_selection(interaction.user.id)
         if sel:
             b = await self._fetch_bytes(None, sel)
             if b:
                 return b
 
-        # 4) message reference (if present)
         msg = getattr(interaction, "message", None)
         if msg and getattr(msg, "reference", None):
             try:
@@ -586,21 +580,16 @@ class ImageCommands(app_commands.Group):
         log.info(f"ForceGIF invoked by {interaction.user.id}")
         await interaction.response.defer()
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"ForceGIF invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"ForceGIF invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"ForceGIF no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
-        # make at least 2 identical frames for better autoplay behavior
         if len(frames) == 1:
             frames = frames * 2
-        # ensure not huge
         frames = self._resize_if_needed(frames, max_dim=900)
         gif = self._frames_to_gif_bytes(frames, duration_ms=duration)
         log.successtrace(f"ForceGIF success for {interaction.user.id}")
@@ -619,104 +608,103 @@ class ImageCommands(app_commands.Group):
         log.info(f"Caption invoked by {interaction.user.id}: {caption}")
         await interaction.response.defer()
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Caption invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Caption invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Caption no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
 
-        out_frames = []
+        # Calculate font sizing and wrap layout ONCE using the first frame
+        w, h = frames[0].size
         font_path = os.path.join(os.getcwd(), "resources", "impact.ttf")
+        
+        font_size = max(16, min(64, int(w * 0.08)))
+        padding = max(6, int(font_size * 0.25))
+        
+        font = ImageFont.truetype(font_path, font_size)
+        wrapped_lines = []
+        for para in caption.split("\n"):
+            wrapped_lines.extend(self.wrap_text(para, font, w - 2 * padding))
+            
+        lh = font.getbbox("Ay")[3]
+        box_h = len(wrapped_lines) * lh + 2 * padding
 
-        for f in frames:
-            f = f.convert("RGBA")
-
-            # dynamic font scaling — ensures text fits width nicely
-            font_size = 46
-            draw = ImageDraw.Draw(f)
+        while box_h > h * 0.35 and font_size > 12:
+            font_size -= 2
+            padding = max(6, int(font_size * 0.25))
             font = ImageFont.truetype(font_path, font_size)
-            bbox = draw.textbbox((0, 0), caption, font=font)
-            text_w = bbox[2] - bbox[0]
+            wrapped_lines = []
+            for para in caption.split("\n"):
+                wrapped_lines.extend(self.wrap_text(para, font, w - 2 * padding))
+            lh = font.getbbox("Ay")[3]
+            box_h = len(wrapped_lines) * lh + 2 * padding
 
-            while text_w > f.width - 40 and font_size > 24:
-                font_size -= 2
-                font = ImageFont.truetype(font_path, font_size)
-                bbox = draw.textbbox((0, 0), caption, font=font)
-                text_w = bbox[2] - bbox[0]
-
-            # add caption properly
+        # Draw centered text block across all frames
+        out_frames = []
+        for f in frames:
             framed = self._draw_text_centered(
                 f,
-                caption,
+                wrapped_lines,
+                font,
+                box_h,
                 bottom=bottom,
-                font_path=font_path,
-                max_font_size=font_size,
+                padding=padding
             )
+            out_frames.append(framed)
 
-            # Convert to RGBA to preserve white background properly
-            # Use quantize with dither=0 to ensure white stays white
-            rgba = framed.convert('RGBA')
-            out_frames.append(rgba)
-
-        # --- Save and send ---
         if len(frames) == 1:
-            # Static image -> PNG
-            # We already have the single frame in 'out_frames[0]'
             final_img = out_frames[0]
             bio = io.BytesIO()
             final_img.save(bio, format="PNG")
             bio.seek(0)
             await self._send_image_bytes(interaction, bio.read(), "captioned.png")
-            log.successtrace(f"Caption success (static) for {interaction.user.id}")
         else:
-            # Animated -> GIF
             gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
             await self._send_image_bytes(interaction, gif, "captioned.gif")
-            log.successtrace(f"Caption success (gif) for {interaction.user.id}")
 
     @app_commands.command(name="jpegify", description="Apply JPEG artifacting. Set recursions to repeat the effect.")
+    @app_commands.describe(
+        recursions="Number of times to save as JPEG (default: 1)",
+        quality="JPEG quality from 1 (worst) to 100 (best) (default: 10)",
+        scale_down="Whether to downscale first to amplify artifacts (default: True)"
+    )
     @cooldown(cl=10, tm=25.0, ft=3)
     async def jpegify(
         self,
         interaction: discord.Interaction,
         recursions: int = 1,
+        quality: int = 10,
+        scale_down: bool = True,
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
-
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Jpegify invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Jpegify invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         if recursions > MAX_JPEG_RECURSIONS:
-            log.warningtrace(f"Jpegify recursion limit exceeded by {interaction.user.id}: {recursions}")
-            return await interaction.response.send_message(f"❌ Recursions too high! Max is {MAX_JPEG_RECURSIONS}.", ephemeral=True)
-        
+            return await interaction.followup.send(f"❌ Recursions too high! Max is {MAX_JPEG_RECURSIONS}.", ephemeral=True)
         
         log.info(f"Jpegify invoked by {interaction.user.id} (recursions: {recursions})")
         await interaction.response.defer()
+        
         recursions = max(1, min(25, recursions))
+        quality = max(1, min(100, quality))
+        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Jpegify no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
-        out_frames = self._jpegify_bytes(frames, recursions=recursions, quality=18)
+        out_frames = self._jpegify_bytes(frames, recursions=recursions, quality=quality, scale_down=scale_down)
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        log.successtrace(f"Jpegify success for {interaction.user.id} (x{recursions})")
-        await self._send_image_bytes(interaction, gif, f"jpegified_x{recursions}.gif")
+        await self._send_image_bytes(interaction, gif, f"jpegified_q{quality}_x{recursions}.gif")
 
     @app_commands.command(name="avatar", description="Get a user's avatar (or your own by default).")
     @cooldown(cl=5, tm=25.0, ft=3)
@@ -731,14 +719,11 @@ class ImageCommands(app_commands.Group):
         url = target.display_avatar.replace(size=1024).url
         session = self.bot.http_session
         if not session:
-            log.error("HTTP session missing for avatar command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
-                log.error(f"Avatar fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch avatar.")
             data = await r.read()
-        log.successtrace(f"Avatar fetched for {interaction.user.id} (target: {target.id})")
         await self._send_image_bytes(interaction, data, f"{target.id}_avatar.png")
 
     @app_commands.command(name="banner", description="Get a user's banner (or your own by default).")
@@ -753,19 +738,15 @@ class ImageCommands(app_commands.Group):
         target = user or interaction.user
         banner = target.banner
         if not banner:
-            log.warningtrace(f"No banner found for {target.id}")
             return await interaction.followup.send("❌ This user has no banner.", ephemeral=True)
         url = banner.replace(size=1024).url
         session = self.bot.http_session
         if not session:
-            log.error("HTTP session missing for banner command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
-                log.error(f"Banner fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch banner.")
             data = await r.read()
-        log.successtrace(f"Banner fetched for {interaction.user.id} (target: {target.id})")
         await self._send_image_bytes(interaction, data, f"{target.id}_banner.png")
 
     @app_commands.command(name="serverbanner", description="Get the server (guild) banner.")
@@ -777,19 +758,15 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         banner = interaction.guild.banner
         if not banner:
-            log.warningtrace(f"No server banner found for {interaction.guild.id}")
             return await interaction.followup.send("❌ This server has no banner.", ephemeral=True)
         url = interaction.guild.banner.replace(size=1024).url
         session = self.bot.http_session
         if not session:
-            log.error("HTTP session missing for serverbanner command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
-                log.error(f"Server banner fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch server banner.")
             data = await r.read()
-        log.successtrace(f"Server banner fetched for {interaction.user.id} (guild: {interaction.guild.id})")
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_banner.png")
 
     @app_commands.command(name="emote", description="Gets raw emote image by its name.")
@@ -805,21 +782,17 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         emote = discord.utils.get(interaction.guild.emojis, name=emote_name)
         if not emote:
-            log.warningtrace(f"Emote not found: {emote_name}")
             return await interaction.followup.send(f"❌ No emote named '{emote_name}' found in this server.", ephemeral=True)
 
         url = emote.url.with_size(1024)
         session = self.bot.http_session
         if not session:
-            log.error("HTTP session missing for emote command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(str(url)) as r:
             if r.status != 200:
-                log.error(f"Emote fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch emote image.")
             data = await r.read()
 
-        log.successtrace(f"Emote fetched for {interaction.user.id}: {emote_name}")
         ext = "gif" if emote.animated else "png"
         await self._send_image_bytes(interaction, data, f"{emote.id}_emote.{ext}")
 
@@ -832,19 +805,15 @@ class ImageCommands(app_commands.Group):
             return await interaction.followup.send("❌ This command must be used in a guild.", ephemeral=True)
         icon = interaction.guild.icon
         if not icon:
-            log.warningtrace(f"No server icon found for {interaction.guild.id}")
             return await interaction.followup.send("❌ This server has no icon.", ephemeral=True)
         url = interaction.guild.icon.replace(size=1024).url
         session = self.bot.http_session
         if not session:
-            log.error("HTTP session missing for serveravatar command")
             return await interaction.followup.send("❌ HTTP session not available.")
         async with session.get(url) as r:
             if r.status != 200:
-                log.error(f"Server icon fetch failed: {r.status}")
                 return await interaction.followup.send("❌ Failed to fetch server icon.")
             data = await r.read()
-        log.successtrace(f"Server icon fetched for {interaction.user.id} (guild: {interaction.guild.id})")
         await self._send_image_bytes(interaction, data, f"{interaction.guild.id}_icon.png")
 
     @app_commands.command(name="flip", description="Flip an image horizontally/vertically or both.")
@@ -858,27 +827,19 @@ class ImageCommands(app_commands.Group):
     ):
         await interaction.response.defer()
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Flip invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Flip invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")        
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Flip no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=1200)
         out = [self._flip_frame(f, axis) for f in frames]
         gif = self._frames_to_gif_bytes(out, duration_ms=duration)
-        log.successtrace(f"Flip success for {interaction.user.id} (axis: {axis})")
         await self._send_image_bytes(interaction, gif, f"flipped_{axis}.gif")
 
-    # Globe effect
-
     def _sphere_project_frame(self, src: Image.Image, phase: float, out_size: Tuple[int, int]) -> Image.Image:
-        """Map equirectangular src onto a sphere and return RGBA frame for given phase (radians)."""
-        # ensure src is equirectangular (width is 2x height ideally). We'll sample using lon/lat mapping.
         src_w, src_h = src.size
         w, h = out_size
         src_np = np.array(src.convert("RGBA"))
@@ -890,18 +851,15 @@ class ImageCommands(app_commands.Group):
         ry = h / 2.0
 
         for y in range(h):
-            ny = (y - cy) / ry  # -1 .. 1
+            ny = (y - cy) / ry
             for x in range(w):
-                nx = (x - cx) / rx  # -1 .. 1
+                nx = (x - cx) / rx
                 r2 = nx * nx + ny * ny
                 if r2 > 1.0:
-                    # outside sphere -> transparent (or background)
                     continue
                 z = math.sqrt(1.0 - r2)
-                # now compute lon, lat
-                lon = math.atan2(nx, z) + phase  # -pi..pi offset by phase
-                lat = math.asin(ny)  # -pi/2 .. pi/2
-                # map lon/lat to source equirectangular coordinates
+                lon = math.atan2(nx, z) + phase
+                lat = math.asin(ny)
                 src_x = (lon / (2 * math.pi) + 0.5) * src_w
                 src_y = (0.5 - lat / math.pi) * src_h
                 sx = int(src_x) % src_w
@@ -924,24 +882,20 @@ class ImageCommands(app_commands.Group):
         rotations = max(1, min(10, rotations))
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Globe invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Globe invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Globe no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         src_frames, _ = self._load_frames_from_bytes(data)
         base = src_frames[0].convert("RGBA")
-        # choose a reasonable output size
         out_w = min(600, base.width)
-        out_h = out_w  # square for sphere
-        base_small = base.resize((out_w * 2, out_h), Image.LANCZOS)  # expect equirectangular (w ~ 2*h) but we scale
-        # create frames
+        out_h = out_w
+        base_small = base.resize((out_w * 2, out_h), Image.LANCZOS)
+        
         globe_frames = []
         for i in range(frames_count):
             phase = 2 * math.pi * (i / frames_count) * rotations
@@ -949,15 +903,26 @@ class ImageCommands(app_commands.Group):
             globe_frames.append(frm)
 
         gif = self._frames_to_gif_bytes(globe_frames, duration_ms=80)
-        log.successtrace(f"Globe success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "globe.gif")
 
-    @app_commands.command(name="blur", description="Apply a blur effect to an image.")
+    @app_commands.command(name="blur", description="Apply a blur effect (Gaussian, Box, or Motion) to an image.")
+    @app_commands.describe(
+        type="Type of blur to apply",
+        radius="Intensity of the blur (default: 5.0)",
+        angle="Angle in degrees for motion blur (default: 0.0)"
+    )
+    @app_commands.choices(type=[
+        app_commands.Choice(name="Gaussian Blur", value="gaussian"),
+        app_commands.Choice(name="Box Blur", value="box"),
+        app_commands.Choice(name="Motion Blur", value="motion"),
+    ])
     @cooldown(cl=10, tm=25.0, ft=3)
     async def blur(
         self,
         interaction: discord.Interaction,
+        type: str = "gaussian",
         radius: float = 5.0,
+        angle: float = 0.0,
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
@@ -966,20 +931,23 @@ class ImageCommands(app_commands.Group):
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Blur no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
-        frames = self._resize_if_needed(frames, max_dim=1200)
+        frames = self._resize_if_needed(frames, max_dim=900)
 
         out_frames = []
         for f in frames:
-            blurred = f.filter(ImageFilter.GaussianBlur(radius=radius))
+            if type == "gaussian":
+                blurred = f.filter(ImageFilter.GaussianBlur(radius=radius))
+            elif type == "box":
+                blurred = f.filter(ImageFilter.BoxBlur(radius=radius))
+            else:  # motion
+                blurred = self._motion_blur_frame(f, radius=radius, angle=angle)
             out_frames.append(blurred)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        log.successtrace(f"Blur success for {interaction.user.id} (radius: {radius})")
-        await self._send_image_bytes(interaction, gif, "blurred.gif")
+        await self._send_image_bytes(interaction, gif, f"blurred_{type}.gif")
 
     @app_commands.command(name="hueshift", description="Shift the hue of an image (wraps around HSV color wheel).")
     @cooldown(cl=10, tm=25.0, ft=3)
@@ -991,45 +959,39 @@ class ImageCommands(app_commands.Group):
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
+        
+        # Support both degrees (0-360) and fraction (0-1.0)
+        if abs(shift) > 1.0:
+            shift = shift / 360.0
         shift = shift % 1.0  # normalize [0, 1)
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Hueshift invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Hueshift invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Hueshift no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
-        frames = self._resize_if_needed(frames, max_dim=1200)
+        frames = self._resize_if_needed(frames, max_dim=900)
 
-        # hue shift amount in integer range (0–255)
-        # PIL's HSV mode: H is 0-255 (represents 0-360 degrees)
         shift_amount = int(round(shift * 255))
 
         out_frames = []
         for f in frames:
-            # Convert to RGB first to ensure proper color space
             rgb = f.convert("RGB")
             hsv = rgb.convert("HSV")
             np_hsv = np.array(hsv, dtype=np.uint8)
 
-            # Only modify hue channel (index 0), ensure it wraps correctly
-            hue_channel = np_hsv[..., 0].astype(np.uint16)  # Use uint16 to avoid overflow
+            hue_channel = np_hsv[..., 0].astype(np.uint16)
             hue_channel = (hue_channel + shift_amount) % 256
             np_hsv[..., 0] = hue_channel.astype(np.uint8)
 
-            # Convert back: HSV -> RGB -> RGBA
             shifted_rgb = Image.fromarray(np_hsv, "HSV").convert("RGB")
-            # Preserve alpha if original had it
             if f.mode == 'RGBA':
                 shifted = shifted_rgb.convert("RGBA")
-                # Copy alpha channel from original
                 alpha = f.split()[3]
                 shifted.putalpha(alpha)
             else:
@@ -1037,7 +999,6 @@ class ImageCommands(app_commands.Group):
             out_frames.append(shifted)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        log.successtrace(f"Hueshift success for {interaction.user.id} (shift: {shift})")
         await self._send_image_bytes(interaction, gif, "hueshifted.gif")
     
     @app_commands.command(name="invert", description="Invert the colors of an image.")
@@ -1052,7 +1013,6 @@ class ImageCommands(app_commands.Group):
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Invert no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -1068,86 +1028,123 @@ class ImageCommands(app_commands.Group):
             out_frames.append(inverted)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        log.successtrace(f"Invert success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "inverted.gif")
     
     @app_commands.command(name="speechbubble", description="Add a speech bubble caption to an image (caption is optional).")
     @app_commands.describe(
         position="Where the bubble tail points (left, right)",
-        caption="Text to put in the bubble (optional)"
+        caption="Text to put in the bubble (optional)",
+        style="Bubble style: 'overlay' (floating white bubble) or 'cutout' (transparent top cutout)",
+        text_color="Color of the text (default: black)",
+        bubble_color="Color of the bubble (default: white)"
     )
-    @app_commands.choices(position=[
-        app_commands.Choice(name="Left", value="left"),
-        app_commands.Choice(name="Right", value="right"),
-    ])
+    @app_commands.choices(
+        position=[
+            app_commands.Choice(name="Left", value="left"),
+            app_commands.Choice(name="Right", value="right"),
+        ],
+        style=[
+            app_commands.Choice(name="Opaque Overlay", value="overlay"),
+            app_commands.Choice(name="Transparent Cutout", value="cutout"),
+        ]
+    )
     @cooldown(cl=15, tm=30.0, ft=3)
     async def speechbubble(
         self,
         interaction: discord.Interaction,
         position: app_commands.Choice[str],
         caption: Optional[str] = None,
+        style: str = "overlay",
+        text_color: str = "black",
+        bubble_color: str = "white",
         image: Optional[discord.Attachment] = None,
         image_url: Optional[str] = None,
     ):
         await interaction.response.defer()
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Speechbubble invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Speechbubble invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Speechbubble no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=900)
 
         bubble_path = os.path.join(os.getcwd(), "resources", "bubbles", f"{position.value}.png")
-
         if not os.path.exists(bubble_path):
-            log.error(f"Speechbubble template missing: {bubble_path}")
             return await interaction.followup.send(f"❌ Missing bubble template for '{position.value}'!", ephemeral=True)
 
         bubble_base = Image.open(bubble_path).convert("RGBA")
+
+        # Color parsers
+        def get_rgba(color_name: str, default_val: Tuple[int,int,int,int]) -> Tuple[int,int,int,int]:
+            colors = {
+                "white": (255, 255, 255, 255),
+                "black": (0, 0, 0, 255),
+                "red": (231, 76, 60, 255),
+                "blue": (52, 152, 219, 255),
+                "green": (46, 204, 113, 255),
+                "yellow": (241, 196, 15, 255),
+                "purple": (155, 89, 182, 255),
+                "pink": (254, 156, 181, 255),
+                "grey": (127, 140, 141, 255),
+                "gray": (127, 140, 141, 255),
+            }
+            return colors.get(color_name.lower().strip(), default_val)
+
+        c_text = get_rgba(text_color, (0, 0, 0, 255))
+        c_bubble = get_rgba(bubble_color, (255, 255, 255, 255))
 
         out_frames = []
         for frame in frames:
             tmp = frame.copy().convert("RGBA")
             w, h = tmp.size
 
-            # Calculate bubble size based on whether there's text
             if caption:
-                # Target height based on text needs (20-25% of image)
                 target_h = int(h * 0.18)
             else:
-                # Smaller bubble if no text
                 target_h = int(h * 0.12)
-            target_w = int(w * 0.85)  # 85% width for better proportions
+            target_w = int(w * 0.85)
 
-            # Resize bubble maintaining aspect ratio better
+            # Resize bubble template
             bubble_w, bubble_h = bubble_base.size
             aspect_ratio = bubble_w / bubble_h
             calculated_w = int(target_h * aspect_ratio)
             if calculated_w > target_w:
-                # If calculated width is too wide, scale down
                 target_w = calculated_w
                 if target_w > w * 0.9:
                     target_w = int(w * 0.9)
                     target_h = int(target_w / aspect_ratio)
 
-            bubble = bubble_base.resize((target_w, target_h), Image.LANCZOS)
+            # Base template colored to custom bubble color
+            colored_bubble = Image.new("RGBA", bubble_base.size, c_bubble)
+            bubble_mask = bubble_base.split()[3]
+            bubble = Image.new("RGBA", bubble_base.size, (0, 0, 0, 0))
+            bubble.paste(colored_bubble, (0,0), mask=bubble_mask)
+            bubble = bubble.resize((target_w, target_h), Image.LANCZOS)
 
-            # Position bubble near top
             bx = int((w - target_w) / 2)
             by = int(h * 0.05)
 
-            tmp.alpha_composite(bubble, (bx, by))
+            if style == "cutout":
+                # Create transparent cutout top header
+                header_h = target_h + by * 2
+                top_bar = Image.new("RGBA", (w, header_h), c_bubble)
+                
+                # Erase bubble shape from top bar
+                bubble_alpha = bubble.split()[3]
+                top_bar.paste((0, 0, 0, 0), (bx, by), mask=bubble_alpha)
+                
+                # Composite top bar onto the original frame
+                tmp.paste(top_bar, (0, 0), top_bar)
+            else:
+                # Opaque Overlay style
+                tmp.alpha_composite(bubble, (bx, by))
 
-            # Draw text inside bubble if caption provided
             if caption:
                 draw = ImageDraw.Draw(tmp)
                 font = ImageFont.truetype(os.path.join(os.getcwd(), "resources", "impact.ttf"), 36)
@@ -1159,6 +1156,11 @@ class ImageCommands(app_commands.Group):
                 total_text_height = len(lines) * line_height
                 centered_y = by + (target_h - total_text_height) // 2
 
+                # If cutout, we use high contrast stroke since background is transparent.
+                # If overlay, we use a clean thin stroke or no stroke.
+                stroke_w = 2 if style == "cutout" else 0
+                stroke_fill = (255, 255, 255, 255) if c_text == (0, 0, 0, 255) else (0, 0, 0, 255)
+
                 for i, line in enumerate(lines):
                     lw = font.getlength(line)
                     tx = bx + (target_w - lw) / 2
@@ -1167,15 +1169,14 @@ class ImageCommands(app_commands.Group):
                         (tx, ty),
                         line,
                         font=font,
-                        fill=(0, 0, 0),
-                        stroke_width=2,
-                        stroke_fill=(255, 255, 255)
+                        fill=c_text,
+                        stroke_width=stroke_w,
+                        stroke_fill=stroke_fill
                     )
 
             out_frames.append(tmp)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        log.successtrace(f"Speechbubble success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "speechbubble.gif")
 
     @app_commands.command(name="swirl", description="Apply a swirl effect to an image.")
@@ -1193,15 +1194,12 @@ class ImageCommands(app_commands.Group):
         radius = max(10.0, min(500.0, radius))
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"Swirl invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"Swirl invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
         
         data = await self._resolve_image_bytes(interaction, image, image_url)
         if not data:
-            log.warningtrace(f"Swirl no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, duration = self._load_frames_from_bytes(data)
@@ -1235,7 +1233,6 @@ class ImageCommands(app_commands.Group):
             out_frames.append(out_frame)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
-        log.successtrace(f"Swirl success for {interaction.user.id}")
         await self._send_image_bytes(interaction, gif, "swirled.gif")
 
     @app_commands.command(name="imagefy", description="Convert last image sent by bot to PNG or JPG.")
@@ -1249,10 +1246,8 @@ class ImageCommands(app_commands.Group):
 
         channel = interaction.channel
         if not channel:
-            log.error("Imagefy channel access failed")
             return await interaction.followup.send("❌ Could not access channel.", ephemeral=True)
 
-        # Find last bot message with attachment
         last_msg = None
         async for msg in channel.history(limit=50):
             if msg.author.id == self.bot.user.id and msg.attachments:
@@ -1260,7 +1255,6 @@ class ImageCommands(app_commands.Group):
                 break
 
         if not last_msg:
-            log.warningtrace(f"Imagefy no message found in {channel.id}")
             return await interaction.followup.send(
                 "❌ No recent bot message with an attachment found.",
                 ephemeral=True,
@@ -1269,12 +1263,10 @@ class ImageCommands(app_commands.Group):
         attachment = last_msg.attachments[0]
         data = await self._fetch_bytes(attachment, None)
         if not data:
-            log.error("Imagefy attachment fetch failed")
             return await interaction.followup.send(
                 "❌ Failed to fetch the attachment.", ephemeral=True
             )
 
-        # Load frames
         frames, duration = self._load_frames_from_bytes(data)
         frames = self._resize_if_needed(frames, max_dim=1200)
 
@@ -1285,7 +1277,6 @@ class ImageCommands(app_commands.Group):
             else:
                 out_frames.append(f.convert("RGB"))
 
-        # --- PNG Output ---
         if format == "png":
             bio = io.BytesIO()
             if len(out_frames) == 1:
@@ -1300,19 +1291,15 @@ class ImageCommands(app_commands.Group):
                     duration=duration,
                 )
             bio.seek(0)
-            log.successtrace(f"Imagefy success (png) for {interaction.user.id}")
             await interaction.followup.send(file=discord.File(bio, "converted.png"))
             return
 
-        # --- JPG Output ---
         bio = io.BytesIO()
         if len(out_frames) == 1:
             out_frames[0].save(bio, format="JPEG", quality=90)
             bio.seek(0)
-            log.successtrace(f"Imagefy success (jpg) for {interaction.user.id}")
             await interaction.followup.send(file=discord.File(bio, "converted.jpg"))
         else:
-            # Multi-frame JPG: zip frames individually
             zip_bio = io.BytesIO()
             with zipfile.ZipFile(zip_bio, "w", zipfile.ZIP_DEFLATED) as zipf:
                 for i, frame in enumerate(out_frames):
@@ -1321,7 +1308,6 @@ class ImageCommands(app_commands.Group):
                     frame_bio.seek(0)
                     zipf.writestr(f"frame_{i+1}.jpg", frame_bio.read())
             zip_bio.seek(0)
-            log.successtrace(f"Imagefy success (zip) for {interaction.user.id}")
             await interaction.followup.send(
                 "🗜️ Multiple frames detected! Exported as ZIP of JPGs:",
                 file=discord.File(zip_bio, "frames.zip"),
@@ -1338,7 +1324,6 @@ class ImageCommands(app_commands.Group):
     ):
         await interaction.response.defer()
         if data:
-            # Generate QR code
             qr = qrcode.QRCode(
                 version=1,
                 error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -1351,25 +1336,19 @@ class ImageCommands(app_commands.Group):
             bio = io.BytesIO()
             img.save(bio, format="PNG")
             bio.seek(0)
-            log.successtrace(f"QR code generated for {interaction.user.id}")
             await interaction.followup.send(file=discord.File(bio, "qrcode.png"))
             return
 
         if image and (image.filename.lower().endswith(EXT_BLACKLIST)):
-            log.warningtrace(f"QR invalid image extension by {interaction.user.id}: {image.filename}")
             return await interaction.followup.send("❌ Invalid image extension! Try using a PNG, WEBP or JPEG.")
         elif image_url and image_url.split("?")[0].lower().endswith(EXT_BLACKLIST):
-            log.warningtrace(f"QR invalid url extension by {interaction.user.id}: {image_url}")
             return await interaction.followup.send("❌ Invalid url extension! Try using a PNG, WEBP or JPEG.")
 
-        # Else, read QR code from image
         if not ZBAR_AVAILABLE:
-            log.warningtrace(f"QR read attempted by {interaction.user.id} but ZBar is missing")
             return await interaction.followup.send("❌ QR code scanning is unavailable on this host (missing zbar library). Generation is still available.", ephemeral=True)
 
         data_bytes = await self._resolve_image_bytes(interaction, image, image_url)
         if not data_bytes:
-            log.warningtrace(f"QR no data found for {interaction.user.id}")
             return await interaction.followup.send("❌ No image provided or selection found.", ephemeral=True)
 
         frames, _ = self._load_frames_from_bytes(data_bytes)
@@ -1382,18 +1361,16 @@ class ImageCommands(app_commands.Group):
                 break
 
         if not decoded_objs:
-            log.warningtrace(f"No QR code detected for {interaction.user.id}")
             return await interaction.followup.send("❌ No QR code detected in the image.", ephemeral=True)
 
         messages = []
         long_texts = []
         for i, obj in enumerate(decoded_objs, 1):
             qr_type = obj.type or "Unknown"
-            coords = obj.rect  # namedtuple: left, top, width, height
+            coords = obj.rect
             data_str = obj.data.decode("utf-8", errors="ignore").strip() or "(empty)"
 
             if len(data_str) > 800:
-                # too long — export to text
                 filename = f"qrcode_{i}.txt"
                 long_texts.append((filename, data_str))
                 preview = f"[Content too long → exported as `{filename}`]"
@@ -1407,7 +1384,6 @@ class ImageCommands(app_commands.Group):
                 f"💬 Data: {preview}"
             )
 
-        # Send message and any text attachments
         files = []
         for filename, text in long_texts:
             bio = io.BytesIO(text.encode("utf-8"))
@@ -1418,9 +1394,9 @@ class ImageCommands(app_commands.Group):
             title=f"🧾 QR Scan Results ({len(decoded_objs)} found)",
             color=0x2ECC71,
         )
-        embed.description = "\n\n".join(messages)[:4000]  # safeguard against embed limits
-        log.successtrace(f"QR code read for {interaction.user.id} ({len(decoded_objs)} found)")
+        embed.description = "\n\n".join(messages)[:4000]
         await interaction.followup.send(embed=embed, files=files, ephemeral=False)
+
 
 class ImageCog(commands.Cog):
     def __init__(self, bot):
@@ -1439,7 +1415,6 @@ class ImageCog(commands.Cog):
         self.bot.tree.add_command(ImageCommands(self.bot))
         self.bot.tree.add_command(select_image)
 
+
 async def setup(bot):
     await bot.add_cog(ImageCog(bot))
-
-# hopefully it dont consume my entire ram :D

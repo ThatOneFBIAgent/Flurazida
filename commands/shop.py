@@ -126,20 +126,27 @@ class ShopCommands(app_commands.Group):
         await interaction.followup.send(embed=view.format_shop_page(), view=view, ephemeral=False)
 
     @app_commands.command(name="use", description="Use an item from your inventory")
-    @app_commands.describe(item_name="The name of the item you want to use")
+    @app_commands.describe(
+        item_name="The name of the item you want to use",
+        target="Target player (required for Taser active use)"
+    )
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def use(self, interaction: discord.Interaction, item_name: str):
-        """Handles using an item properly"""
+    async def use(self, interaction: discord.Interaction, item_name: str, target: discord.Member = None):
+        """Handles using an item, with optional player targeting for items like the Taser."""
         await interaction.response.defer()
-        log.info(f"Use item invoked by {interaction.user.id}: {item_name}")
+        log.info(f"Use item invoked by {interaction.user.id}: {item_name} (target={target})")
+
+        if target and target.id == interaction.user.id:
+            return await interaction.followup.send("❌ You can't target yourself!", ephemeral=True)
+
         item_name = item_name.lower()
         item_data = next((item for item in SHOP_ITEMS if item["name"].lower() == item_name), None)
 
         if not item_data:
-            return await interaction.response.send_message(f"❌ **'{item_name}' is not a valid item!**", ephemeral=True)
+            return await interaction.followup.send(f"❌ **'{item_name}' is not a valid item!**", ephemeral=True)
 
-        # Use the centralized item effect logic
-        result_message = await use_item(interaction.user.id, item_data["id"])
+        target_id = target.id if target else None
+        result_message = await use_item(interaction.user.id, item_data["id"], target_id=target_id)
         await interaction.followup.send(result_message, ephemeral=True)
 
 class ShopCog(commands.Cog):
