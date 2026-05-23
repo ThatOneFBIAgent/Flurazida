@@ -498,7 +498,7 @@ class EconomyCommands(app_commands.Group):
             f"🎁 You gave {target.mention} **{amount}x {item['item_name']}**!", ephemeral=False
         )
 
-    # ===================== Daily / Monthly =====================
+    # ===================== Daily / Weekly / Monthly =====================
     async def run_daily(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -560,6 +560,43 @@ class EconomyCommands(app_commands.Group):
     async def daily(self, interaction: discord.Interaction):
         await self.run_daily(interaction)
 
+    async def run_weekly(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        await add_user(user_id, interaction.user.name)
+
+        now = int(time.time())
+        last_claim, _ = await get_last_claim(user_id, "weekly")
+        elapsed = now - last_claim
+
+        if last_claim > 0 and elapsed < 604_800:  # 7 days
+            remaining = 604_800 - elapsed
+            days    = int(remaining // 86_400)
+            hours   = int((remaining % 86_400) // 3600)
+            return await interaction.followup.send(
+                f"⏳ You already claimed your weekly! Come back in **{days}d {hours}h**.",
+                ephemeral=True
+            )
+
+        reward = random.randint(2_000, 5_000)
+        await update_balance(user_id, reward)
+        await set_last_claim(user_id, "weekly", now, 0)
+        log.successtrace(f"Weekly claimed by {user_id}: {reward} coins")
+
+        embed = discord.Embed(
+            title="📆 Weekly Reward!",
+            description="A nice chunk of coins to start your week.",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Coins Earned", value=f"💰 **{reward:,}**", inline=False)
+        embed.set_footer(text="See you next week!")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="weekly", description="Claim your weekly coins. A solid boost for your week!")
+    @cooldown(cl=5, tm=25.0, ft=3)
+    async def weekly(self, interaction: discord.Interaction):
+        await self.run_weekly(interaction)
+
     async def run_monthly(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
@@ -578,7 +615,7 @@ class EconomyCommands(app_commands.Group):
                 ephemeral=True
             )
 
-        reward = random.randint(8_000, 18_000)
+        reward = random.randint(12_000, 20_000)
         await update_balance(user_id, reward)
         await set_last_claim(user_id, "monthly", now, 0)
         log.successtrace(f"Monthly claimed by {user_id}: {reward} coins")

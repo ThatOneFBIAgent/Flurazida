@@ -1051,7 +1051,8 @@ async def decrement_taser_use(victim_id: int):
         )
     await conn.commit()
 
-# ===================== Claim Functions (daily / monthly) =====================
+# ===================== Claim Functions (daily / weekly / monthly) =====================
+# should however work for any type (e.g hourly) if called with a new claim_type string and used consistently
 @log_db_call
 async def get_last_claim(user_id: int, claim_type: str) -> tuple[int, int]:
     """Returns (last_claim_unix, streak) for a user's claim type. (0, 0) if never claimed."""
