@@ -99,15 +99,15 @@ class Main(commands.AutoShardedBot):
             self,
             custom_metrics_callback=lambda: {"economy": self.cached_economy}
         )
-        asyncio.create_task(monitor.run_forever())
+        asyncio.create_task(self._delayed_monitor_start(monitor, 5.0))
         
-        # Start config polling
+        # Start config polling with a staggered delay to avoid startup spike
         self.config_sync = ConfigSync(
             api_url=os.getenv("DASHBOARD_URL"),
             bot_id="flurazide",
             bot=self,
         )
-        asyncio.create_task(self.config_sync.run_forever())
+        asyncio.create_task(self._delayed_config_sync_start(self.config_sync, 7.0))
 
         # Register global checks
         self.tree.interaction_check = global_blacklist_check
@@ -197,6 +197,16 @@ class Main(commands.AutoShardedBot):
             except Exception as e:
                 log.error(f"Failed to update economy metrics: {e}")
             await asyncio.sleep(300) # 5 minutes
+
+    async def _delayed_monitor_start(self, monitor, delay: float):
+        """Start the BotMonitor after a delay to avoid startup spike."""
+        await asyncio.sleep(delay)
+        await monitor.run_forever()
+
+    async def _delayed_config_sync_start(self, config_sync, delay: float):
+        """Start the ConfigSync after a delay to avoid startup spike."""
+        await asyncio.sleep(delay)
+        await config_sync.run_forever()
 
 bot = Main()
 health.attach(bot)
