@@ -4,6 +4,15 @@ import os
 import signal
 import sys
 import time
+import warnings
+
+# Suppress discord.py's use of deprecated asyncio.iscoroutinefunction (Python 3.14+)
+# This is a library-level issue — not a bug in Flurazide.
+warnings.filterwarnings(
+    "ignore",
+    message=r"'asyncio\.iscoroutinefunction' is deprecated",
+    category=DeprecationWarning,
+)
 
 import config
 from config import IS_ALPHA

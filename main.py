@@ -72,8 +72,8 @@ test_server = TEST_SERVER
 # fucking prefixes istg
 def prefix(bot, message):
     if not bot.user:
-        return ['>>']
-    return ['>>', bot.user.mention]
+        return ['f!', 'F!', '>>']
+    return ['f!', 'F!', '>>', bot.user.mention]
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
         super().__init__(command_prefix=prefix, shard_count=3, intents=intents, max_messages=100, *args, **kwargs)
@@ -238,14 +238,313 @@ async def on_shard_resumed(shard_id):
     log.event(f"[Shard {shard_id}] resumed connection cleanly in {delta:.2f} seconds.")
     disconnect_time.pop(shard_id, None)
 
+class FakeResponse:
+    def __init__(self, fake_interaction):
+        self._interaction = fake_interaction
+        self.responded = False
+
+    async def send_message(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
+        if self._interaction._response_message and self._interaction._response_message.content == "⏳ *Thinking...*":
+            if file or files:
+                try:
+                    await self._interaction._response_message.delete()
+                except Exception:
+                    pass
+                self._interaction._response_message = None
+            else:
+                await self._interaction._response_message.edit(content=content, embed=embed, embeds=embeds, view=view)
+                return self._interaction._response_message
+
+        if self.responded:
+            return await self._interaction.followup.send(content=content, embed=embed, embeds=embeds, view=view, ephemeral=ephemeral, file=file, files=files)
+        self.responded = True
+        
+        msg = await self._interaction.channel.send(
+            content=content, 
+            embed=embed, 
+            embeds=embeds, 
+            view=view,
+            file=file,
+            files=files
+        )
+        self._interaction._response_message = msg
+        return msg
+
+    async def defer(self, *, thinking=True, ephemeral=False):
+        if self.responded:
+            return
+        self.responded = True
+        msg = await self._interaction.channel.send("⏳ *Thinking...*")
+        self._interaction._response_message = msg
+        return msg
+
+    async def edit_message(self, *, content=None, embed=None, embeds=None, view=None):
+        if self._interaction._response_message:
+            await self._interaction._response_message.edit(content=content, embed=embed, embeds=embeds, view=view)
+        else:
+            msg = await self._interaction.channel.send(content=content, embed=embed, embeds=embeds, view=view)
+            self._interaction._response_message = msg
+
+
+class FakeFollowup:
+    def __init__(self, fake_interaction):
+        self._interaction = fake_interaction
+
+    async def send(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
+        return await self._interaction.channel.send(
+            content=content, 
+            embed=embed, 
+            embeds=embeds, 
+            view=view,
+            file=file,
+            files=files
+        )
+
+
+class FakeInteraction:
+    def __init__(self, message, client):
+        self.id = message.id
+        self.message = message
+        self.user = message.author
+        self.guild = message.guild
+        self.channel = message.channel
+        self.client = client
+        self.response = FakeResponse(self)
+        self.followup = FakeFollowup(self)
+        self._response_message = None
+        self.type = discord.InteractionType.application_command
+        self.command = None
+
+    async def edit_original_response(self, *, content=None, embed=None, embeds=None, view=None):
+        if self._response_message:
+            return await self._response_message.edit(content=content, embed=embed, embeds=embeds, view=view)
+        else:
+            msg = await self.channel.send(content=content, embed=embed, embeds=embeds, view=view)
+            self._response_message = msg
+            return msg
+
+    async def original_response(self):
+        return self._response_message
+
+
+async def convert_user(token, guild):
+    if token.startswith("<@") and token.endswith(">"):
+        uid = token.replace("<@", "").replace("!", "").replace(">", "")
+        try:
+            uid = int(uid)
+            if guild:
+                member = guild.get_member(uid)
+                if member:
+                    return member
+                try:
+                    return await guild.fetch_member(uid)
+                except Exception:
+                    pass
+            return await bot.fetch_user(uid)
+        except Exception:
+            pass
+    try:
+        uid = int(token)
+        if guild:
+            member = guild.get_member(uid)
+            if member:
+                return member
+            try:
+                return await guild.fetch_member(uid)
+            except Exception:
+                pass
+        return await bot.fetch_user(uid)
+    except Exception:
+        pass
+    if guild:
+        for m in guild.members:
+            if m.name.lower() == token.lower() or (m.nick and m.nick.lower() == token.lower()):
+                return m
+    return None
+
+
+def get_command_usage(cmd):
+    usage = f"f!{cmd.qualified_name}"
+    params_str = []
+    for param in cmd.parameters:
+        if param.choices:
+            choice_labels = "|".join(str(c.value) for c in param.choices)
+            if param.required:
+                params_str.append(f"({choice_labels})")
+            else:
+                params_str.append(f"[{choice_labels}]")
+        else:
+            if param.required:
+                params_str.append(f"({param.name})")
+            else:
+                params_str.append(f"[{param.name}]")
+    if params_str:
+        usage += " " + " ".join(params_str)
+    return usage
+
+
+async def handle_prefix_command(message: discord.Message):
+    content = message.content.strip()
+    if not (content.startswith("f!") or content.startswith("F!")):
+        return
+        
+    tokens = content[2:].strip().split()
+    if not tokens:
+        return
+        
+    cmd = None
+    args_start_idx = 0
+    node = None
+    
+    for i, token in enumerate(tokens):
+        token_lower = token.lower()
+        found = None
+        if node is None:
+            for c in bot.tree.get_commands():
+                if c.name.lower() == token_lower:
+                    found = c
+                    break
+        elif isinstance(node, app_commands.Group):
+            for c in node.commands:
+                if c.name.lower() == token_lower:
+                    found = c
+                    break
+                    
+        if found is not None:
+            node = found
+            args_start_idx = i + 1
+            if isinstance(node, app_commands.Command):
+                cmd = node
+                break
+        else:
+            break
+            
+    if not isinstance(cmd, app_commands.Command):
+        return
+
+    fake_interaction = FakeInteraction(message, bot)
+    fake_interaction.command = cmd
+    
+    if not await global_blacklist_check(fake_interaction):
+        return
+
+    args_tokens = tokens[args_start_idx:]
+    kwargs = {}
+    token_idx = 0
+
+    for i, param in enumerate(cmd.parameters):
+        if token_idx >= len(args_tokens):
+            if param.required:
+                embed = discord.Embed(
+                    title="⚠️ Missing Required Fields",
+                    description=f"You missed a required field: **{param.name}**.\n\n"
+                                f"**Usage:** `{get_command_usage(cmd)}`\n"
+                                f"**Description:** {cmd.description or 'No description'}",
+                    color=0xFFCC00
+                )
+                embed.add_field(name="Parameter Description", value=f"**{param.name}**: {param.description or 'No description'}")
+                return await message.channel.send(embed=embed)
+            else:
+                continue
+
+        if i == len(cmd.parameters) - 1 and param.type == discord.AppCommandOptionType.string:
+            token_val = " ".join(args_tokens[token_idx:])
+            token_idx = len(args_tokens)
+        else:
+            token_val = args_tokens[token_idx]
+            token_idx += 1
+
+        converted_val = None
+        if param.type == discord.AppCommandOptionType.string:
+            converted_val = token_val
+        elif param.type == discord.AppCommandOptionType.integer:
+            try:
+                converted_val = int(token_val)
+            except ValueError:
+                embed = discord.Embed(
+                    title="⚠️ Invalid Parameter Type",
+                    description=f"The field **{param.name}** expects an integer, but got `{token_val}`.\n\n"
+                                f"**Usage:** `{get_command_usage(cmd)}`",
+                    color=0xFF3333
+                )
+                return await message.channel.send(embed=embed)
+        elif param.type == discord.AppCommandOptionType.number:
+            try:
+                converted_val = float(token_val)
+            except ValueError:
+                embed = discord.Embed(
+                    title="⚠️ Invalid Parameter Type",
+                    description=f"The field **{param.name}** expects a number, but got `{token_val}`.\n\n"
+                                f"**Usage:** `{get_command_usage(cmd)}`",
+                    color=0xFF3333
+                )
+                return await message.channel.send(embed=embed)
+        elif param.type == discord.AppCommandOptionType.boolean:
+            converted_val = token_val.lower() in ['true', 'yes', '1', 'y', 'on']
+        elif param.type in [discord.AppCommandOptionType.user, discord.AppCommandOptionType.member]:
+            converted_val = await convert_user(token_val, message.guild)
+            if not converted_val:
+                embed = discord.Embed(
+                    title="⚠️ User Not Found",
+                    description=f"Could not find user/member matching `{token_val}` for field **{param.name}**.\n\n"
+                                f"**Usage:** `{get_command_usage(cmd)}`",
+                    color=0xFF3333
+                )
+                return await message.channel.send(embed=embed)
+        elif param.type == discord.AppCommandOptionType.attachment:
+            if message.attachments:
+                converted_val = message.attachments[0]
+            else:
+                if param.required:
+                    embed = discord.Embed(
+                        title="⚠️ Missing Attachment",
+                        description=f"The field **{param.name}** requires an image/file attachment, but none was uploaded.\n\n"
+                                    f"**Usage:** `{get_command_usage(cmd)}`",
+                        color=0xFFCC00
+                    )
+                    return await message.channel.send(embed=embed)
+                else:
+                    converted_val = None
+        else:
+            converted_val = token_val
+
+        kwargs[param.name] = converted_val
+
+    try:
+        if cmd.binding is not None:
+            await cmd.callback(cmd.binding, fake_interaction, **kwargs)
+        else:
+            await cmd.callback(fake_interaction, **kwargs)
+    except Exception as e:
+        log.error(
+            f"Prefix command failed:\n"
+            f" • Command: {cmd.qualified_name}\n"
+            f" • User: {message.author} ({message.author.id})\n"
+            f" • Guild: {message.guild.name if message.guild else 'DM'}",
+            exc_info=e
+        )
+        embed = discord.Embed(
+            title="💥 Command Error",
+            description=f"The command imploded spectacularly.\n\n**Error:** `{e}`",
+            color=0xFF3333
+        )
+        await message.channel.send(embed=embed)
+
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-    bot_name = str(bot.user.name).lower()
-    content = message.content.lower()
 
-    mentioned_by_name = bot_name in content.split()
+    # Check prefix command triggers
+    content = message.content.strip()
+    if content.startswith("f!") or content.startswith("F!"):
+        return await handle_prefix_command(message)
+
+    bot_name = str(bot.user.name).lower()
+    msg_content_lower = content.lower()
+
+    mentioned_by_name = bot_name in msg_content_lower.split()
     mentioned_directly = bot.user in message.mentions
     
     if mentioned_by_name or mentioned_directly:

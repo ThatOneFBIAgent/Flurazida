@@ -342,6 +342,15 @@ async def init_databases():
             PRIMARY KEY (user_id, claim_type)
         )
         """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_effects (
+            user_id INTEGER NOT NULL,
+            effect_type TEXT NOT NULL,
+            expiry INTEGER NOT NULL,
+            modifier INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, effect_type)
+        )
+        """)
         await conn.commit()
         log.database("Economy database initialized successfully")
 
@@ -377,7 +386,7 @@ async def get_robbery_modifier(user_id: int) -> float:
     """
     Returns the robber's total offense modifier as a float offset
     (e.g. 0.50 = +50% success chance). Reads directly from ITEM_EFFECTS
-    for items the user currently owns — no stale effect_modifier column.
+    for items the user currently owns.
     """
     conn = await db.get_economy()
     async with conn.execute(
@@ -387,9 +396,14 @@ async def get_robbery_modifier(user_id: int) -> float:
     total = 0
     for (item_id,) in rows:
         effects = ITEM_EFFECTS.get(int(item_id), {})
-        # Skip victim-only items (taser / gun_defense) — they don't boost the robber
-        if not effects.get("taser") and not effects.get("gun_defense"):
+        # Skip victim-only items — they don't boost the robber
+        if not effects.get("taser") and not effects.get("gun_defense") and not effects.get("coffee_defense") and not effects.get("expired_fish") and effects.get("robbery_modifier", 0) > 0:
             total += effects.get("robbery_modifier", 0)
+            
+    # Apply status effects on robber
+    if await has_active_effect(user_id, "cone_penalty"):
+        total -= 30
+        
     log.trace(f"Robbery modifier for {user_id}: {total}% ({total / 100:+.2f})")
     return total / 100
 
@@ -398,32 +412,42 @@ async def get_victim_rob_modifier(victim_id: int) -> float:
     """
     Returns the victim's passive defensive modifier as a positive float
     (e.g. 0.50 = reduces robber's success chance by 50%).
-    Automatically decrements Padlocked Wallet (item 4) uses on call.
+    Automatically decrements Padlocked Wallet (item 4), Coffee Mug (item 13), and Expired fish (item 26) uses on call.
     """
     conn = await db.get_economy()
     async with conn.execute(
-        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 4 AND uses_left > 0",
+        "SELECT item_id, uses_left FROM user_items WHERE user_id = ? AND item_id IN (4, 13, 26) AND uses_left > 0",
         (victim_id,)
     ) as cursor:
-        result = await cursor.fetchone()
-    if not result:
-        return 0.0
-    # Decrement Padlocked Wallet
-    new_uses = result[0] - 1
-    if new_uses <= 0:
-        await conn.execute(
-            "DELETE FROM user_items WHERE user_id = ? AND item_id = 4", (victim_id,)
-        )
-        log.trace(f"Padlocked Wallet exhausted for victim {victim_id}")
-    else:
-        await conn.execute(
-            "UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 4",
-            (new_uses, victim_id)
-        )
+        rows = await cursor.fetchall()
+        
+    total_penalty = 0.0
+    for item_id_str, uses_left in rows:
+        item_id = int(item_id_str)
+        new_uses = uses_left - 1
+        if new_uses <= 0:
+            await conn.execute(
+                "DELETE FROM user_items WHERE user_id = ? AND item_id = ?", (victim_id, item_id_str)
+            )
+            log.trace(f"Defensive item {item_id} exhausted for victim {victim_id}")
+        else:
+            await conn.execute(
+                "UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = ?",
+                (new_uses, victim_id, item_id_str)
+            )
+            
+        penalty = abs(ITEM_EFFECTS.get(item_id, {}).get("robbery_modifier", 0))
+        total_penalty += penalty
+        
     await conn.commit()
-    penalty = abs(ITEM_EFFECTS.get(4, {}).get("robbery_modifier", 0))
-    log.trace(f"Victim {victim_id} Padlocked Wallet active: -{penalty}% to robber ({new_uses} uses left)")
-    return penalty / 100
+    
+    # Check status effects
+    # "disoriented" from Piss Bottle reduces defense by 25%
+    if await has_active_effect(victim_id, "disoriented"):
+        total_penalty -= 25
+        
+    log.trace(f"Victim {victim_id} net defensive modifier: {total_penalty}% ({total_penalty / 100:+.2f})")
+    return max(0.0, total_penalty / 100)
 
 @log_db_call
 async def consume_robber_item_uses(user_id: int):
@@ -435,7 +459,7 @@ async def consume_robber_item_uses(user_id: int):
     # Collect item IDs that provide passive offense bonuses
     passive_rob_item_ids = [
         iid for iid, eff in ITEM_EFFECTS.items()
-        if "robbery_modifier" in eff and not eff.get("taser") and not eff.get("gun_defense")
+        if "robbery_modifier" in eff and not eff.get("taser") and not eff.get("gun_defense") and not eff.get("coffee_defense") and not eff.get("expired_fish") and eff.get("robbery_modifier", 0) > 0
     ]
     for item_id in passive_rob_item_ids:
         async with conn.execute(
@@ -463,6 +487,155 @@ async def schedule_effect_decay(user_id, original_value, duration):
     """Waits for a temporary effect to expire and logs its completion."""
     await asyncio.sleep(duration)
     log.trace(f"Temporary effect expired for {user_id} (was {original_value}%)")
+
+# ===================== Status Effects Functions =====================
+@log_db_call
+async def add_user_effect(user_id: int, effect_type: str, duration_seconds: int, modifier: int = 0):
+    """Adds a temporary status effect to a user, with an expiry timestamp."""
+    conn = await db.get_economy()
+    expiry = int(time.time()) + duration_seconds
+    await conn.execute("""
+        INSERT INTO user_effects (user_id, effect_type, expiry, modifier)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, effect_type) DO UPDATE
+        SET expiry = ?, modifier = ?""",
+        (user_id, effect_type, expiry, modifier, expiry, modifier)
+    )
+    await conn.commit()
+
+@log_db_call
+async def has_active_effect(user_id: int, effect_type: str) -> bool:
+    """Checks if a user has an active status effect."""
+    conn = await db.get_economy()
+    now = int(time.time())
+    # Clean up expired effects of this type for this user to be tidy
+    await conn.execute("DELETE FROM user_effects WHERE user_id = ? AND effect_type = ? AND expiry <= ?", (user_id, effect_type, now))
+    await conn.commit()
+    
+    async with conn.execute(
+        "SELECT 1 FROM user_effects WHERE user_id = ? AND effect_type = ? AND expiry > ?",
+        (user_id, effect_type, now)
+    ) as cursor:
+        result = await cursor.fetchone()
+        return result is not None
+
+@log_db_call
+async def get_active_effect_modifier(user_id: int, effect_type: str) -> int:
+    """Gets the modifier value for an active status effect (returns 0 if not active)."""
+    conn = await db.get_economy()
+    now = int(time.time())
+    async with conn.execute(
+        "SELECT modifier FROM user_effects WHERE user_id = ? AND effect_type = ? AND expiry > ?",
+        (user_id, effect_type, now)
+    ) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result else 0
+
+@log_db_call
+async def get_effect_remaining_time(user_id: int, effect_type: str) -> str:
+    """Returns a user-friendly string of the remaining duration of an effect (e.g. '2h 15m' or '45s')."""
+    conn = await db.get_economy()
+    now = int(time.time())
+    async with conn.execute(
+        "SELECT expiry FROM user_effects WHERE user_id = ? AND effect_type = ? AND expiry > ?",
+        (user_id, effect_type, now)
+    ) as cursor:
+        result = await cursor.fetchone()
+    if not result:
+        return "0s"
+    remaining = result[0] - now
+    if remaining <= 0:
+        return "0s"
+    
+    hours = remaining // 3600
+    minutes = (remaining % 3600) // 60
+    seconds = remaining % 60
+    
+    parts = []
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    if seconds > 0 or not parts:
+        parts.append(f"{seconds}s")
+    return " ".join(parts)
+
+@log_db_call
+async def check_and_use_gambling_boost(user_id: int) -> str | bool:
+    """
+    Checks if user has a Sea BassHead, USB Stick, or Wishbone.
+    If so, handles their triggers and decrements uses.
+    Returns:
+      - "arrested": if USB stick got them arrested.
+      - "chicken_backfire": if the wishbone cursed them.
+      - True: if they have a boost active.
+      - False: if no boost active.
+    """
+    conn = await db.get_economy()
+    
+    # 1. USB Stick (ID 21)
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 21 AND uses_left > 0", (user_id,)
+    ) as cursor:
+        usb_res = await cursor.fetchone()
+    if usb_res:
+        new_uses = usb_res[0] - 1
+        if new_uses <= 0:
+            await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = 21", (user_id,))
+        else:
+            await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 21", (new_uses, user_id))
+        await conn.commit()
+        
+        # 5% chance of arrest
+        if random.random() < 0.05:
+            await add_user_effect(user_id, "no_gamble", 1800) # 30 mins
+            return "arrested"
+        
+        # Boost triggered with 35% chance
+        if random.random() < 0.35:
+            return True
+        return False
+        
+    # 2. Sea BassHead (ID 14)
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 14 AND uses_left > 0", (user_id,)
+    ) as cursor:
+        fish_res = await cursor.fetchone()
+    if fish_res:
+        new_uses = fish_res[0] - 1
+        if new_uses <= 0:
+            await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = 14", (user_id,))
+        else:
+            await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 14", (new_uses, user_id))
+        await conn.commit()
+        
+        if random.random() < 0.25:
+            return True
+        return False
+        
+    # 3. Half eaten rotisserie chicken (ID 23)
+    async with conn.execute(
+        "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = 23 AND uses_left > 0", (user_id,)
+    ) as cursor:
+        chicken_res = await cursor.fetchone()
+    if chicken_res:
+        new_uses = chicken_res[0] - 1
+        if new_uses <= 0:
+            await conn.execute("DELETE FROM user_items WHERE user_id = ? AND item_id = 23", (user_id,))
+        else:
+            await conn.execute("UPDATE user_items SET uses_left = ? WHERE user_id = ? AND item_id = 23", (new_uses, user_id))
+        await conn.commit()
+        
+        if random.random() < 0.50:
+            # Positive: 20% chance to save loss
+            if random.random() < 0.20:
+                return True
+        else:
+            # Negative: 15% chance to force loss
+            if random.random() < 0.15:
+                return "chicken_backfire"
+                
+    return False
 
 # ===================== Economy Functions =====================
 @log_db_call
@@ -649,6 +822,12 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
         if target_balance < 50:
             return "❌ Your target is too broke to bother tasing! Save the charge."
 
+    # ── Piss Bottle & Milk suds targets ──────────────────────────────────
+    if item_id == 22 and target_id is None:
+        return "❌ You must specify a target user to throw the Piss Bottle at! Use: `/shop use item_name:Piss Bottle target:@target`"
+    if item_id == 27 and target_id is None:
+        return "❌ You must specify a target user to splash Milk suds on! Use: `/shop use item_name:Milk suds target:@target`"
+
     # Decrement uses (shared path for all items)
     last_use_warning = ""
     if uses_left == 1:
@@ -678,13 +857,31 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
             )
         return f"{last_use_warning}{effect_applied}"
 
+    # ── Resolve Piss Bottle throw active use ──────────────────────────
+    if item_id == 22 and target_id is not None:
+        await add_user_effect(target_id, "disoriented", 3600) # 1 hour
+        return (
+            f"{last_use_warning}💦 **Splat!** You lobbed a **Piss Bottle** at <@{target_id}>! "
+            f"They smell horrible and are disoriented! They will be 25% easier to rob for the next hour. "
+            f"({new_uses} bottles left)"
+        )
+
+    # ── Resolve Milk suds throw active use ────────────────────────────
+    if item_id == 27 and target_id is not None:
+        await add_user_effect(target_id, "milk_suds", 7200) # 2 hours
+        return (
+            f"{last_use_warning}🥛 **Suds'd!** You splashed sour **Milk suds** all over <@{target_id}>! "
+            f"They feel gross and will fail work, crime, and slut jobs 20% more often for the next 2 hours. "
+            f"({new_uses} uses left)"
+        )
+
     # ── General item effects ─────────────────────────────────────────────────
     effect_applied = f"Used **{item_data['name']}** ({new_uses} uses remaining)."
 
     if item_id in ITEM_EFFECTS:
         effect_data = ITEM_EFFECTS[item_id]
 
-        if "robbery_modifier" in effect_data and not effect_data.get("taser") and not effect_data.get("gun_defense"):
+        if "robbery_modifier" in effect_data and not effect_data.get("taser") and not effect_data.get("gun_defense") and not effect_data.get("coffee_defense") and not effect_data.get("expired_fish"):
             direction = "+" if effect_data["robbery_modifier"] > 0 else ""
             mod_pct = effect_data["robbery_modifier"]
             effect_applied = (
@@ -713,6 +910,77 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
 
         elif effect_data.get("gambling_placebo"):
             effect_applied = "🪙 **Lucky Coin rubbed!** ...you feel luckier. (Placebo effect is real!)"
+
+        elif effect_data.get("coffee_defense"):
+            effect_applied = (
+                f"☕ **Coffee Mug (Full) equipped passively!** You take a hot sip. You feel wide awake and alert! "
+                f"Others will have a -30% penalty when trying to rob you. ({new_uses} uses left)."
+            )
+
+        elif effect_data.get("expired_fish"):
+            effect_applied = (
+                f"🐟 **Expired fish equipped passively!** Phew, it stinks! The stench keeps robbers away. "
+                f"Others will have a -15% penalty when trying to rob you. ({new_uses} uses left)."
+            )
+
+        elif effect_data.get("gambling_boost"):
+            effect_applied = (
+                f"🐟 **Sea BassHead murmurs!** The strange fish variant stares blankly and whispers some numbers... "
+                f"You feel luckier. ({new_uses} uses remaining)"
+            )
+
+        elif effect_data.get("rubbers"):
+            effect_applied = (
+                f"💥 **Snap!** You snapped the rubber band against your wrist. Ouch! That hurt! "
+                f"({new_uses} rubbers left)"
+            )
+
+        elif effect_data.get("pocket_sand"):
+            effect_applied = (
+                f"⏳ **Pocket sand equipped passively!** You keep a fistful of sand in your pocket. "
+                f"If anyone tries to rob you, they will get sand thrown in their eyes, failing the robbery and blinding them for 3 hours! "
+                f"({new_uses} charges left)"
+            )
+
+        elif effect_data.get("usb_stick"):
+            effect_applied = (
+                f"💻 **USB Stick active!** You plug the USB labeled 'Cheat_Codes_2026.exe' into your computer. "
+                f"It loads up some suspicious hacks. You feel like the casino games stand no chance... "
+                f"but don't get caught! ({new_uses} uses left)"
+            )
+
+        elif effect_data.get("chicken_wishbone"):
+            effect_applied = (
+                f"🍗 **Wishbone checked!** You hold the half-eaten rotisserie chicken carcass. "
+                f"The wishbone is still intact. Will it bring good luck or bad luck? Gamble to find out! "
+                f"({new_uses} uses left)"
+            )
+
+        elif effect_data.get("parking_cone"):
+            effect_applied = (
+                f"🚧 **Parking cone equipped passively!** You carry a bright orange traffic cone. "
+                f"If someone tries to rob you, they'll get this cone placed over their head, automatically failing and reducing their success rate for an hour! "
+                f"({new_uses} uses left)"
+            )
+
+        elif effect_data.get("status_symbol"):
+            effect_applied = (
+                f"🇸🇪 **IKEA status!** How are you carrying an entire Ikea in your inventory?! "
+                f"Truly a legendary feat. Everyone is in awe of your flat-pack storage capacity. "
+                f"({new_uses} uses left)"
+            )
+
+        elif effect_data.get("misc"):
+            if item_id == 15:
+                effect_applied = f"💨 You blew the pocket lint away. It did nothing. ({new_uses} lint left)"
+            elif item_id == 16:
+                effect_applied = f"🌀 You spun the fidget spinner. It spun for a bit. Wheee. ({new_uses} uses left)"
+            elif item_id == 17:
+                effect_applied = f"✨ You polished the Fake Gold Bar. It is still plastic. ({new_uses} uses left)"
+            elif item_id == 18:
+                effect_applied = f"🍦 You licked the Melted Ice Cream wrapper. Sticky! ({new_uses} uses left)"
+            elif item_id == 19:
+                effect_applied = f"🪛 You pointed the Screwdriver and made a buzzing drill sound. ({new_uses} uses left)"
 
     return f"{last_use_warning}{effect_applied}"
 

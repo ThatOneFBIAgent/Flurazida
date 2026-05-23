@@ -29,7 +29,11 @@ from database import (
     atomic_deduct,
     get_last_claim,
     set_last_claim,
+    has_active_effect,
+    get_effect_remaining_time,
+    add_user_effect,
 )
+from database.items import get_item_by_id
 from config import cooldown, check_cooldown, update_cooldown
 from logging_modules.custom_logger import get_logger
 
@@ -117,6 +121,14 @@ class EconomyCommands(app_commands.Group):
         if user_id == target_id:
             return await interaction.followup.send("❌ You can't rob yourself!", ephemeral=True)
 
+        # Check active "no_rob" effect (blinded/prevented from robbing)
+        if await has_active_effect(user_id, "no_rob"):
+            remaining = await get_effect_remaining_time(user_id, "no_rob")
+            return await interaction.followup.send(
+                f"❌ You are still recovering from sand in your eyes! You cannot rob anyone for another **{remaining}**.",
+                ephemeral=True
+            )
+
         await add_user(user_id, interaction.user.name)
         await add_user(target_id, target.name)
 
@@ -127,6 +139,37 @@ class EconomyCommands(app_commands.Group):
         if target_balance < 100:
             return await interaction.followup.send(
                 f"💸 {target.mention} doesn't have enough coins to rob!", ephemeral=True
+            )
+
+        # ── Check Pocket Sand / Parking Cone defenses ──────────────────────
+        victim_items = await get_user_items(target_id)
+        
+        pocket_sand = next((i for i in victim_items if str(i["item_id"]) == "20" and i["uses_left"] > 0), None)
+        if pocket_sand:
+            new_uses = pocket_sand["uses_left"] - 1
+            if new_uses <= 0:
+                await remove_item_from_user(target_id, 20)
+            else:
+                await update_item_uses(target_id, 20, new_uses)
+            await add_user_effect(user_id, "no_rob", 10800) # 3 hours
+            log.warningtrace(f"{user_id} was pocket-sanded by {target_id}")
+            return await interaction.followup.send(
+                f"🏜️ **Pocket sand!** You tried to sneak up on {target.mention}, but they spun around and threw a fistful of sand directly into your eyes!\n"
+                f"The robbery failed and you are blinded! You cannot rob anyone for the next 3 hours."
+            )
+
+        parking_cone = next((i for i in victim_items if str(i["item_id"]) == "24" and i["uses_left"] > 0), None)
+        if parking_cone:
+            new_uses = parking_cone["uses_left"] - 1
+            if new_uses <= 0:
+                await remove_item_from_user(target_id, 24)
+            else:
+                await update_item_uses(target_id, 24, new_uses)
+            await add_user_effect(user_id, "cone_penalty", 3600) # 1 hour
+            log.warningtrace(f"{user_id} was parking-coned by {target_id}")
+            return await interaction.followup.send(
+                f"🚧 **Parking Cone'd!** You attempted to rob {target.mention}, but they swiftly slammed a bright orange traffic cone over your head!\n"
+                f"The robbery failed and you stumbled away in embarrassment. Your robbery success chance is reduced by 30% for the next hour."
             )
 
         # ── Victim defenses (checked in power order: gun › taser) ────────────
@@ -199,7 +242,12 @@ class EconomyCommands(app_commands.Group):
         if commiter_bal < -100:
             return await interaction.followup.send("💸 You can't afford risking another crime!")
 
-        success = random.random() > 0.16  
+        # Milk suds penalty: 20% higher failure rate
+        fail_chance = 0.16
+        if await has_active_effect(user_id, "milk_suds"):
+            fail_chance += 0.20
+
+        success = random.random() > fail_chance  
         amount = random.randint(100, 600) if success else -random.randint(300, 600)
 
         await update_balance(user_id, amount)
@@ -207,6 +255,16 @@ class EconomyCommands(app_commands.Group):
             log.successtrace(f"User {user_id} committed crime successfully: {amount} coins")
         else:
             log.warningtrace(f"User {user_id} failed crime: {amount} coins")
+
+        # Roll for crime drops: Sea BassHead (14), Fake Gold Bar (17), Fidget Spinner (16), Lint (15), Expired fish (26), USB Stick (21)
+        item_found = None
+        if success and random.random() < 0.08:
+            pool = [14, 17, 16, 15, 26, 21]
+            weights = [10, 20, 20, 20, 15, 15]
+            item_id = random.choices(pool, weights=weights)[0]
+            item_found = get_item_by_id(item_id)
+            if item_found:
+                await add_item_to_user(user_id, item_found["id"], item_found["name"], uses_left=item_found["uses_left"])
 
         if success:
             messages = [
@@ -225,9 +283,12 @@ class EconomyCommands(app_commands.Group):
                 f"👮 You got arrested for public indecency! Lost 💰 `{abs(amount)}` coins."
             ]
 
+        msg_text = random.choice(messages)
+        if success and item_found:
+            msg_text += f"\n🔍 **Look what you found!** You also picked up a **{item_found['name']}**!"
 
         view = PlayAgainView(self.run_crime, user_id)
-        msg = await interaction.followup.send(random.choice(messages), ephemeral=False, view=view)
+        msg = await interaction.followup.send(msg_text, ephemeral=False, view=view)
         view.message = msg
 
     @app_commands.command(name="crime", description="Commit a crime for cash. Risky!")
@@ -241,10 +302,25 @@ class EconomyCommands(app_commands.Group):
         await add_user(user_id, interaction.user.name)
         log.trace(f"User {user_id} attempting slut command")
 
-        success = random.random() > 0.07
+        # Milk suds penalty: 20% higher failure rate
+        fail_chance = 0.07
+        if await has_active_effect(user_id, "milk_suds"):
+            fail_chance += 0.20
+
+        success = random.random() > fail_chance
         amount = random.randint(50, 300) if success else -random.randint(100, 200)
 
         await update_balance(user_id, amount)
+
+        # Roll for slut drops: Rubbers (12), Mug (13), Melted Ice Cream (18), Lint (15), Milk suds (27)
+        item_found = None
+        if success and random.random() < 0.08:
+            pool = [12, 13, 18, 15, 27]
+            weights = [50, 10, 20, 10, 10]
+            item_id = random.choices(pool, weights=weights)[0]
+            item_found = get_item_by_id(item_id)
+            if item_found:
+                await add_item_to_user(user_id, item_found["id"], item_found["name"], uses_left=item_found["uses_left"])
 
         if success:
             messages = [
@@ -261,8 +337,12 @@ class EconomyCommands(app_commands.Group):
                 f"🤓 You were too ugly and had to spend 💰 `{abs(amount)}` coins on plastic surgery."
             ]
 
+        msg_text = random.choice(messages)
+        if success and item_found:
+            msg_text += f"\n🔍 **Look what you found!** You also picked up a **{item_found['name']}**!"
+
         view = PlayAgainView(self.run_slut, user_id)
-        msg = await interaction.followup.send(random.choice(messages), ephemeral=False, view=view)
+        msg = await interaction.followup.send(msg_text, ephemeral=False, view=view)
         view.message = msg
 
     @app_commands.command(name="slut", description="Do some... work for quick cash.")
@@ -276,9 +356,24 @@ class EconomyCommands(app_commands.Group):
         await add_user(user_id, interaction.user.name)
         log.trace(f"User {user_id} attempting work command")
 
-        success = random.random() > 0.03
+        # Milk suds penalty: 20% higher failure rate
+        fail_chance = 0.03
+        if await has_active_effect(user_id, "milk_suds"):
+            fail_chance += 0.20
+
+        success = random.random() > fail_chance
         amount = random.randint(20, 250) if success else -random.randint(400, 800)
         await update_balance(user_id, amount)
+
+        # Roll for work drops: Coffee Mug (Full) (13), Screwdriver (19), Fidget Spinner (16), Lint (15), Chicken (23)
+        item_found = None
+        if success and random.random() < 0.08:
+            pool = [13, 19, 16, 15, 23]
+            weights = [10, 20, 30, 30, 10]
+            item_id = random.choices(pool, weights=weights)[0]
+            item_found = get_item_by_id(item_id)
+            if item_found:
+                await add_item_to_user(user_id, item_found["id"], item_found["name"], uses_left=item_found["uses_left"])
 
         if success:
             messages = [
@@ -297,8 +392,12 @@ class EconomyCommands(app_commands.Group):
             f"👮You got caught doing something illegal at work! You lost 💰`{abs(amount)}` coins"
             ]
 
+        msg_text = random.choice(messages)
+        if success and item_found:
+            msg_text += f"\n🔍 **Look what you found!** You also picked up a **{item_found['name']}**!"
+
         view = PlayAgainView(self.run_work, user_id)
-        msg = await interaction.followup.send(random.choice(messages), ephemeral=False, view=view)
+        msg = await interaction.followup.send(msg_text, ephemeral=False, view=view)
         view.message = msg
 
     @app_commands.command(name="work", description="Do a normal job for guaranteed(ish) cash.")

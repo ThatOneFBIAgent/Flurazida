@@ -73,7 +73,7 @@ class ShopView(discord.ui.View):
                 if not item_data:
                     return await interaction.response.send_message(f"❌ '{self.item_name.value}' not found!", ephemeral=True)
 
-                success = await buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"])
+                success = await buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"], uses_left=item_data["uses_left"])
                 if success:
                     await interaction.response.send_message(
                         f"✅ **{interaction.user.mention} bought {item_data['name']} for {item_data['price']} coins!**"

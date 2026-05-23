@@ -9,7 +9,14 @@ from discord import app_commands, Interaction, ui
 from discord.ui import Button, View
 
 # Local Imports
-from database import update_balance, get_balance, atomic_deduct
+from database import (
+    update_balance,
+    get_balance,
+    atomic_deduct,
+    has_active_effect,
+    get_effect_remaining_time,
+    check_and_use_gambling_boost,
+)
 from config import cooldown, check_cooldown, update_cooldown
 from logging_modules.custom_logger import get_logger
 
@@ -88,16 +95,22 @@ class HighLowView(ui.View):
         self.current_card = current_card
         self.callback = callback
 
-    async def end_game(self, interaction, won, next_card):
+    async def end_game(self, interaction, won, next_card, boost_triggered=False, chicken_cursed=False):
         if won:
             win = self.bet * 2
             await update_balance(self.user_id, win)
             log.successtrace(f"HighLow win for {self.user_id}: {self.bet}")
-            result = f"✨ **Correct!** Next card was **{next_card}**. You won `{self.bet}` coins! ✨"
+            if boost_triggered:
+                result = f"🐟 **The Sea BassHead / USB Stick saved you!** Next card was **{next_card}**. You won `{self.bet}` coins! ✨"
+            else:
+                result = f"✨ **Correct!** Next card was **{next_card}**. You won `{self.bet}` coins! ✨"
             color = 0x00FF00
         else:
             log.successtrace(f"HighLow loss for {self.user_id}: {self.bet}")
-            result = f"❌ **Wrong!** Next card was **{next_card}**. You lost `{self.bet}` coins."
+            if chicken_cursed:
+                result = f"🍗 **The wishbone snapped wrong!** Next card was **{next_card}**. You lost `{self.bet}` coins."
+            else:
+                result = f"❌ **Wrong!** Next card was **{next_card}**. You lost `{self.bet}` coins."
             color = 0xFF0000
             
         embed = interaction.message.embeds[0]
@@ -121,7 +134,38 @@ class HighLowView(ui.View):
         update_cooldown(self.user_id, "run_highlow")
         next_card = random.randint(1, 13)
         won = next_card >= self.current_card
-        await self.end_game(interaction, won, next_card)
+        
+        boost_triggered = False
+        arrested = False
+        chicken_cursed = False
+        
+        boost_res = await check_and_use_gambling_boost(self.user_id)
+        if boost_res == "arrested":
+            arrested = True
+        elif boost_res == "chicken_backfire":
+            chicken_cursed = True
+        elif boost_res is True:
+            if not won:
+                won = True
+                next_card = random.randint(self.current_card, 13)
+                boost_triggered = True
+                
+        if won and chicken_cursed:
+            won = False
+            if self.current_card > 1:
+                next_card = random.randint(1, self.current_card - 1)
+            else:
+                next_card = 1
+                
+        if arrested:
+            embed = interaction.message.embeds[0]
+            embed.description = f"🚨 **Arrested!** The USB stick cheat codes backfired!\n" \
+                                f"You have been arrested and cannot gamble for the next 30 minutes. Your bet of 💰 `{self.bet}` coins was confiscated."
+            embed.color = 0xFF0000
+            self.clear_items()
+            return await interaction.response.edit_message(embed=embed, view=None)
+
+        await self.end_game(interaction, won, next_card, boost_triggered=boost_triggered, chicken_cursed=chicken_cursed)
 
     @ui.button(label="Lower ⬇️", style=discord.ButtonStyle.danger)
     async def lower(self, interaction: discord.Interaction, button: ui.Button):
@@ -135,7 +179,38 @@ class HighLowView(ui.View):
         update_cooldown(self.user_id, "run_highlow")
         next_card = random.randint(1, 13)
         won = next_card <= self.current_card
-        await self.end_game(interaction, won, next_card)
+        
+        boost_triggered = False
+        arrested = False
+        chicken_cursed = False
+        
+        boost_res = await check_and_use_gambling_boost(self.user_id)
+        if boost_res == "arrested":
+            arrested = True
+        elif boost_res == "chicken_backfire":
+            chicken_cursed = True
+        elif boost_res is True:
+            if not won:
+                won = True
+                next_card = random.randint(1, self.current_card)
+                boost_triggered = True
+                
+        if won and chicken_cursed:
+            won = False
+            if self.current_card < 13:
+                next_card = random.randint(self.current_card + 1, 13)
+            else:
+                next_card = 13
+                
+        if arrested:
+            embed = interaction.message.embeds[0]
+            embed.description = f"🚨 **Arrested!** The USB stick cheat codes backfired!\n" \
+                                f"You have been arrested and cannot gamble for the next 30 minutes. Your bet of 💰 `{self.bet}` coins was confiscated."
+            embed.color = 0xFF0000
+            self.clear_items()
+            return await interaction.response.edit_message(embed=embed, view=None)
+
+        await self.end_game(interaction, won, next_card, boost_triggered=boost_triggered, chicken_cursed=chicken_cursed)
 
 async def resolve_bet_input(bet_input, user_id):
     """
@@ -256,13 +331,52 @@ class GamblingCommands(app_commands.Group):
             player_val = self.hand_value(self.player)
             dealer_val = self.hand_value(self.dealer)
 
+            # Gambling boost check
+            boost_res = await check_and_use_gambling_boost(self.user_id)
+            boost_triggered = False
+            chicken_cursed = False
+            arrested = False
+
+            if boost_res == "arrested":
+                arrested = True
+            elif boost_res == "chicken_backfire":
+                chicken_cursed = True
+            elif boost_res is True:
+                boost_triggered = True
+
+            if arrested:
+                self.embed.description = (
+                    f"🚨 **Arrested!** The USB stick cheat codes backfired and triggered the casino's anti-cheat!\n"
+                    f"You have been arrested and cannot gamble for the next 30 minutes. "
+                    f"Your bet of 💰 `{self.bet}` coins was confiscated."
+                )
+                self.embed.color = 0xFF0000
+                self.clear_items()
+                await self.message.edit(embed=self.embed, view=None)
+                self.stop()
+                return
+
             if dealer_val > 21 or player_val > dealer_val:
-                await update_balance(self.user_id, self.bet * 2) # They already lost the bet initially, so win is bet * 2
-                log.successtrace(f"Blackjack win for {self.user_id}: {self.bet}")
-                result = f"✨ **You win `{self.bet * 2}` coins!** ✨"
+                if chicken_cursed:
+                    # Wishbone curse: turn win into loss
+                    log.successtrace(f"Blackjack chicken-cursed loss for {self.user_id}: {self.bet}")
+                    result = "🍗 **The wishbone snapped wrong!** Your winning hand crumbles... **Dealer wins!**"
+                else:
+                    await update_balance(self.user_id, self.bet * 2)
+                    log.successtrace(f"Blackjack win for {self.user_id}: {self.bet}")
+                    if boost_triggered:
+                        result = f"🐟 **The Sea BassHead / USB Stick boosted your luck!**\n✨ **You win `{self.bet * 2}` coins!** ✨"
+                    else:
+                        result = f"✨ **You win `{self.bet * 2}` coins!** ✨"
             elif player_val < dealer_val:
-                log.successtrace(f"Blackjack loss for {self.user_id}: {self.bet}")
-                result = "💀 **Dealer wins!**"
+                if boost_triggered:
+                    # Boost saves from loss — force a win
+                    await update_balance(self.user_id, self.bet * 2)
+                    log.successtrace(f"Blackjack boost-saved win for {self.user_id}: {self.bet}")
+                    result = f"🐟 **The Sea BassHead / USB Stick saved you!**\n✨ **You win `{self.bet * 2}` coins!** ✨"
+                else:
+                    log.successtrace(f"Blackjack loss for {self.user_id}: {self.bet}")
+                    result = "💀 **Dealer wins!**"
             else:
                 await update_balance(self.user_id, self.bet) # Bet returned
                 log.successtrace(f"Blackjack push for {self.user_id}")
@@ -296,6 +410,14 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
+        # Check active "no_gamble" effect (arrested)
+        if await has_active_effect(user_id, "no_gamble"):
+            remaining = await get_effect_remaining_time(user_id, "no_gamble")
+            return await interaction.followup.send(
+                f"👮 **Arrested!** You are currently in jail for cheating and cannot gamble for another **{remaining}**.",
+                ephemeral=True
+            )
+
         # Atomic deduction to prevent race conditions
         success = await atomic_deduct(user_id, bet)
         if not success:
@@ -355,6 +477,14 @@ class GamblingCommands(app_commands.Group):
 
         user_id = interaction.user.id
         
+        # Check active "no_gamble" effect (arrested)
+        if await has_active_effect(user_id, "no_gamble"):
+            remaining = await get_effect_remaining_time(user_id, "no_gamble")
+            return await interaction.followup.send(
+                f"👮 **Arrested!** You are currently in jail for cheating and cannot gamble for another **{remaining}**.",
+                ephemeral=True
+            )
+
         # Atomic deduction to prevent race conditions
         success = await atomic_deduct(user_id, bet)
         if not success:
@@ -463,8 +593,48 @@ class GamblingCommands(app_commands.Group):
         win_amount = int(bet * total_multiplier)
 
         # Net is what we showed they got.
-        net = win_amount - bet 
-        
+        net = win_amount - bet
+
+        # Gambling boost check
+        boost_triggered = False
+        arrested = False
+        chicken_cursed = False
+        boost_suffix = ""
+
+        boost_res = await check_and_use_gambling_boost(user_id)
+        if boost_res == "arrested":
+            arrested = True
+        elif boost_res == "chicken_backfire":
+            chicken_cursed = True
+        elif boost_res is True:
+            boost_triggered = True
+            
+        if arrested:
+            # build lines for display even on arrest
+            formatted_grid = "\n".join(
+                f"| {grid[r][0]} | {grid[r][1]} | {grid[r][2]} |"
+                for r in range(3)
+            )
+            embed = discord.Embed(
+                title="👮 Slots - Arrested!",
+                description=f"```\n{formatted_grid}\n```\n🚨 **Arrested!** The USB stick cheat codes backfired and triggered the casino's anti-cheat!\n"
+                            f"You have been arrested and cannot gamble for the next 30 minutes. Your bet of 💰 `{bet}` coins was confiscated.",
+                color=0xFF0000
+            )
+            return await suspense_msg.edit(content=None, embed=embed, view=None)
+
+        # Apply boost: if net loss and boost triggered, force a small win
+        if net < 0 and boost_triggered:
+            win_amount = int(bet * 1.5)
+            net = win_amount - bet
+            boost_suffix = "\n🐟 **The Sea BassHead / USB Stick rigged the machine in your favor!**"
+
+        # Apply chicken curse: if net positive and cursed, zero out the win
+        if net > 0 and chicken_cursed:
+            win_amount = 0
+            net = -bet
+            boost_suffix = "\n🍗 **The wishbone snapped wrong!** The machine ate your coins..."
+
         if win_amount > 0:
             await update_balance(user_id, win_amount)
             
@@ -478,13 +648,13 @@ class GamblingCommands(app_commands.Group):
 
         # fancy result message
         if net > 0:
-            msg = f"🎉 You netted `+{abs(net)}` coins!"
+            msg = f"🎉 You netted `+{abs(net)}` coins!{boost_suffix}"
             color = 0xF1C40F
         elif net == 0:
-            msg = f"😐 You broke even. Not bad, not great."
+            msg = f"😐 You broke even. Not bad, not great.{boost_suffix}"
             color = 0x7289DA
         else:
-            msg = f"❌ You lost `{abs(net)}` coins."
+            msg = f"❌ You lost `{abs(net)}` coins.{boost_suffix}"
             color = 0xFF0000
 
         embed = discord.Embed(
@@ -510,6 +680,14 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
+        # Check active "no_gamble" effect (arrested)
+        if await has_active_effect(user_id, "no_gamble"):
+            remaining = await get_effect_remaining_time(user_id, "no_gamble")
+            return await interaction.followup.send(
+                f"👮 **Arrested!** You are currently in jail for cheating and cannot gamble for another **{remaining}**.",
+                ephemeral=True
+            )
+
         # Atomic deduction to prevent race conditions
         success = await atomic_deduct(user_id, bet)
         if not success:
@@ -524,13 +702,48 @@ class GamblingCommands(app_commands.Group):
         outcome = random.choice(["heads", "tails"])
         won = choice.lower() == outcome
         
+        # Coinflip boost check
+        boost_triggered = False
+        arrested = False
+        chicken_cursed = False
+        
+        boost_res = await check_and_use_gambling_boost(user_id)
+        if boost_res == "arrested":
+            arrested = True
+        elif boost_res == "chicken_backfire":
+            chicken_cursed = True
+        elif boost_res is True:
+            if not won:
+                won = True
+                outcome = choice.lower()
+                boost_triggered = True
+        
+        if won and chicken_cursed:
+            won = False
+            outcome = "tails" if choice.lower() == "heads" else "heads"
+            
+        if arrested:
+            embed = discord.Embed(
+                title="👮 Coinflip - Arrested!",
+                description=f"🚨 **Arrested!** The USB stick cheat codes backfired and triggered the casino's anti-cheat!\n"
+                            f"You have been arrested and cannot gamble for the next 30 minutes. Your bet of 💰 `{bet}` coins was confiscated.",
+                color=0xFF0000
+            )
+            return await interaction.followup.send(embed=embed)
+
         if won:
             win = bet * 2 # They won 2 times bet (original + profit)
-            result = f"✨ It was **{outcome.title()}**! You won `{bet}` coins! ✨"
+            if boost_triggered:
+                result = f"🐟 **The Sea BassHead / USB Stick saved you!** It was **{outcome.title()}**! You won `{bet}` coins! ✨"
+            else:
+                result = f"✨ It was **{outcome.title()}**! You won `{bet}` coins! ✨"
             await update_balance(user_id, win)
             log.successtrace(f"Coinflip win for {user_id}: {bet}")
         else:
-            result = f"❌ It was **{outcome.title()}**. You lost `{bet}` coins."
+            if chicken_cursed:
+                result = f"🍗 **The wishbone snapped wrong!** The coin flipped to **{outcome.title()}**. You lost `{bet}` coins."
+            else:
+                result = f"❌ It was **{outcome.title()}**. You lost `{bet}` coins."
             # Bet already taken via atomic deduct
             log.successtrace(f"Coinflip loss for {user_id}: {bet}")
             
@@ -561,6 +774,14 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
+        # Check active "no_gamble" effect (arrested)
+        if await has_active_effect(user_id, "no_gamble"):
+            remaining = await get_effect_remaining_time(user_id, "no_gamble")
+            return await interaction.followup.send(
+                f"👮 **Arrested!** You are currently in jail for cheating and cannot gamble for another **{remaining}**.",
+                ephemeral=True
+            )
+
         # Atomic deduction to prevent race conditions
         success = await atomic_deduct(user_id, bet)
         if not success:
@@ -582,14 +803,57 @@ class GamblingCommands(app_commands.Group):
             if val == 13: return "King"
             return str(val)
 
+        # Gambling boost check
+        boost_triggered = False
+        arrested = False
+        chicken_cursed = False
+        
+        boost_res = await check_and_use_gambling_boost(user_id)
+        if boost_res == "arrested":
+            arrested = True
+        elif boost_res == "chicken_backfire":
+            chicken_cursed = True
+        elif boost_res is True:
+            if player_card < dealer_card:
+                # Force player win
+                player_card = dealer_card + 1
+                if player_card > 13:
+                    player_card = 13
+                    dealer_card = 12
+                boost_triggered = True
+                
+        if player_card > dealer_card and chicken_cursed:
+            # Force player loss
+            player_card, dealer_card = dealer_card, player_card
+            if player_card == dealer_card:
+                dealer_card += 1
+                if dealer_card > 13:
+                    dealer_card = 13
+                    player_card = 12
+
+        if arrested:
+            embed = discord.Embed(
+                title="👮 War - Arrested!",
+                description=f"🚨 **Arrested!** The USB stick cheat codes backfired and triggered the casino's anti-cheat!\n"
+                            f"You have been arrested and cannot gamble for the next 30 minutes. Your bet of 💰 `{bet}` coins was confiscated.",
+                color=0xFF0000
+            )
+            return await interaction.followup.send(embed=embed)
+
         if player_card > dealer_card:
             win = bet * 2
-            result = f"✨ **You won!** `{bet}` coins! ✨"
+            if boost_triggered:
+                result = f"🐟 **The Sea BassHead / USB Stick mutated your card!**\n✨ **You won!** `{bet}` coins! ✨"
+            else:
+                result = f"✨ **You won!** `{bet}` coins! ✨"
             color = 0x00FF00
             await update_balance(user_id, win)
             log.successtrace(f"War win for {user_id}: {bet}")
         elif player_card < dealer_card:
-            result = f"❌ **You lost!** `{bet}` coins."
+            if chicken_cursed:
+                result = f"🍗 **The wishbone snapped wrong!**\n❌ **You lost!** `{bet}` coins."
+            else:
+                result = f"❌ **You lost!** `{bet}` coins."
             color = 0xFF0000
             log.successtrace(f"War loss for {user_id}: {bet}")
         else:
@@ -664,6 +928,14 @@ class GamblingCommands(app_commands.Group):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
         
+        # Check active "no_gamble" effect (arrested)
+        if await has_active_effect(user_id, "no_gamble"):
+            remaining = await get_effect_remaining_time(user_id, "no_gamble")
+            return await interaction.followup.send(
+                f"👮 **Arrested!** You are currently in jail for cheating and cannot gamble for another **{remaining}**.",
+                ephemeral=True
+            )
+
         # Atomic deduction to prevent race conditions
         success = await atomic_deduct(user_id, bet)
         if not success:
@@ -738,17 +1010,90 @@ class GamblingCommands(app_commands.Group):
         elif bet_type == "number":
             won = (result_num == target)
 
+        # Roulette boost check
+        boost_triggered = False
+        arrested = False
+        chicken_cursed = False
+
+        boost_res = await check_and_use_gambling_boost(user_id)
+        if boost_res == "arrested":
+            arrested = True
+        elif boost_res == "chicken_backfire":
+            chicken_cursed = True
+        elif boost_res is True:
+            if not won:
+                won = True
+                boost_triggered = True
+                # Force result_num and result_color to win
+                while True:
+                    result_num = random.randint(0, 36)
+                    result_color = self.get_roulette_color(result_num)
+                    chk_won = False
+                    if bet_type == "color":
+                        chk_won = (result_color == target)
+                    elif bet_type == "parity":
+                        if result_num != 0:
+                            is_even = (result_num % 2 == 0)
+                            chk_won = (target == "even" and is_even) or (target == "odd" and not is_even)
+                    elif bet_type == "dozen":
+                        if result_num != 0:
+                            if target == "1st": chk_won = (1 <= result_num <= 12)
+                            elif target == "2nd": chk_won = (13 <= result_num <= 24)
+                            elif target == "3rd": chk_won = (25 <= result_num <= 36)
+                    elif bet_type == "number":
+                        chk_won = (result_num == target)
+                    if chk_won:
+                        break
+
+        if won and chicken_cursed:
+            won = False
+            # Force result_num and result_color to lose
+            while True:
+                result_num = random.randint(0, 36)
+                result_color = self.get_roulette_color(result_num)
+                chk_won = False
+                if bet_type == "color":
+                    chk_won = (result_color == target)
+                elif bet_type == "parity":
+                    if result_num != 0:
+                        is_even = (result_num % 2 == 0)
+                        chk_won = (target == "even" and is_even) or (target == "odd" and not is_even)
+                elif bet_type == "dozen":
+                    if result_num != 0:
+                        if target == "1st": chk_won = (1 <= result_num <= 12)
+                        elif target == "2nd": chk_won = (13 <= result_num <= 24)
+                        elif target == "3rd": chk_won = (25 <= result_num <= 36)
+                elif bet_type == "number":
+                    chk_won = (result_num == target)
+                if not chk_won:
+                    break
+
+        if arrested:
+            embed = discord.Embed(
+                title="👮 Roulette - Arrested!",
+                description=f"🚨 **Arrested!** The USB stick cheat codes backfired and triggered the casino's anti-cheat!\n"
+                            f"You have been arrested and cannot gamble for the next 30 minutes. Your bet of 💰 `{bet}` coins was confiscated.",
+                color=0xFF0000
+            )
+            return await msg.edit(content=None, embed=embed, view=None)
+
         if won:
             win_amount = bet * multiplier
-            net_win = win_amount - bet
-            
-            payout = bet * multiplier # Add the multiplier correctly (bet already gone, we give them bet * multiplier)
+            payout = win_amount
             await update_balance(user_id, payout)
+            log.successtrace(f"Roulette win for {user_id}: {bet}")
             
-            result_text = f"✨ **It landed on {result_color.title()} {result_num}!**\nYou won `{payout - bet}` coins! (Multiplier: {multiplier}x) ✨"
+            if boost_triggered:
+                result_text = f"🐟 **The Sea BassHead / USB Stick saved you!** It landed on **{result_color.title()} {result_num}**!\nYou won `{payout - bet}` coins! (Multiplier: {multiplier}x) ✨"
+            else:
+                result_text = f"✨ **It landed on {result_color.title()} {result_num}!**\nYou won `{payout - bet}` coins! (Multiplier: {multiplier}x) ✨"
             color_hex = 0x00FF00
         else:
-            result_text = f"❌ **It landed on {result_color.title()} {result_num}.**\nYou lost `{bet}` coins."
+            log.successtrace(f"Roulette loss for {user_id}: {bet}")
+            if chicken_cursed:
+                result_text = f"🍗 **The wishbone snapped wrong!** It landed on **{result_color.title()} {result_num}**. You lost `{bet}` coins."
+            else:
+                result_text = f"❌ **It landed on {result_color.title()} {result_num}.**\nYou lost `{bet}` coins."
             color_hex = 0xFF0000
 
         embed = discord.Embed(
