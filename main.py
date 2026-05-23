@@ -292,13 +292,19 @@ class FakeFollowup:
 
     async def send(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
         if self._interaction._response_message and self._interaction._response_message.content == "⏳ *Thinking...*":
-            try:
-                await self._interaction._response_message.delete()
-            except Exception:
-                pass
-            self._interaction._response_message = None
+            if not file and not files:
+                try:
+                    await self._interaction._response_message.edit(
+                        content=content,
+                        embed=embed,
+                        embeds=embeds,
+                        view=view,
+                    )
+                    return self._interaction._response_message
+                except Exception:
+                    self._interaction._response_message = None
 
-        return await self._interaction.channel.send(
+        msg = await self._interaction.channel.send(
             content=content, 
             embed=embed, 
             embeds=embeds, 
@@ -306,6 +312,8 @@ class FakeFollowup:
             file=file,
             files=files
         )
+        self._interaction._response_message = msg
+        return msg
 
 
 class FakeInteraction:
