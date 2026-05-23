@@ -259,20 +259,34 @@ class FakeResponse:
         return self.responded
 
     async def send_message(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
-        if self._interaction._response_message and self._interaction._response_message.content == "⏳ *Thinking...*":
+        # If a prefix/fake interaction previously deferred, create the real
+        # response now instead of having sent a "Thinking" message earlier.
+        if getattr(self._interaction, "_deferred_thinking", False):
+            # Clear the deferred marker before attempting to send so errors
+            # don't leave the flag set.
+            self._interaction._deferred_thinking = False
             if file or files:
-                try:
-                    await self._interaction._response_message.delete()
-                except Exception:
-                    pass
+                # Files can't be edited into a non-existent thinking message,
+                # so just send a new message with the files attached.
+                msg = await self._interaction.channel.send(
+                    content=content,
+                    embed=embed,
+                    embeds=embeds,
+                    view=view,
+                    file=file,
+                    files=files,
+                )
+                self._interaction._response_message = msg
+                self.responded = True
+                return msg
+            try:
+                msg = await self._interaction.channel.send(content=content, embed=embed, embeds=embeds, view=view)
+                self._interaction._response_message = msg
+                self.responded = True
+                return msg
+            except Exception:
+                # Fall through to normal behavior if send fails
                 self._interaction._response_message = None
-            else:
-                try:
-                    await self._interaction._response_message.edit(content=content, embed=embed, embeds=embeds, view=view)
-                    return self._interaction._response_message
-                except Exception:
-                    # Edit failed, clear and fall through to send a new message
-                    self._interaction._response_message = None
 
         if self.responded:
             return await self._interaction.followup.send(content=content, embed=embed, embeds=embeds, view=view, ephemeral=ephemeral, file=file, files=files)
@@ -293,9 +307,11 @@ class FakeResponse:
         if self.responded:
             return
         self.responded = True
-        msg = await self._interaction.channel.send("⏳ *Thinking...*")
-        self._interaction._response_message = msg
-        return msg
+        # For prefix/fake interactions we avoid actually sending a "Thinking"
+        # message. Set a lightweight boolean marker so subsequent sends will
+        # create the real response when needed.
+        self._interaction._deferred_thinking = True
+        return None
 
     async def edit_message(self, *, content=None, embed=None, embeds=None, view=None):
         if self._interaction._response_message:
@@ -310,7 +326,41 @@ class FakeFollowup:
         self._interaction = fake_interaction
 
     async def send(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
-        if self._interaction._response_message and self._interaction._response_message.content == "⏳ *Thinking...*":
+        # Handle a previously-deferred prefix/fake interaction by creating
+        # the real message now instead of editing a non-existent thinking
+        # message.
+        if getattr(self._interaction, "_deferred_thinking", False):
+            self._interaction._deferred_thinking = False
+            if not file and not files:
+                try:
+                    msg = await self._interaction.channel.send(
+                        content=content,
+                        embed=embed,
+                        embeds=embeds,
+                        view=view,
+                    )
+                    self._interaction._response_message = msg
+                    return msg
+                except Exception:
+                    self._interaction._response_message = None
+            else:
+                try:
+                    msg = await self._interaction.channel.send(
+                        content=content,
+                        embed=embed,
+                        embeds=embeds,
+                        view=view,
+                        file=file,
+                        files=files,
+                    )
+                    self._interaction._response_message = msg
+                    return msg
+                except Exception:
+                    self._interaction._response_message = None
+
+        # If there is an actual response message present, try to update it
+        # (this is the behavior when a real thinking message exists).
+        if self._interaction._response_message and getattr(self._interaction._response_message, "content", None) == "⏳ *Thinking...*":
             if not file and not files:
                 try:
                     await self._interaction._response_message.edit(
@@ -321,7 +371,6 @@ class FakeFollowup:
                     )
                     return self._interaction._response_message
                 except Exception:
-                    # Edit failed, try to clean up the thinking message
                     try:
                         await self._interaction._response_message.delete()
                     except Exception:
