@@ -27,26 +27,36 @@ _ENDPOINT = "/health"
 
 
 def _is_ready(bot: discord.Client) -> bool:
+    """Check if bot is truly ready to handle commands."""
     if bot.is_closed():
         return False
-    shards: dict | None = getattr(bot, "shards", None)
-    if shards:
-        return all(not s.is_closed() for s in shards.values())
+    
+    # For sharded bots, check if the bot has emitted on_ready at least once
+    if hasattr(bot, "_ready_once"):
+        return bot._ready_once.is_set()
+    
+    # Fallback for non-sharded bots
     return bot.is_ready()
 
 
 async def _serve(bot: discord.Client) -> None:
     async def handle(req: web.Request) -> web.Response:  # noqa: ARG001
         ok = _is_ready(bot)
-        return web.Response(status=200 if ok else 503, text="OK" if ok else "Starting")
+        status = 200 if ok else 503
+        text = "OK" if ok else "Starting"
+        return web.Response(status=status, text=text)
 
-    runner = web.AppRunner(web.Application(), access_log=None)
-    runner.app.router.add_get(_ENDPOINT, handle)
-    await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", _PORT).start()
-    print(f"[health] :{_PORT}{_ENDPOINT}")
-    # Stays alive until the event loop closes; no explicit teardown needed —
-    # Railway only polls once at deploy time, so the server is idle after that.
+    try:
+        runner = web.AppRunner(web.Application(), access_log=None)
+        runner.app.router.add_get(_ENDPOINT, handle)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", _PORT)
+        await site.start()
+        print(f"[health] Listening on :{_PORT}{_ENDPOINT}")
+        # Stays alive until the event loop closes; Railway polls this at deploy time.
+    except Exception as e:
+        print(f"[health] FAILED to start: {e}")
+        raise
 
 
 def attach(bot: discord.Client) -> None:

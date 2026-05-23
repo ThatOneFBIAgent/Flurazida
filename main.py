@@ -255,8 +255,12 @@ class FakeResponse:
                     pass
                 self._interaction._response_message = None
             else:
-                await self._interaction._response_message.edit(content=content, embed=embed, embeds=embeds, view=view)
-                return self._interaction._response_message
+                try:
+                    await self._interaction._response_message.edit(content=content, embed=embed, embeds=embeds, view=view)
+                    return self._interaction._response_message
+                except Exception:
+                    # Edit failed, clear and fall through to send a new message
+                    self._interaction._response_message = None
 
         if self.responded:
             return await self._interaction.followup.send(content=content, embed=embed, embeds=embeds, view=view, ephemeral=ephemeral, file=file, files=files)
@@ -305,6 +309,11 @@ class FakeFollowup:
                     )
                     return self._interaction._response_message
                 except Exception:
+                    # Edit failed, try to clean up the thinking message
+                    try:
+                        await self._interaction._response_message.delete()
+                    except Exception:
+                        pass
                     self._interaction._response_message = None
             else:
                 try:
