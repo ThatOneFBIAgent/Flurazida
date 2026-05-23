@@ -306,6 +306,12 @@ class FakeFollowup:
                     return self._interaction._response_message
                 except Exception:
                     self._interaction._response_message = None
+            else:
+                try:
+                    await self._interaction._response_message.delete()
+                except Exception:
+                    pass
+                self._interaction._response_message = None
 
         msg = await self._interaction.channel.send(
             content=content, 
