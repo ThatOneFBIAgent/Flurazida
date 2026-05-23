@@ -15,6 +15,8 @@ import subprocess
 import sys
 import time
 import contextlib
+import zoneinfo
+import datetime
 from typing import Optional
 
 # Third-Party Imports
@@ -809,10 +811,11 @@ async def delayed_backup_starter(delay_hours):
 
 async def cycle_activities():
     global last_activity_signature
+    eastern = zoneinfo.ZoneInfo("America/Belize")
     await bot.wait_until_ready()
     while not bot.is_closed():
         try:
-            now_hour = time.localtime().tm_hour
+            now_hour = datetime.datetime.now(eastern).hour
             act = get_activity(now_hour)
             sig = (act.name, act.type)
 
