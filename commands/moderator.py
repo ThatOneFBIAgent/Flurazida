@@ -645,7 +645,7 @@ class ModeratorCommands(app_commands.Group):
                     "Manage Emojis": perms.manage_emojis,
                     "Manage Nicknames": perms.manage_nicknames,
                     "View Audit Log": perms.view_audit_log,
-                    "View Server Insights": perms.view_server_insights,
+                    "View Server Insights": getattr(perms, "view_server_insights", False) or getattr(perms, "view_guild_insights", False),
                 }
                 perm_list = [name for name, val in notable.items() if val]
                 embed.add_field(name="Key Permissions", value=", ".join(perm_list) if perm_list else "None", inline=False)

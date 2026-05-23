@@ -243,6 +243,9 @@ class FakeResponse:
         self._interaction = fake_interaction
         self.responded = False
 
+    def is_done(self):
+        return self.responded
+
     async def send_message(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
         if self._interaction._response_message and self._interaction._response_message.content == "⏳ *Thinking...*":
             if file or files:
@@ -323,6 +326,7 @@ class FakeInteraction:
         self.user = message.author
         self.guild = message.guild
         self.channel = message.channel
+        self.channel_id = message.channel.id if message.channel else None
         self.client = client
         self.response = FakeResponse(self)
         self.followup = FakeFollowup(self)
@@ -523,7 +527,9 @@ async def handle_prefix_command(message: discord.Message):
                 return await message.channel.send(embed=embed)
         elif param.type == discord.AppCommandOptionType.boolean:
             converted_val = token_val.lower() in ['true', 'yes', '1', 'y', 'on']
-        elif param.type in [discord.AppCommandOptionType.user, discord.AppCommandOptionType.member]:
+        elif param.type == discord.AppCommandOptionType.user or (
+            hasattr(discord.AppCommandOptionType, 'member') and param.type == discord.AppCommandOptionType.member
+        ):
             converted_val = await convert_user(token_val, message.guild)
             if not converted_val:
                 embed = discord.Embed(
