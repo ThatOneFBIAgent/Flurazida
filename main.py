@@ -291,6 +291,13 @@ class FakeFollowup:
         self._interaction = fake_interaction
 
     async def send(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
+        if self._interaction._response_message and self._interaction._response_message.content == "⏳ *Thinking...*":
+            try:
+                await self._interaction._response_message.delete()
+            except Exception:
+                pass
+            self._interaction._response_message = None
+
         return await self._interaction.channel.send(
             content=content, 
             embed=embed, 
@@ -383,6 +390,23 @@ def get_command_usage(cmd):
     return usage
 
 
+def find_unique_command_by_name(name: str):
+    name = name.lower()
+    matches = []
+
+    def walk(command):
+        if command.name.lower() == name and not isinstance(command, app_commands.Group):
+            matches.append(command)
+        if isinstance(command, app_commands.Group):
+            for sub in command.commands:
+                walk(sub)
+
+    for root_cmd in bot.tree.get_commands():
+        walk(root_cmd)
+
+    return matches[0] if len(matches) == 1 else None
+
+
 async def handle_prefix_command(message: discord.Message):
     content = message.content.strip()
     if not (content.startswith("f!") or content.startswith("F!")):
@@ -413,6 +437,8 @@ async def handle_prefix_command(message: discord.Message):
         if found is not None:
             node = found
             args_start_idx = i + 1
+            if isinstance(node, app_commands.Group):
+                continue
             if isinstance(node, app_commands.Command):
                 cmd = node
                 break
@@ -420,7 +446,15 @@ async def handle_prefix_command(message: discord.Message):
             break
             
     if not isinstance(cmd, app_commands.Command):
-        return
+        if tokens:
+            fallback = find_unique_command_by_name(tokens[0])
+            if fallback is not None:
+                cmd = fallback
+                args_start_idx = 1
+            else:
+                return
+        else:
+            return
 
     fake_interaction = FakeInteraction(message, bot)
     fake_interaction.command = cmd
