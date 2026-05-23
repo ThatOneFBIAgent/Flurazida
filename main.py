@@ -593,6 +593,9 @@ async def on_message(message):
     # Check prefix command triggers
     content = message.content.strip()
     if content.startswith("f!") or content.startswith("F!"):
+        # Ignore prefix-based commands in DMs; allow slash commands in DMs where applicable.
+        if message.guild is None:
+            return
         return await handle_prefix_command(message)
 
     bot_name = str(bot.user.name).lower()
