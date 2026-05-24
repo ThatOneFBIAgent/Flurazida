@@ -32,6 +32,11 @@ from database import (
     has_active_effect,
     get_effect_remaining_time,
     add_user_effect,
+    get_bank,
+    get_bank_max,
+    deposit_bank,
+    withdraw_bank,
+    decrease_bank,
 )
 from database.items import get_item_by_id
 from config import cooldown, check_cooldown, update_cooldown
@@ -105,6 +110,131 @@ class PlayAgainView(ui.View):
                 await self.message.edit(view=self)
         except:
             pass  # Message might be deleted or we don't have permission
+_heist_victim_cooldowns = {}
+_rob_victim_cooldowns = {}
+
+class HeistView(ui.View):
+    def __init__(self, leader_id, target_id, target_name, target_bank_bal, timeout=30):
+        super().__init__(timeout=timeout)
+        self.leader_id = leader_id
+        self.target_id = target_id
+        self.target_name = target_name
+        self.target_bank_bal = target_bank_bal
+        self.participants = [leader_id]
+        self.defended = False
+        self.defense_item_used = None
+        self.message = None
+
+    @ui.button(label="🦹 Join Heist", style=discord.ButtonStyle.danger)
+    async def join_heist(self, interaction: discord.Interaction, button: ui.Button):
+        user_id = interaction.user.id
+        if user_id == self.target_id:
+            return await interaction.response.send_message("❌ You can't join a heist against your own bank! Click 'Defend Bank' instead.", ephemeral=True)
+        if user_id in self.participants:
+            return await interaction.response.send_message("❌ You are already part of this heist crew!", ephemeral=True)
+        # Maximum crew size to prevent oversized heists
+        if len(self.participants) >= 6:
+            return await interaction.response.send_message("❌ Heist crew is full (max 6 members)!", ephemeral=True)
+            
+        # Ensure participant has enough wallet balance to pay fine if it fails
+        wallet = await get_balance(user_id)
+        if wallet < 100:
+            return await interaction.response.send_message("❌ You need at least 💰 `100` coins in your wallet to risk joining a heist!", ephemeral=True)
+            
+        self.participants.append(user_id)
+        await interaction.response.send_message("🦹 You joined the heist crew! Get ready...", ephemeral=True)
+        
+        # Update the heist embed
+        embed = self.message.embeds[0]
+        crew_mentions = ", ".join(f"<@{pid}>" for pid in self.participants)
+        embed.set_field_at(2, name="Crew Members", value=crew_mentions, inline=False)
+        try:
+            await self.message.edit(embed=embed, view=self)
+        except:
+            pass
+
+    @ui.button(label="🔫 Defend Bank", style=discord.ButtonStyle.success)
+    async def defend_bank(self, interaction: discord.Interaction, button: ui.Button):
+        user_id = interaction.user.id
+        if user_id != self.target_id:
+            return await interaction.response.send_message("❌ This is not your bank to defend!", ephemeral=True)
+            
+        # Check active defense items
+        items = await get_user_items(user_id)
+        
+        # Priority: Gun (10) > Taser (5) > Pocket Sand (20) > Parking Cone (24)
+        def_item = None
+        for item_id in [10, 5, 20, 24]:
+            found = next((i for i in items if str(i["item_id"]) == str(item_id) and i["uses_left"] > 0), None)
+            if found:
+                def_item = found
+                break
+                
+        if not def_item:
+            return await interaction.response.send_message(
+                "❌ You don't have any active defense items (Loaded Gun, Taser, Pocket sand, Parking cone) in your inventory!",
+                ephemeral=True
+            )
+            
+        self.defended = True
+        self.defense_item_used = int(def_item["item_id"])
+        self.stop() # Stop the 30s timer
+        
+        # Decrement item uses
+        item_id = int(def_item["item_id"])
+        new_uses = def_item["uses_left"] - 1
+        if new_uses <= 0:
+            await remove_item_from_user(user_id, item_id)
+        else:
+            await update_item_uses(user_id, item_id, new_uses)
+            
+        # Disable all buttons
+        for child in self.children:
+            child.disabled = True
+            
+        # Create defense result embed
+        embed = discord.Embed(
+            title="🛡️ Heist Foiled!",
+            color=discord.Color.green()
+        )
+        
+        penalty_msgs = []
+        if item_id == 10: # Loaded Gun
+            embed.title = "🔫 Heist Foiled by Armed Citizen!"
+            embed.description = f"<@{self.target_id}> drew their **Loaded Gun** and fired warnings! The heist crew scattered in panic!"
+            # Fine participants
+            for pid in self.participants:
+                fine = random.randint(200, 500)
+                await update_balance(pid, -fine)
+                penalty_msgs.append(f"• <@{pid}> was shot and paid 💰 `{fine}` coins in medical bills.")
+        elif item_id == 5: # Taser
+            embed.title = "⚡ Heist Foiled by Taser!"
+            embed.description = f"<@{self.target_id}> stepped in with a **Taser** and shocked <@{self.leader_id}>! The rest of the crew fled!"
+            for pid in self.participants:
+                fine = random.randint(100, 300)
+                await update_balance(pid, -fine)
+                penalty_msgs.append(f"• <@{pid}> was tased/shocked and lost 💰 `{fine}` coins.")
+        elif item_id == 20: # Pocket Sand
+            embed.title = "🏜️ Heist Foiled by Pocket Sand!"
+            embed.description = f"<@{self.target_id}> threw **Pocket sand** into <@{self.leader_id}>'s eyes! The robbery was called off!"
+            await add_user_effect(self.leader_id, "no_rob", 10800) # 3 hours
+            for pid in self.participants:
+                fine = random.randint(50, 200)
+                await update_balance(pid, -fine)
+                penalty_msgs.append(f"• <@{pid}> dropped 💰 `{fine}` coins.")
+        elif item_id == 24: # Parking Cone
+            embed.title = "🚧 Heist Foiled by Parking Cone!"
+            embed.description = f"<@{self.target_id}> slammed a **Parking Cone** over <@{self.leader_id}>'s head! Total embarrassment!"
+            await add_user_effect(self.leader_id, "cone_penalty", 3600) # 1 hour
+            for pid in self.participants:
+                fine = random.randint(50, 200)
+                await update_balance(pid, -fine)
+                penalty_msgs.append(f"• <@{pid}> tripped over a cone and lost 💰 `{fine}` coins.")
+                
+        if penalty_msgs:
+            embed.add_field(name="Casualties & Fines", value="\n".join(penalty_msgs), inline=False)
+            
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class EconomyCommands(app_commands.Group):
@@ -128,6 +258,19 @@ class EconomyCommands(app_commands.Group):
                 f"❌ You are still recovering from sand in your eyes! You cannot rob anyone for another **{remaining}**.",
                 ephemeral=True
             )
+
+        # Check rob victim cooldown (5 minutes to prevent harassment)
+        now = time.time()
+        if target_id in _rob_victim_cooldowns:
+            elapsed = now - _rob_victim_cooldowns[target_id]
+            if elapsed < 300: # 5 minutes
+                remaining = int(300 - elapsed)
+                return await interaction.followup.send(
+                    f"❌ {target.mention} was recently targeted in a robbery! You must wait **{remaining}s** before robbing them again.",
+                    ephemeral=True
+                )
+
+        _rob_victim_cooldowns[target_id] = now
 
         await add_user(user_id, interaction.user.name)
         await add_user(target_id, target.name)
@@ -406,12 +549,282 @@ class EconomyCommands(app_commands.Group):
         await self.run_work(interaction)
 
     @app_commands.command(name="balance", description="Check your current balance")
+    @app_commands.describe(member="The member whose balance you want to check")
     @cooldown(cl=2, tm=25.0, ft=3)
-    async def balance(self, interaction: discord.Interaction):
+    async def balance(self, interaction: discord.Interaction, member: discord.Member = None):
+        await interaction.response.defer(ephemeral=False)
+        target = member or interaction.user
+        target_id = target.id
+        await add_user(target_id, target.name)
+        
+        wallet = await get_balance(target_id)
+        bank = await get_bank(target_id)
+        bank_max = await get_bank_max(target_id)
+        
+        embed = discord.Embed(
+            title=f"💰 {target.display_name}'s Balance",
+            color=discord.Color.green()
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(name="💵 Wallet", value=f"💰 `{wallet:,}` coins", inline=True)
+        embed.add_field(name="🏦 Bank", value=f"💰 `{bank:,}` / `{bank_max:,}` coins", inline=True)
+        embed.add_field(name="📊 Total", value=f"💰 `{wallet + bank:,}` coins", inline=False)
+        
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="deposit", description="Deposit coins from your wallet to your bank")
+    @app_commands.describe(amount="Amount of coins to deposit (use 'all' to deposit maximum possible)")
+    @cooldown(cl=3, tm=15.0, ft=3)
+    async def deposit(self, interaction: discord.Interaction, amount: str):
         await interaction.response.defer(ephemeral=False)
         user_id = interaction.user.id
-        balance = await get_balance(user_id)
-        await interaction.followup.send(f"💰 Your balance: **{balance}** coins")
+        await add_user(user_id, interaction.user.name)
+        
+        wallet = await get_balance(user_id)
+        bank = await get_bank(user_id)
+        bank_max = await get_bank_max(user_id)
+        
+        remaining_space = bank_max - bank
+        if remaining_space <= 0:
+            return await interaction.followup.send("❌ Your bank is already full!", ephemeral=True)
+            
+        if amount.lower().strip() in ["all", "max"]:
+            dep_amount = min(wallet, remaining_space)
+        else:
+            try:
+                dep_amount = int(amount)
+            except ValueError:
+                return await interaction.followup.send("❌ Please enter a valid number or 'all'!", ephemeral=True)
+                
+        if dep_amount <= 0:
+            return await interaction.followup.send("❌ You must deposit at least 💰 `1` coin!", ephemeral=True)
+            
+        if dep_amount > wallet:
+            return await interaction.followup.send("❌ You do not have that many coins in your wallet!", ephemeral=True)
+            
+        if dep_amount > remaining_space:
+            return await interaction.followup.send(f"❌ You can't deposit that much! Your bank has only 💰 `{remaining_space:,}` coins of space left.", ephemeral=True)
+            
+        success = await deposit_bank(user_id, dep_amount)
+        if success:
+            await interaction.followup.send(f"✅ Successfully deposited 💰 `{dep_amount:,}` coins into your bank!")
+        else:
+            await interaction.followup.send("❌ Deposit failed due to insufficient funds or bank capacity!")
+
+    @app_commands.command(name="withdraw", description="Withdraw coins from your bank to your wallet")
+    @app_commands.describe(amount="Amount of coins to withdraw (use 'all' to withdraw all)")
+    @cooldown(cl=3, tm=15.0, ft=3)
+    async def withdraw(self, interaction: discord.Interaction, amount: str):
+        await interaction.response.defer(ephemeral=False)
+        user_id = interaction.user.id
+        await add_user(user_id, interaction.user.name)
+        
+        bank = await get_bank(user_id)
+        if bank <= 0:
+            return await interaction.followup.send("❌ Your bank is completely empty!", ephemeral=True)
+            
+        if amount.lower().strip() in ["all", "max"]:
+            with_amount = bank
+        else:
+            try:
+                with_amount = int(amount)
+            except ValueError:
+                return await interaction.followup.send("❌ Please enter a valid number or 'all'!", ephemeral=True)
+                
+        if with_amount <= 0:
+            return await interaction.followup.send("❌ You must withdraw at least 💰 `1` coin!", ephemeral=True)
+            
+        if with_amount > bank:
+            return await interaction.followup.send("❌ You do not have that many coins in your bank!", ephemeral=True)
+            
+        success = await withdraw_bank(user_id, with_amount)
+        if success:
+            await interaction.followup.send(f"✅ Successfully withdrew 💰 `{with_amount:,}` coins from your bank!")
+        else:
+            await interaction.followup.send("❌ Withdrawal failed!")
+
+    @app_commands.command(name="heist", description="Organize a crew to pull a bank heist on someone!")
+    @app_commands.describe(target="The member whose bank you want to heist")
+    @cooldown(cl=5400, tm=35.0, ft=3) # 1.5 hours heist cooldown for command users
+    async def heist(self, interaction: discord.Interaction, target: discord.Member):
+        await interaction.response.defer(ephemeral=False)
+        leader = interaction.user
+        leader_id = leader.id
+        target_id = target.id
+        
+        if leader_id == target_id:
+            return await interaction.followup.send("❌ You can't heist your own bank!", ephemeral=True)
+            
+        await add_user(leader_id, leader.name)
+        await add_user(target_id, target.name)
+        
+        # Check target bank balance (needs >= 500)
+        target_bank = await get_bank(target_id)
+        if target_bank < 500:
+            return await interaction.followup.send(f"❌ {target.mention}'s bank balance is too low (needs at least 💰 `500` coins) to make a heist worthwhile!", ephemeral=True)
+            
+        # Check leader wallet balance (needs >= 100)
+        leader_wallet = await get_balance(leader_id)
+        if leader_wallet < 100:
+            return await interaction.followup.send("❌ You need at least 💰 `100` coins in your wallet to start a heist!", ephemeral=True)
+            
+        # Check heist victim cooldown (20 minutes)
+        now = time.time()
+        if target_id in _heist_victim_cooldowns:
+            elapsed = now - _heist_victim_cooldowns[target_id]
+            if elapsed < 1200: # 20 minutes
+                remaining_min = round((1200 - elapsed) / 60, 1)
+                return await interaction.followup.send(
+                    f"❌ {target.mention} was recently targeted in a heist! You must wait **{remaining_min}m** before heisting them again.",
+                    ephemeral=True
+                )
+                
+        # Register victim heist cooldown immediately to avoid race conditions
+        _heist_victim_cooldowns[target_id] = now
+        
+        # Create heist embed
+        embed = discord.Embed(
+            title="🚨 Bank Heist Initiated!",
+            description=f"{leader.mention} is organizing a crew to hit {target.mention}'s bank vault!",
+            color=discord.Color.red()
+        )
+        # Show the victim's avatar as a thumbnail
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(name="🏦 Target Vault", value=f"💰 `{target_bank:,}` coins", inline=True)
+        embed.add_field(name="🕒 Time Remaining", value="**30 seconds** to join or defend!", inline=True)
+        embed.add_field(name="Crew Members", value=f"{leader.mention}", inline=False)
+        embed.set_footer(text="Target: click 'Defend Bank' if you hold a defense item!")
+        
+        view = HeistView(
+            leader_id=leader_id,
+            target_id=target_id,
+            target_name=target.name,
+            target_bank_bal=target_bank
+        )
+        
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
+        
+        # Wait 30 seconds for crew to gather / defense
+        await asyncio.sleep(30)
+        
+        # If defended, view has already handled results
+        if view.defended:
+            return
+            
+        # Disable buttons
+        for child in view.children:
+            child.disabled = True
+        try:
+            await msg.edit(view=view)
+        except:
+            pass
+        
+        # Ping the victim as a plain message so they receive a notification when this is a slash command
+        try:
+            is_prefix_invocation = hasattr(interaction, "message") and isinstance(getattr(interaction, "message"), discord.Message)
+        except Exception:
+            is_prefix_invocation = False
+
+        if not is_prefix_invocation:
+            try:
+                await interaction.channel.send(f"{target.mention} — your bank is being targeted by a heist organized by {leader.mention}! React or click 'Defend Bank' to respond.")
+            except Exception:
+                pass
+            
+        crew = view.participants
+        crew_count = len(crew)
+        
+        # Cooldown all participating members for 1.5 hours
+        from config import _user_command_cooldowns
+        for pid in crew:
+            _user_command_cooldowns[(pid, "heist")] = time.time()
+            
+        # Success calculations
+        # Base: 20%, +8% per additional crew member (keeps raw probability modest)
+        success_chance = 0.20 + (crew_count - 1) * 0.08
+
+        # Check Hackatron 9900 (ID 8) boosts among crew members — stack boosts per device
+        hackatron_count = 0
+        for pid in crew:
+            items = await get_user_items(pid)
+            hack_item = next((i for i in items if str(i["item_id"]) == "8" and i["uses_left"] > 0), None)
+            if hack_item:
+                hackatron_count += 1
+                new_uses = hack_item["uses_left"] - 1
+                if new_uses <= 0:
+                    await remove_item_from_user(pid, 8)
+                else:
+                    await update_item_uses(pid, 8, new_uses)
+
+        if hackatron_count > 0:
+            # Each Hackatron gives a small stackable boost; overall chance is hard-capped at 80%
+            success_chance += 0.04 * hackatron_count
+
+        # Hard cap to keep success probability at or below 80%
+        success_chance = min(0.80, success_chance)
+        
+        success = random.random() < success_chance
+        res_embed = discord.Embed()
+        
+        if success:
+            # Stolen amount: 15% to 40% of target bank, capped at 15,000
+            stolen_pct = random.uniform(0.15, 0.40)
+            stolen_amount = int(target_bank * stolen_pct)
+            stolen_amount = min(15000, stolen_amount)
+            
+            # Deduct from bank
+            await decrease_bank(target_id, stolen_amount)
+            
+            # Split crew findings with leader bias (15% extra for leader, rest split equally)
+            payout_details = []
+            if crew_count == 1:
+                await update_balance(leader_id, stolen_amount)
+                payout_details.append(f"• <@{leader_id}> (Leader) took home all 💰 `{stolen_amount:,}` coins!")
+            else:
+                leader_bias = int(stolen_amount * 0.15)
+                remaining_stolen = stolen_amount - leader_bias
+                split_share = remaining_stolen // crew_count
+                leftover = remaining_stolen % crew_count
+                
+                # Leader payout
+                leader_share = split_share + leader_bias + leftover
+                await update_balance(leader_id, leader_share)
+                payout_details.append(f"• <@{leader_id}> (Leader) took home 💰 `{leader_share:,}` coins! (Includes 15% planner bias)")
+                
+                # Other crew payouts
+                for pid in crew:
+                    if pid == leader_id:
+                        continue
+                    await update_balance(pid, split_share)
+                    payout_details.append(f"• <@{pid}> took home 💰 `{split_share:,}` coins!")
+                    
+            res_embed.title = "💰 Bank Heist Successful!"
+            res_embed.description = f"The heist crew successfully breached {target.mention}'s bank vault and got away with 💰 `{stolen_amount:,}` coins!"
+            res_embed.color = discord.Color.gold()
+            res_embed.add_field(name="Heist Split Summary", value="\n".join(payout_details), inline=False)
+            if hackatron_count > 0:
+                res_embed.set_footer(text=f"📟 Heist security bypassed by {hackatron_count}x Hackatron 9900!")
+        else:
+            # Heist failed! Fines proportional to potential heist value
+            stolen_pct = random.uniform(0.15, 0.40)
+            stolen_amount = min(15000, int(target_bank * stolen_pct))
+            
+            # Proportional fine: 20% of potential steal amount, split, capped between 100 and 1,500 coins per crew member
+            potential_fine = int((stolen_amount * 0.20) / crew_count)
+            fine_per_member = max(100, min(1500, potential_fine))
+            
+            fine_details = []
+            for pid in crew:
+                await update_balance(pid, -fine_per_member)
+                fine_details.append(f"• <@{pid}> was arrested and paid a fine of 💰 `{fine_per_member}` coins.")
+                
+            res_embed.title = "🚨 Heist Failed!"
+            res_embed.description = f"The heist crew failed to crack {target.mention}'s vault! The silent alarm triggered and everyone was arrested!"
+            res_embed.color = discord.Color.red()
+            res_embed.add_field(name="Police Fines", value="\n".join(fine_details), inline=False)
+            
+        await interaction.channel.send(embed=res_embed)
 
     @app_commands.command(name="inventory", description="Check your inventory")
     @cooldown(cl=4, tm=25.0, ft=3)

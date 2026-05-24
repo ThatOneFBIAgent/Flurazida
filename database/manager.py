@@ -323,6 +323,18 @@ async def init_databases():
             balance INTEGER NOT NULL DEFAULT 0
         )
         """)
+        
+        # Check if bank and bank_max columns exist in the database, add them if missing
+        try:
+            await conn.execute("ALTER TABLE users ADD COLUMN bank INTEGER NOT NULL DEFAULT 0")
+            await conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Already exists
+        try:
+            await conn.execute("ALTER TABLE users ADD COLUMN bank_max INTEGER NOT NULL DEFAULT 10000")
+            await conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Already exists
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS user_items (
             user_id INTEGER,
@@ -706,13 +718,25 @@ async def add_user(user_id, username):
     )
     await conn.commit()
 
+_cached_total_economy = None
+_last_economy_sum_time = 0.0
+
 @log_db_call
 async def get_total_economy_sum():
-    """Calculates the sum of all non-negative user balances in the economy."""
+    """Calculates the sum of all non-negative user balances (wallet + bank) in the economy with time-based TTL cache."""
+    global _cached_total_economy, _last_economy_sum_time
+    now = time.time()
+    if _cached_total_economy is not None and (now - _last_economy_sum_time) < 300: # 5 minutes TTL
+        log.trace(f"Returning cached total economy sum: {_cached_total_economy}")
+        return _cached_total_economy
+
     conn = await db.get_economy()
-    async with conn.execute("SELECT SUM(balance) FROM users WHERE balance > 0") as cursor:
+    async with conn.execute("SELECT SUM(balance + bank) FROM users WHERE (balance + bank) > 0") as cursor:
         result = await cursor.fetchone()
-        return result[0] if result and result[0] else 0
+        _cached_total_economy = result[0] if result and result[0] is not None else 0
+        _last_economy_sum_time = now
+        log.trace(f"Updated total economy sum TTL cache: {_cached_total_economy}")
+        return _cached_total_economy
 
 # ===================== Item Handling Functions =====================
 @log_db_call
@@ -764,30 +788,34 @@ async def add_item_to_user(user_id, item_id, item_name, uses_left=1, effect_modi
 
 # ===================== Shop Functions =====================
 @log_db_call
-async def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0):
-    """Buys an item from the shop and deducts balance."""
-    log.trace(f"User {user_id} is buying {item_name} for {price} coins")
+async def buy_item(user_id, item_id, item_name, price, uses_left=1, effect_modifier=0, quantity: int = 1):
+    """Buys one or multiple of an item from the shop and deducts balance."""
+    if quantity <= 0:
+        return False
+    total_price = price * quantity
+    log.trace(f"User {user_id} is buying {quantity}x {item_name} for {total_price} coins")
     conn = await db.get_economy()
     async with conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
         user = await cursor.fetchone()
         if not user:
             return False
     current_balance = user[0]
-    if current_balance < price:
+    if current_balance < total_price:
         return False
-    async with conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (price, user_id)):
+    async with conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (total_price, user_id)):
         await conn.commit()
+    total_uses = uses_left * quantity
     async with conn.execute("""
         INSERT INTO user_items (user_id, item_id, item_name, uses_left, effect_modifier)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(user_id, item_id) DO UPDATE SET uses_left = user_items.uses_left + ?
-    """, (user_id, item_id, item_name, uses_left, effect_modifier, uses_left)):
+    """, (user_id, item_id, item_name, total_uses, effect_modifier, total_uses)):
         await conn.commit()
     return True
 
 # ===================== Special Item Effects =====================
 @log_db_call
-async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> str:
+async def use_item(user_id: int, item_id: int, target_id: int | None = None, quantity: int = 1) -> str:
     """
     Handles item use and applies effects dynamically.
 
@@ -795,10 +823,14 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
         user_id (int): The user using the item.
         item_id (int): The item's ID.
         target_id (int | None): Optional target player for targeted items (e.g. Taser active use).
+        quantity (int): The number of items to use.
 
     Returns:
         str: A message describing the result.
     """
+    if quantity <= 0:
+        return "❌ Invalid quantity to use!"
+
     conn = await db.get_economy()
     async with conn.execute(
         "SELECT uses_left FROM user_items WHERE user_id = ? AND item_id = ?", (user_id, item_id)
@@ -809,12 +841,18 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
         return "❌ You don't have this item!"
 
     uses_left = result[0]
-    if uses_left <= 0:
-        return "❌ You have no uses left for this item!"
+    if uses_left < quantity:
+        if uses_left == 0:
+            return f"❌ No uses left! You have **{uses_left}** uses left, but tried to use **{quantity}**."
+        return f"❌ You don't have enough uses! You have **{uses_left}** uses left, but tried to use **{quantity}**."
 
     item_data = next((item for item in SHOP_ITEMS if item["id"] == item_id), None)
     if not item_data:
         return "❌ Failed to load item details."
+
+    # For targeted/special items, bulk active use is restricted
+    if item_id in [5, 22, 27] and quantity > 1:
+        return "❌ You can only use this specific item one at a time!"
 
     # ── Taser: active offensive use (targeting another player) ──────────────
     if item_id == 5 and target_id is not None:
@@ -830,10 +868,10 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
 
     # Decrement uses (shared path for all items)
     last_use_warning = ""
-    if uses_left == 1:
+    if uses_left == quantity:
         last_use_warning = f"⚠️ **Last use of your {item_data['name']}!**\n"
 
-    new_uses = uses_left - 1
+    new_uses = uses_left - quantity
     if new_uses <= 0:
         await remove_item_from_user(user_id, item_id)
     else:
@@ -970,6 +1008,15 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
                 f"({new_uses} uses left)"
             )
 
+        elif effect_data.get("vault_expansion"):
+            boost = effect_data["vault_expansion"] * quantity
+            new_max = await increase_bank_max(user_id, boost)
+            effect_applied = (
+                f"🏦 **Vault Expansion activated!** You have permanently increased your bank maximum limit "
+                f"by 💰 `{boost:,}` coins! Your new bank maximum is 💰 `{new_max:,}` coins. "
+                f"({new_uses} expansions left)"
+            )
+
         elif effect_data.get("misc"):
             if item_id == 15:
                 effect_applied = f"💨 You blew the pocket lint away. It did nothing. ({new_uses} lint left)"
@@ -983,6 +1030,87 @@ async def use_item(user_id: int, item_id: int, target_id: int | None = None) -> 
                 effect_applied = f"🪛 You pointed the Screwdriver and made a buzzing drill sound. ({new_uses} uses left)"
 
     return f"{last_use_warning}{effect_applied}"
+
+
+# ===================== Bank Economy Functions =====================
+@log_db_call
+async def get_bank(user_id: int) -> int:
+    """Fetches user bank balance."""
+    log.trace(f"Getting bank balance for {user_id}")
+    conn = await db.get_economy()
+    async with conn.execute("SELECT bank FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result else 0
+
+@log_db_call
+async def get_bank_max(user_id: int) -> int:
+    """Fetches user bank limit."""
+    log.trace(f"Getting bank max for {user_id}")
+    conn = await db.get_economy()
+    async with conn.execute("SELECT bank_max FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result else 10000
+
+@log_db_call
+async def deposit_bank(user_id: int, amount: int) -> bool:
+    """Deposits coins from wallet to bank up to the bank maximum limit."""
+    if amount <= 0:
+        return False
+    conn = await db.get_economy()
+    async with conn.execute("SELECT balance, bank, bank_max FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        row = await cursor.fetchone()
+        if not row:
+            return False
+        wallet, bank, bank_max = row
+        if wallet < amount:
+            return False
+        if bank + amount > bank_max:
+            return False
+            
+    await conn.execute("UPDATE users SET balance = balance - ?, bank = bank + ? WHERE user_id = ?", (amount, amount, user_id))
+    await conn.commit()
+    # Invalidate total economy cache
+    global _cached_total_economy
+    _cached_total_economy = None
+    return True
+
+@log_db_call
+async def withdraw_bank(user_id: int, amount: int) -> bool:
+    """Withdraws coins from bank to wallet."""
+    if amount <= 0:
+        return False
+    conn = await db.get_economy()
+    async with conn.execute("SELECT bank FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        row = await cursor.fetchone()
+        if not row or row[0] < amount:
+            return False
+            
+    await conn.execute("UPDATE users SET balance = balance + ?, bank = bank - ? WHERE user_id = ?", (amount, amount, user_id))
+    await conn.commit()
+    # Invalidate total economy cache
+    global _cached_total_economy
+    _cached_total_economy = None
+    return True
+
+@log_db_call
+async def increase_bank_max(user_id: int, amount: int) -> int:
+    """Permanently increases user's bank maximum limit."""
+    conn = await db.get_economy()
+    await conn.execute("UPDATE users SET bank_max = bank_max + ? WHERE user_id = ?", (amount, user_id))
+    await conn.commit()
+    async with conn.execute("SELECT bank_max FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        row = await cursor.fetchone()
+        return row[0] if row else 10000
+
+@log_db_call
+async def decrease_bank(user_id: int, amount: int):
+    """Decrements user's bank balance (used for heists)."""
+    conn = await db.get_economy()
+    await conn.execute("UPDATE users SET bank = CASE WHEN bank - ? < 0 THEN 0 ELSE bank - ? END WHERE user_id = ?", (amount, amount, user_id))
+    await conn.commit()
+    # Invalidate total economy cache
+    global _cached_total_economy
+    _cached_total_economy = None
 
 @log_db_call
 async def check_gun_defense(victim_id: int) -> int:

@@ -28,7 +28,8 @@ SHOP_ITEMS = [
     {'id': 24, 'name': 'Parking cone', 'price': 600, 'effect': 'Defends against robbery. Puts a cone on the robber, failing the robbery and reducing their rob success chance by 30% for 1 hour.', 'uses_left': 2},
     {'id': 25, 'name': 'An entire ikea', 'price': 250000, 'effect': 'How the fuck are you carrying that? A legendary, extremely expensive status symbol.', 'uses_left': 1},
     {'id': 26, 'name': 'Expired fish', 'price': 350, 'effect': 'wallet smells fishy, driving people away. Reduces robbing success against you by 15% automatically.', 'uses_left': 4},
-    {'id': 27, 'name': 'Milk suds', 'price': 400, 'effect': 'Throw at someone. Victim will fail work, crime, and slut jobs 20% more often for 2 hours. Use: /shop use "Milk suds" @target', 'uses_left': 3}
+    {'id': 27, 'name': 'Milk suds', 'price': 400, 'effect': 'Throw at someone. Victim will fail work, crime, and slut jobs 20% more often for 2 hours. Use: /shop use "Milk suds" @target', 'uses_left': 3},
+    {'id': 28, 'name': 'Vault Expansion', 'price': 35000, 'effect': 'Use to permanently increase your bank maximum limit by 25,000 coins.', 'uses_left': 1}
 ]
 
 def get_item_by_id(item_id: int):
@@ -64,5 +65,6 @@ ITEM_EFFECTS = {
     24: {"parking_cone": True, "uses": 2},
     25: {"status_symbol": True},
     26: {"expired_fish": True, "uses": 4, "robbery_modifier": -15},
-    27: {"milk_suds": True, "uses": 3}
+    27: {"milk_suds": True, "uses": 3},
+    28: {"vault_expansion": 25000}
 }

@@ -202,9 +202,9 @@ Flurazide/
 ## 🗺️ Roadmap
 
 - [x] **Phase 0**: Clean up codebase, modular architecture, add tests.
-- [ ] **Phase 1**: Higher efficiency image manipulation.
+- [x] **Phase 1**: Higher efficiency image manipulation.
 - [ ] **Phase 2**: Migration from SQLite to MySQL for better scalability.
-- [ ] **Phase 3**: Website dashboard for configurations.
+- [x] **Phase 3**: Website dashboard for configurations.
 - [ ] **Phase 4**: Localization support.
 
 ---
@@ -224,20 +224,32 @@ Contributions are welcome! Please follow these steps:
 
 ## 🧪 Testing
 
-Flurazide includes a full Pytest suite. To run the tests:
+Flurazide includes a Pytest suite. Run all tests locally with:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-Tests cover:
-- **Economy operations**: Balance updates, debt floor clamping, user creation.
-- **Shop system**: Item purchasing, insufficient funds, inventory management.
-- **Item effects** (`use_item`): Use decrementing, last-use removal, robbery/defense modifiers, all 11 shop items.
-- **Gun defense**: Gun check, use decrement.
-- **Moderation**: Case insert/get/edit/delete, per-guild numbering.
+Or run a focused test file or a single test, e.g.:
 
-> All 29 tests are passing. Configuration is in `pyproject.toml` with `asyncio_mode = "auto"`.
+```bash
+python -m pytest tests/test_database.py -q
+python -m pytest tests/test_prefix_commands.py::TestPrefixSystem::test_convert_user_username -q
+```
+
+Tests exercise the core systems:
+- **Economy operations**: balance updates, debt floor clamping, account creation
+- **Shop system**: buying, bulk buy/use, inventory management
+- **Item effects**: `use_item` behaviour, decrementing/removal, robbery/defense modifiers
+- **Defenses**: gun/taser/pocket-sand/parking-cone handling and cooldowns
+- **Prefix compatibility**: fake `f!` prefix mapping to application commands (slash compatibility)
+
+Notes:
+- Commands are usable via both slash commands and the `f!` prefix; the prefix handler constructs a fake interaction and routes to the same command callbacks.
+- Heist behavior was hardened: crew capped at 6, Hackatron boosts stack (consumed per holder) and the success chance is hard-capped at 80%, and the victim is pinged with a plain message when a slash heist is started.
+- If you make changes that affect async I/O or Discord message objects, run the relevant tests under `tests/` to verify behavior.
+
+Configuration is in `pyproject.toml` with `asyncio_mode = "auto"`.
 
 ---
 

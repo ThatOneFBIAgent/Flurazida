@@ -125,16 +125,45 @@ class ShopCommands(app_commands.Group):
         view = ShopView(interaction.user.id)
         await interaction.followup.send(embed=view.format_shop_page(), view=view, ephemeral=False)
 
+    @app_commands.command(name="buy", description="Buy one or more of an item from the shop")
+    @app_commands.describe(
+        item_name="The name of the item you want to buy",
+        quantity="The amount of the item you want to buy (default 1)"
+    )
+    @cooldown(cl=5, tm=15.0, ft=3)
+    async def buy(self, interaction: discord.Interaction, item_name: str, quantity: int = 1):
+        """Buys one or multiple of an item from the shop."""
+        await interaction.response.defer()
+        log.info(f"Buy item invoked by {interaction.user.id}: {item_name} (quantity={quantity})")
+
+        if quantity <= 0:
+            return await interaction.followup.send("❌ Quantity must be at least 1!", ephemeral=True)
+
+        item_name = item_name.lower().strip()
+        item_data = next((item for item in SHOP_ITEMS if item["name"].lower() == item_name), None)
+
+        if not item_data:
+            return await interaction.followup.send(f"❌ **'{item_name}' is not a valid item in the shop!**", ephemeral=True)
+
+        success = await buy_item(interaction.user.id, item_data["id"], item_data["name"], item_data["price"], uses_left=item_data["uses_left"], quantity=quantity)
+        if success:
+            await interaction.followup.send(
+                f"✅ **{interaction.user.mention} bought {quantity}x {item_data['name']} for {item_data['price'] * quantity} coins!**"
+            )
+        else:
+            await interaction.followup.send("❌ Not enough money in your wallet!", ephemeral=True)
+
     @app_commands.command(name="use", description="Use an item from your inventory")
     @app_commands.describe(
         item_name="The name of the item you want to use",
+        quantity="The number of items to use (default 1)",
         target="Target player (required for Taser active use)"
     )
     @cooldown(cl=5, tm=15.0, ft=3)
-    async def use(self, interaction: discord.Interaction, item_name: str, target: discord.Member = None):
+    async def use(self, interaction: discord.Interaction, item_name: str, quantity: int = 1, target: discord.Member = None):
         """Handles using an item, with optional player targeting for items like the Taser."""
         await interaction.response.defer()
-        log.info(f"Use item invoked by {interaction.user.id}: {item_name} (target={target})")
+        log.info(f"Use item invoked by {interaction.user.id}: {item_name} (quantity={quantity}, target={target})")
 
         if target and target.id == interaction.user.id:
             return await interaction.followup.send("❌ You can't target yourself!", ephemeral=True)
@@ -146,7 +175,7 @@ class ShopCommands(app_commands.Group):
             return await interaction.followup.send(f"❌ **'{item_name}' is not a valid item!**", ephemeral=True)
 
         target_id = target.id if target else None
-        result_message = await use_item(interaction.user.id, item_data["id"], target_id=target_id)
+        result_message = await use_item(interaction.user.id, item_data["id"], target_id=target_id, quantity=quantity)
         await interaction.followup.send(result_message, ephemeral=True)
 
 class ShopCog(commands.Cog):

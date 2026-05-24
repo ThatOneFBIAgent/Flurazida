@@ -98,8 +98,33 @@ class TestPrefixSystem:
         channel.send.return_value = resp_msg
 
         await interaction.response.defer()
-        channel.send.assert_called_with("⏳ *Thinking...*")
-        
-        # Test subsequent send_message (should edit original response)
+        assert getattr(interaction, "_deferred_thinking", False) is True
+        channel.send.assert_not_called()
+
+        # Test subsequent send_message should create the real response now.
+        channel.send.return_value = resp_msg
         await interaction.response.send_message("Testing send")
-        resp_msg.edit.assert_called_with(content="Testing send", embed=None, embeds=None, view=None)
+        channel.send.assert_called_with(content="Testing send", embed=None, embeds=None, view=None)
+        assert interaction._deferred_thinking is False
+
+    @pytest.mark.asyncio
+    async def test_fake_interaction_followup_after_defer(self):
+        """Verify followup sends are handled when a prefix interaction was deferred."""
+        channel = AsyncMock()
+        message = MagicMock()
+        message.channel = channel
+        message.author = MagicMock()
+        message.guild = MagicMock()
+
+        client = MagicMock()
+        interaction = FakeInteraction(message, client)
+
+        await interaction.response.defer()
+        assert getattr(interaction, "_deferred_thinking", False) is True
+
+        followup_msg = MagicMock()
+        channel.send.return_value = followup_msg
+
+        await interaction.followup.send("Followup content")
+        channel.send.assert_called_with(content="Followup content", embed=None, embeds=None, view=None)
+        assert interaction._deferred_thinking is False

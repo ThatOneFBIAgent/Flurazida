@@ -123,10 +123,23 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
             if cl > 0:
                 is_on_cooldown, retry_after = check_cooldown(user_id, command_name, cl)
                 if is_on_cooldown:
-                    await interaction.response.send_message(
-                        f"🕒 That command's on cooldown! Try again in {round(retry_after, 1)}s.",
-                        ephemeral=True,
-                    )
+                    # Provide friendlier, command-specific cooldown messages for social commands
+                    if command_name == "heist":
+                        remaining_min = round(retry_after / 60, 1)
+                        await interaction.response.send_message(
+                            f"🕒 Give the guy a break! Can't heist for another {remaining_min}m.",
+                            ephemeral=True,
+                        )
+                    elif command_name == "rob":
+                        await interaction.response.send_message(
+                            f"🕒 Give the guy a break! Can't rob for another {round(retry_after, 1)}s.",
+                            ephemeral=True,
+                        )
+                    else:
+                        await interaction.response.send_message(
+                            f"🕒 That command's on cooldown! Try again in {round(retry_after, 1)}s.",
+                            ephemeral=True,
+                        )
                     log.warningtrace(f"[Cooldown] {command_name} by {user_id} (wait {round(retry_after, 1)}s)")
                     return
 
