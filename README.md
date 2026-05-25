@@ -186,7 +186,6 @@ Flurazide/
 ├── services/               # External service integrations
 │   └── cloudflare_ping.py  # Cloudflare latency checker
 ├── tests/                  # Pytest suite
-│   └── test_database.py    # Economy, shop, items, moderation tests
 ├── config.py               # Core configuration & cooldowns
 ├── extraconfig.py          # Advanced settings & secrets
 ├── resources/              # Assets (Fonts, etc.)

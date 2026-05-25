@@ -56,8 +56,17 @@ class ShopView(discord.ui.View):
             item_name = discord.ui.TextInput(
                 label="Item Name",
                 placeholder="Enter the name of the item you want to buy",
+                style=discord.TextStyle.short,
                 required=True,
                 max_length=50,
+            )
+
+            amount_to_buy = discord.ui.TextInput(
+                label="Quantity",
+                placeholder="Enter the quantity you want to buy (default 1)",
+                style=discord.TextStyle.short,
+                required=False,
+                max_length=10
             )
 
             def __init__(self, user_id: int):
@@ -69,14 +78,18 @@ class ShopView(discord.ui.View):
                     return await interaction.response.send_message("❌ Not your modal!", ephemeral=True)
 
                 name = self.item_name.value.strip().lower()
+                quantity_str = int(self.amount_to_buy.value.strip()) if self.amount_to_buy.value else 1
+
+                if not quantity_str.isdigit() or int(quantity_str) <= 0:
+                    return await interaction.response.send_message("❌ Quantity must be a (positive) integer!", ephemeral=True)
                 item_data = next((item for item in SHOP_ITEMS if item["name"].lower() == name), None)
                 if not item_data:
                     return await interaction.response.send_message(f"❌ '{self.item_name.value}' not found!", ephemeral=True)
 
-                success = await buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"], uses_left=item_data["uses_left"])
+                success = await buy_item(self.user_id, item_data["id"], item_data["name"], item_data["price"], uses_left=item_data["uses_left"], quantity=quantity_str)
                 if success:
                     await interaction.response.send_message(
-                        f"✅ **{interaction.user.mention} bought {item_data['name']} for {item_data['price']} coins!**"
+                        f"✅ **{interaction.user.mention} bought {quantity_str}x {item_data['name']} for {item_data['price'] * quantity_str} coins!**"
                     )
                 else:
                     await interaction.response.send_message("❌ Not enough money!", ephemeral=True)

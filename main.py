@@ -2,6 +2,7 @@
 #    (okay "basic" is an understatement becuase of my autism)
 #    © 2024-2026  Iza Carlos (Aka Carlos E.)
 #    Licensed under the GNU Affero General Public License v3.0
+#    THIS FILE IS NOT MEANT TO BE RUN DIRECTLY. Run `python bot.py` instead.
 
 # Standard Library Imports
 import asyncio
@@ -12,6 +13,7 @@ import random
 import signal
 import socket
 import subprocess
+import shlex
 import sys
 import time
 import contextlib
@@ -401,6 +403,7 @@ class FakeInteraction:
         self.message = message
         self.user = message.author
         self.guild = message.guild
+        self.guild_id = message.guild.id if message.guild else None
         self.channel = message.channel
         self.channel_id = message.channel.id if message.channel else None
         self.client = client
@@ -409,6 +412,17 @@ class FakeInteraction:
         self._response_message = None
         self.type = discord.InteractionType.application_command
         self.command = None
+        self.command_failed = False
+        self._state = client._connection
+        self.extras = {}
+        self.locale = getattr(discord, 'Locale', None).american_english if hasattr(discord, 'Locale') else 'en-US'
+        self.guild_locale = getattr(discord, 'Locale', None).american_english if hasattr(discord, 'Locale') else 'en-US'
+
+    @property
+    def permissions(self):
+        if self.guild and isinstance(self.user, discord.Member):
+            return self.channel.permissions_for(self.user)
+        return discord.Permissions.all()
 
     async def edit_original_response(self, *, content=None, embed=None, embeds=None, view=None):
         if self._response_message:
@@ -420,6 +434,11 @@ class FakeInteraction:
 
     async def original_response(self):
         return self._response_message
+
+
+class CustomNamespace(discord.app_commands.Namespace):
+    def __init__(self, data: dict):
+        self.__dict__.update(data)
 
 
 async def convert_user(token, guild):
@@ -456,6 +475,88 @@ async def convert_user(token, guild):
             if m.name.lower() == token.lower() or (m.nick and m.nick.lower() == token.lower()):
                 return m
     return None
+
+
+async def convert_string(token: str, guild: discord.Guild, message: discord.Message) -> str:
+    return token
+
+async def convert_int(token: str, guild: discord.Guild, message: discord.Message) -> int:
+    return int(token)
+
+async def convert_float(token: str, guild: discord.Guild, message: discord.Message) -> float:
+    return float(token)
+
+async def convert_bool(token: str, guild: discord.Guild, message: discord.Message) -> bool:
+    return token.lower() in ('true', 'yes', '1', 'y', 'on')
+
+async def convert_user_param(token: str, guild: discord.Guild, message: discord.Message):
+    return await convert_user(token, guild)
+
+async def convert_role_param(token: str, guild: discord.Guild, message: discord.Message):
+    if not guild:
+        return None
+    if token.startswith("<@&") and token.endswith(">"):
+        rid = token.replace("<@&", "").replace(">", "")
+        try:
+            return guild.get_role(int(rid))
+        except ValueError:
+            pass
+    try:
+        return guild.get_role(int(token))
+    except ValueError:
+        pass
+    for r in guild.roles:
+        if r.name.lower() == token.lower():
+            return r
+    return None
+
+async def convert_channel_param(token: str, guild: discord.Guild, message: discord.Message):
+    if not guild:
+        return None
+    if token.startswith("<#") and token.endswith(">"):
+        cid = token.replace("<#", "").replace(">", "")
+        try:
+            return guild.get_channel(int(cid))
+        except ValueError:
+            pass
+    try:
+        return guild.get_channel(int(token))
+    except ValueError:
+        pass
+    for c in guild.channels:
+        if c.name.lower() == token.lower():
+            return c
+    return None
+
+async def convert_mentionable_param(token: str, guild: discord.Guild, message: discord.Message):
+    user = await convert_user(token, guild)
+    if user:
+        return user
+    role = await convert_role_param(token, guild, message)
+    if role:
+        return role
+    return None
+
+async def convert_attachment_param(token: str, guild: discord.Guild, message: discord.Message):
+    if message.attachments:
+        return message.attachments[0]
+    return None
+
+CONVERTERS = {
+    discord.AppCommandOptionType.string: convert_string,
+    discord.AppCommandOptionType.integer: convert_int,
+    discord.AppCommandOptionType.number: convert_float,
+    discord.AppCommandOptionType.boolean: convert_bool,
+    discord.AppCommandOptionType.user: convert_user_param,
+    discord.AppCommandOptionType.role: convert_role_param,
+    discord.AppCommandOptionType.channel: convert_channel_param,
+    discord.AppCommandOptionType.mentionable: convert_mentionable_param,
+    discord.AppCommandOptionType.attachment: convert_attachment_param,
+}
+
+if hasattr(discord.AppCommandOptionType, 'member'):
+    CONVERTERS[discord.AppCommandOptionType.member] = convert_user_param
+
 
 
 def get_command_usage(cmd):
@@ -500,7 +601,11 @@ async def handle_prefix_command(message: discord.Message):
     if not (content.startswith("f!") or content.startswith("F!")):
         return
         
-    tokens = content[2:].strip().split()
+    try:
+        tokens = shlex.split(content[2:].strip())
+    except ValueError:
+        tokens = content[2:].strip().split()
+
     if not tokens:
         return
         
@@ -555,6 +660,23 @@ async def handle_prefix_command(message: discord.Message):
     token_idx = 0
 
     for i, param in enumerate(cmd.parameters):
+        if param.type == discord.AppCommandOptionType.attachment:
+            if message.attachments:
+                converted_val = message.attachments[0]
+            else:
+                if param.required:
+                    embed = discord.Embed(
+                        title="⚠️ Missing Attachment",
+                        description=f"The field **{param.name}** requires an image/file attachment, but none was uploaded.\n\n"
+                                    f"**Usage:** `{get_command_usage(cmd)}`",
+                        color=0xFFCC00
+                    )
+                    return await message.channel.send(embed=embed)
+                else:
+                    converted_val = None
+            kwargs[param.name] = converted_val
+            continue
+
         if token_idx >= len(args_tokens):
             if param.required:
                 embed = discord.Embed(
@@ -576,69 +698,67 @@ async def handle_prefix_command(message: discord.Message):
             token_val = args_tokens[token_idx]
             token_idx += 1
 
-        converted_val = None
-        if param.type == discord.AppCommandOptionType.string:
-            converted_val = token_val
-        elif param.type == discord.AppCommandOptionType.integer:
+        converter = CONVERTERS.get(param.type)
+        if converter:
             try:
-                converted_val = int(token_val)
-            except ValueError:
+                converted_val = await converter(token_val, message.guild, message)
+            except Exception:
+                type_name = "value"
+                if param.type == discord.AppCommandOptionType.integer:
+                    type_name = "an integer"
+                elif param.type == discord.AppCommandOptionType.number:
+                    type_name = "a number"
+                elif param.type == discord.AppCommandOptionType.boolean:
+                    type_name = "a boolean"
+                
                 embed = discord.Embed(
                     title="⚠️ Invalid Parameter Type",
-                    description=f"The field **{param.name}** expects an integer, but got `{token_val}`.\n\n"
+                    description=f"The field **{param.name}** expects {type_name}, but got `{token_val}`.\n\n"
                                 f"**Usage:** `{get_command_usage(cmd)}`",
                     color=0xFF3333
                 )
                 return await message.channel.send(embed=embed)
-        elif param.type == discord.AppCommandOptionType.number:
-            try:
-                converted_val = float(token_val)
-            except ValueError:
-                embed = discord.Embed(
-                    title="⚠️ Invalid Parameter Type",
-                    description=f"The field **{param.name}** expects a number, but got `{token_val}`.\n\n"
-                                f"**Usage:** `{get_command_usage(cmd)}`",
-                    color=0xFF3333
-                )
-                return await message.channel.send(embed=embed)
-        elif param.type == discord.AppCommandOptionType.boolean:
-            converted_val = token_val.lower() in ['true', 'yes', '1', 'y', 'on']
-        elif param.type == discord.AppCommandOptionType.user or (
-            hasattr(discord.AppCommandOptionType, 'member') and param.type == discord.AppCommandOptionType.member
-        ):
-            converted_val = await convert_user(token_val, message.guild)
-            if not converted_val:
-                embed = discord.Embed(
-                    title="⚠️ User Not Found",
-                    description=f"Could not find user/member matching `{token_val}` for field **{param.name}**.\n\n"
-                                f"**Usage:** `{get_command_usage(cmd)}`",
-                    color=0xFF3333
-                )
-                return await message.channel.send(embed=embed)
-        elif param.type == discord.AppCommandOptionType.attachment:
-            if message.attachments:
-                converted_val = message.attachments[0]
-            else:
-                if param.required:
-                    embed = discord.Embed(
-                        title="⚠️ Missing Attachment",
-                        description=f"The field **{param.name}** requires an image/file attachment, but none was uploaded.\n\n"
-                                    f"**Usage:** `{get_command_usage(cmd)}`",
-                        color=0xFFCC00
-                    )
-                    return await message.channel.send(embed=embed)
-                else:
-                    converted_val = None
         else:
             converted_val = token_val
+
+        if converted_val is None:
+            if param.type in (
+                discord.AppCommandOptionType.user,
+                discord.AppCommandOptionType.role,
+                discord.AppCommandOptionType.channel,
+                discord.AppCommandOptionType.mentionable
+            ) or (hasattr(discord.AppCommandOptionType, 'member') and param.type == discord.AppCommandOptionType.member):
+                type_names = {
+                    discord.AppCommandOptionType.user: "user/member",
+                    discord.AppCommandOptionType.role: "role",
+                    discord.AppCommandOptionType.channel: "channel",
+                    discord.AppCommandOptionType.mentionable: "user, member, or role",
+                }
+                if hasattr(discord.AppCommandOptionType, 'member'):
+                    type_names[discord.AppCommandOptionType.member] = "member"
+                
+                t_name = type_names.get(param.type, "value")
+                
+                embed = discord.Embed(
+                    title=f"⚠️ {t_name.title()} Not Found",
+                    description=f"Could not find {t_name} matching `{token_val}` for field **{param.name}**.\n\n"
+                                f"**Usage:** `{get_command_usage(cmd)}`",
+                    color=0xFF3333
+                )
+                return await message.channel.send(embed=embed)
 
         kwargs[param.name] = converted_val
 
+    namespace = CustomNamespace(kwargs)
+
     try:
-        if cmd.binding is not None:
-            await cmd.callback(cmd.binding, fake_interaction, **kwargs)
-        else:
-            await cmd.callback(fake_interaction, **kwargs)
+        fake_interaction._cs_command = cmd
+        fake_interaction._cs_namespace = namespace
+        
+        await cmd._invoke_with_namespace(fake_interaction, namespace)
+    except app_commands.AppCommandError as e:
+        if not await cmd._invoke_error_handlers(fake_interaction, e):
+            await bot.tree.on_error(fake_interaction, e)
     except Exception as e:
         log.error(
             f"Prefix command failed:\n"
@@ -928,3 +1048,7 @@ async def kill_all_tasks():
         if task is current: continue
         task.cancel()
     await asyncio.sleep(1)
+
+if __name__ == "__main__":
+    log.error("This file is not meant to be run directly. Please run `python bot.py` instead. (Or whichever command fits your provider's requirements)")
+    sys.exit(0)

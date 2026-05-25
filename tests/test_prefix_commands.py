@@ -21,6 +21,8 @@ from main import (
     FakeFollowup,
     get_command_usage,
     convert_user,
+    bot,
+    handle_prefix_command,
 )
 
 class TestPrefixSystem:
@@ -128,3 +130,177 @@ class TestPrefixSystem:
         await interaction.followup.send("Followup content")
         channel.send.assert_called_with(content="Followup content", embed=None, embeds=None, view=None)
         assert interaction._deferred_thinking is False
+
+
+class MockParameter:
+    def __init__(self, name, opt_type, required=True, default=None, choices=None):
+        self.name = name
+        self.display_name = name
+        self.type = opt_type
+        self.required = required
+        self.default = default
+        self.choices = choices or []
+        self.description = "Test param description"
+
+
+class MockCommand:
+    def __init__(self, name, parameters):
+        self.name = name
+        self.qualified_name = name
+        self.description = "Test description"
+        self.parameters = parameters
+        self._invoke_with_namespace = AsyncMock()
+        self._invoke_error_handlers = AsyncMock(return_value=False)
+
+
+class TestPrefixCommandExecution:
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    @patch("main.convert_user")
+    async def test_handle_prefix_command_give(self, mock_convert_user, mock_blacklist):
+        """Test parsing of f!give @guy "Ultra Rare Fish" 3"""
+        mock_member = MagicMock()
+        mock_convert_user.return_value = mock_member
+
+        param_user = MockParameter("user", discord.AppCommandOptionType.user, required=True)
+        param_item = MockParameter("item", discord.AppCommandOptionType.string, required=True)
+        param_amount = MockParameter("amount", discord.AppCommandOptionType.integer, required=True)
+        mock_cmd = MockCommand("give", [param_user, param_item, param_amount])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_cmd]):
+            message = AsyncMock()
+            message.content = 'f!give @guy "Ultra Rare Fish" 3'
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            mock_cmd._invoke_with_namespace.assert_called_once()
+            called_interaction, called_namespace = mock_cmd._invoke_with_namespace.call_args[0]
+            assert called_interaction.command == mock_cmd
+            assert called_namespace.user == mock_member
+            assert called_namespace.item == "Ultra Rare Fish"
+            assert called_namespace.amount == 3
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    async def test_handle_prefix_command_multiple_strings(self, mock_blacklist):
+        """Test parsing of f!dosomething "person b" "person c" """
+        param_p1 = MockParameter("p1", discord.AppCommandOptionType.string, required=True)
+        param_p2 = MockParameter("p2", discord.AppCommandOptionType.string, required=True)
+        mock_cmd = MockCommand("dosomething", [param_p1, param_p2])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_cmd]):
+            message = AsyncMock()
+            message.content = 'f!dosomething "person b" "person c"'
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            mock_cmd._invoke_with_namespace.assert_called_once()
+            called_interaction, called_namespace = mock_cmd._invoke_with_namespace.call_args[0]
+            assert called_namespace.p1 == "person b"
+            assert called_namespace.p2 == "person c"
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    @patch("main.convert_user")
+    async def test_handle_prefix_command_mismatched_quotes(self, mock_convert_user, mock_blacklist):
+        """Test fallback split behavior when quotes are mismatched: f!ban @guy being "annoying in vc"""
+        mock_member = MagicMock()
+        mock_convert_user.return_value = mock_member
+
+        param_user = MockParameter("user", discord.AppCommandOptionType.user, required=True)
+        param_reason = MockParameter("reason", discord.AppCommandOptionType.string, required=False)
+        mock_cmd = MockCommand("ban", [param_user, param_reason])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_cmd]):
+            message = AsyncMock()
+            message.content = 'f!ban @guy being "annoying in vc'
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            mock_cmd._invoke_with_namespace.assert_called_once()
+            called_interaction, called_namespace = mock_cmd._invoke_with_namespace.call_args[0]
+            assert called_namespace.user == mock_member
+            assert called_namespace.reason == 'being "annoying in vc'
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    @patch("main.convert_user")
+    async def test_handle_prefix_command_validation_failure(self, mock_convert_user, mock_blacklist):
+        """Test failure when argument cannot be converted to expected type (integer validation failure)"""
+        mock_member = MagicMock()
+        mock_convert_user.return_value = mock_member
+
+        param_user = MockParameter("user", discord.AppCommandOptionType.user, required=True)
+        param_item = MockParameter("item", discord.AppCommandOptionType.string, required=True)
+        param_amount = MockParameter("amount", discord.AppCommandOptionType.integer, required=True)
+        mock_cmd = MockCommand("give", [param_user, param_item, param_amount])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_cmd]):
+            message = AsyncMock()
+            message.content = 'f!give @guy "Fish" abc'
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            # Command should not be invoked due to invalid parameter error
+            mock_cmd._invoke_with_namespace.assert_not_called()
+            # It should send an error message about expecting an integer
+            message.channel.send.assert_called_once()
+            embed = message.channel.send.call_args[1].get("embed")
+            assert embed is not None
+            assert "expects an integer" in embed.description
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    async def test_handle_prefix_command_missing_required(self, mock_blacklist):
+        """Test validation error when a required parameter is missing"""
+        param_p1 = MockParameter("p1", discord.AppCommandOptionType.string, required=True)
+        param_p2 = MockParameter("p2", discord.AppCommandOptionType.string, required=True)
+        mock_cmd = MockCommand("dosomething", [param_p1, param_p2])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_cmd]):
+            message = AsyncMock()
+            message.content = 'f!dosomething "only_one_arg"'
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            mock_cmd._invoke_with_namespace.assert_not_called()
+            message.channel.send.assert_called_once()
+            embed = message.channel.send.call_args[1].get("embed")
+            assert embed is not None
+            assert "Missing Required Fields" in embed.title
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    async def test_handle_prefix_command_command_error(self, mock_blacklist):
+        """Test error propagation when a command check or invoke error happens"""
+        param_p1 = MockParameter("p1", discord.AppCommandOptionType.string, required=True)
+        mock_cmd = MockCommand("errorcmd", [param_p1])
+        
+        # Make _invoke_with_namespace raise AppCommandError
+        error = discord.app_commands.AppCommandError("Check failed")
+        mock_cmd._invoke_with_namespace.side_effect = error
+
+        from unittest.mock import ANY
+        with patch.object(bot.tree, "get_commands", return_value=[mock_cmd]):
+            with patch.object(bot.tree, "on_error", new_callable=AsyncMock) as mock_on_error:
+                message = AsyncMock()
+                message.content = 'f!errorcmd value'
+                message.guild = MagicMock()
+                message.attachments = []
+
+                await handle_prefix_command(message)
+
+                mock_cmd._invoke_with_namespace.assert_called_once()
+                mock_cmd._invoke_error_handlers.assert_called_once_with(ANY, error)
+                mock_on_error.assert_called_once_with(ANY, error)
+

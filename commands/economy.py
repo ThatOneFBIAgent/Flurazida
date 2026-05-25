@@ -47,8 +47,9 @@ from discord import ui
 
 # ===================== Constants =====================
 DAILY_COOLDOWN    = 43_200      # 12 hours — the minimum gap between claims
-MONTHLY_COOLDOWN  = 2_548_800   # ~29.5 days (30 days − 12 h margin of error)
 DAILY_STREAK_RESET = 129_600    # 36 h gap resets daily streak
+MONTHLY_COOLDOWN  = 2_548_800   # ~29.5 days (30 days − 12 h margin of error)
+WEEKLY_COOLDOWN   = 561_600      # 6.5 days (7 days - 12 h margin of error)
 
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
@@ -705,6 +706,18 @@ class EconomyCommands(app_commands.Group):
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
         
+        # Ping the victim as a plain message so they receive a notification when this is a slash command
+        try:
+            is_prefix_invocation = hasattr(interaction, "message") and isinstance(getattr(interaction, "message"), discord.Message)
+        except Exception:
+            is_prefix_invocation = False
+
+        if not is_prefix_invocation:
+            try:
+                await interaction.channel.send(f"{target.mention} — your bank is being targeted by a heist organized by {leader.mention}! React or click 'Defend Bank' to respond.")
+            except Exception:
+                pass
+
         # Wait 30 seconds for crew to gather / defense
         await asyncio.sleep(30)
         
@@ -720,18 +733,6 @@ class EconomyCommands(app_commands.Group):
         except:
             pass
         
-        # Ping the victim as a plain message so they receive a notification when this is a slash command
-        try:
-            is_prefix_invocation = hasattr(interaction, "message") and isinstance(getattr(interaction, "message"), discord.Message)
-        except Exception:
-            is_prefix_invocation = False
-
-        if not is_prefix_invocation:
-            try:
-                await interaction.channel.send(f"{target.mention} — your bank is being targeted by a heist organized by {leader.mention}! React or click 'Defend Bank' to respond.")
-            except Exception:
-                pass
-            
         crew = view.participants
         crew_count = len(crew)
         
@@ -982,8 +983,8 @@ class EconomyCommands(app_commands.Group):
         last_claim, _ = await get_last_claim(user_id, "weekly")
         elapsed = now - last_claim
 
-        if last_claim > 0 and elapsed < 604_800:  # 7 days
-            remaining = 604_800 - elapsed
+        if last_claim > 0 and elapsed < WEEKLY_COOLDOWN:  # 6.5 days 12 hours of margin
+            remaining = WEEKLY_COOLDOWN - elapsed
             days    = int(remaining // 86_400)
             hours   = int((remaining % 86_400) // 3600)
             return await interaction.followup.send(
