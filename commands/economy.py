@@ -416,7 +416,17 @@ class EconomyCommands(app_commands.Group):
                 f"🔫 You robbed a small convenience store and walked away with 💰 `{amount}` coins.",
                 f"💻 You hacked into a bank's system and stole 💰 `{amount}` coins. Nice job!",
                 f"💰 You successfully scammed someone and made 💰 `{amount}` coins.",
-                f"💵 You sold fake tickets and made 💰 `{amount}` coins."
+                f"💵 You sold fake tickets and made 💰 `{amount}` coins.",
+                f"🎰 You rigged a poker game downtown and walked away with 💰 `{amount}` coins.",
+                f"🚗 You chopped a stolen car for parts and earned 💰 `{amount}` coins.",
+                f"📦 You intercepted a delivery truck and helped yourself to 💰 `{amount}` coins worth of goods.",
+                f"🎭 You ran a shell game on tourists and conned them out of 💰 `{amount}` coins.",
+                f"🏠 You broke into a mansion while the owners were on vacation. Scored 💰 `{amount}` coins.",
+                f"💎 You swiped a necklace from a jewelry store during a 'distraction'. Made 💰 `{amount}` coins.",
+                f"🖨️ You ran a counterfeit operation for a week. Printed 💰 `{amount}` coins worth of fake bills.",
+                f"📱 You sold a stranger's lost phone and pocketed 💰 `{amount}` coins.",
+                f"🃏 You marked the deck at a card game and hustled the table for 💰 `{amount}` coins.",
+                f"🐟 You smuggled exotic fish across the border. Netted 💰 `{amount}` coins.",
             ]
         else:
             messages = [
@@ -424,7 +434,17 @@ class EconomyCommands(app_commands.Group):
                 f"🛑 You tried scamming someone but got scammed instead! Lost 💰 `{abs(amount)}` coins.",
                 f"🚔 The cops caught you red-handed. You paid a fine of 💰 `{abs(amount)}` coins.",
                 f"💸 You got caught trying to rob a bank! Lost 💰 `{abs(amount)}` coins.",
-                f"👮 You got arrested for public indecency! Lost 💰 `{abs(amount)}` coins."
+                f"👮 You got arrested for public indecency! Lost 💰 `{abs(amount)}` coins.",
+                f"🐕 A police dog sniffed you out mid-heist. Paid 💰 `{abs(amount)}` coins in bail.",
+                f"📸 A security camera caught your whole face. Fined 💰 `{abs(amount)}` coins.",
+                f"🤝 Your getaway driver snitched on you. Lost 💰 `{abs(amount)}` coins in legal fees.",
+                f"📵 You butt-dialed 911 mid-robbery. Cost you 💰 `{abs(amount)}` coins.",
+                f"🪤 The 'distracted tourist' was an undercover cop. Lost 💰 `{abs(amount)}` coins.",
+                f"🔦 You forgot to disable the motion sensors. Paid 💰 `{abs(amount)}` coins in fines.",
+                f"🧾 You left your ID at the crime scene. Lost 💰 `{abs(amount)}` coins.",
+                f"💀 The guy you pickpocketed turned out to be a mob boss. Lost 💰 `{abs(amount)}` coins... the easy way.",
+                f"🎥 Someone live-streamed you committing the crime. Paid 💰 `{abs(amount)}` coins in damages.",
+                f"🏃 You tripped running from the scene and got caught. Lost 💰 `{abs(amount)}` coins.",
             ]
 
         msg_text = random.choice(messages)
@@ -466,20 +486,38 @@ class EconomyCommands(app_commands.Group):
             if item_found:
                 await add_item_to_user(user_id, item_found["id"], item_found["name"], uses_left=item_found["uses_left"])
 
-        if success:
-            messages = [
-                f"💋 You found a rich sugar daddy/mommy and earned 💰 `{amount}` coins.",
-                f"👠 A night well spent. You made 💰 `{amount}` coins.",
-                f"🎭 You took a questionable modeling gig and got paid 💰 `{amount}` coins.",
-                f"☢️ Someone sent a link in the group chat. You made 💰 `{amount}` coins"
-            ]
-        else:
-            messages = [
-                f"👎 Nobody was interested in your services. You lost 💰 `{abs(amount)}` coins.",
-                f"🚔 The cops fined you for public indecency. Lost 💰 `{abs(amount)}` coins.",
-                f"🤮 You got sick and had to spend 💰 `{abs(amount)}` coins on meds.",
-                f"🤓 You were too ugly and had to spend 💰 `{abs(amount)}` coins on plastic surgery."
-            ]
+            if success:
+                messages = [
+                    f"💋 You found a rich sugar daddy/mommy and earned 💰 `{amount}` coins.",
+                    f"👠 A night well spent. You made 💰 `{amount}` coins.",
+                    f"🎭 You took a questionable modeling gig and got paid 💰 `{amount}` coins.",
+                    f"☢️ Someone sent a link in the group chat. You made 💰 `{amount}` coins.",
+                    f"📸 You started a spicy subscription page and raked in 💰 `{amount}` coins this month.",
+                    f"🛥️ A billionaire invited you on his yacht for the weekend. You came back with 💰 `{amount}` coins.",
+                    f"🎬 You starred in a low-budget film with a *very* generous wardrobe budget. Earned 💰 `{amount}` coins.",
+                    f"💌 A lonely millionaire kept sliding into your DMs. You slid right back and made 💰 `{amount}` coins.",
+                    f"🍾 You attended a 'networking event' in Vegas. Very productive. Made 💰 `{amount}` coins.",
+                    f"🎤 You performed at a bachelorette party and the tips were incredible. Pocketed 💰 `{amount}` coins.",
+                    f"🧴 A brand paid you to promote their 'personal wellness' products. Earned 💰 `{amount}` coins.",
+                    f"🌹 You played the long game on a dating app and cashed out 💰 `{amount}` coins.",
+                    f"🏨 A mysterious stranger booked you a 5-star hotel room and left an envelope. Inside: 💰 `{amount}` coins.",
+                ]
+            else:
+                messages = [
+                    f"👎 Nobody was interested in your services. You lost 💰 `{abs(amount)}` coins.",
+                    f"🚔 The cops fined you for public indecency. Lost 💰 `{abs(amount)}` coins.",
+                    f"🤮 You got sick and had to spend 💰 `{abs(amount)}` coins on meds.",
+                    f"🤓 You were too ugly and had to spend 💰 `{abs(amount)}` coins on plastic surgery.",
+                    f"💔 Your sugar daddy/mommy found someone younger. Lost 💰 `{abs(amount)}` coins in the breakup.",
+                    f"📵 Your subscription page got reported and taken down. Lost 💰 `{abs(amount)}` coins.",
+                    f"🧾 The 'millionaire' was broke. You covered dinner. Lost 💰 `{abs(amount)}` coins.",
+                    f"😂 Someone recognized you at the grocery store. Paid 💰 `{abs(amount)}` coins in therapy.",
+                    f"👻 The client ghosted you after you bought a new outfit for the occasion. Down 💰 `{abs(amount)}` coins.",
+                    f"🎭 The modeling agency was a scam. Lost 💰 `{abs(amount)}` coins upfront.",
+                    f"📸 Your face ended up on a billboard. Lawyer fees cost you 💰 `{abs(amount)}` coins.",
+                    f"🍷 You got catfished by someone with a fake Rolex. Lost 💰 `{abs(amount)}` coins paying for the dinner.",
+                    f"🐀 Your roommate reported you to management. Lost 💰 `{abs(amount)}` coins in deposits.",
+                ]
 
         msg_text = random.choice(messages)
         if success and item_found:
@@ -521,19 +559,41 @@ class EconomyCommands(app_commands.Group):
 
         if success:
             messages = [
-            f"👨‍💻 You worked as a programmer and got paid 💰 `{amount}` coins.",
-            f"🚚 You delivered packages and earned 💰 `{amount}` coins.",
-            f"🍔 You worked at a fast-food joint and made 💰 `{amount}` coins.",
-            f"🏢 You worked in an office and got paid 💰 `{amount}` coins.",
-            f"🛠️ You did some handyman work and earned 💰 `{amount}` coins."
+                f"👨‍💻 You worked as a programmer and got paid 💰 `{amount}` coins.",
+                f"🚚 You delivered packages and earned 💰 `{amount}` coins.",
+                f"🍔 You worked at a fast-food joint and made 💰 `{amount}` coins.",
+                f"🏢 You worked in an office and got paid 💰 `{amount}` coins.",
+                f"🛠️ You did some handyman work and earned 💰 `{amount}` coins.",
+                f"🚑 You worked an overtime shift as a paramedic and earned 💰 `{amount}` coins.",
+                f"🎨 You freelanced some graphic design work and invoiced 💰 `{amount}` coins.",
+                f"🌿 You mowed lawns in the neighborhood all day and pocketed 💰 `{amount}` coins.",
+                f"📦 You helped someone move apartments and made 💰 `{amount}` coins in cash.",
+                f"🍕 You delivered pizzas all night and the tips were great. Earned 💰 `{amount}` coins.",
+                f"🎧 You DJ'd a local house party and walked away with 💰 `{amount}` coins.",
+                f"🐕 You walked dogs in the park all weekend and made 💰 `{amount}` coins.",
+                f"📊 You filed quarterly reports and somehow stayed awake. Earned 💰 `{amount}` coins.",
+                f"🏗️ You worked a construction site all week and collected 💰 `{amount}` coins.",
+                f"🛒 You restocked shelves at a supermarket overnight and earned 💰 `{amount}` coins.",
+                f"🎓 You tutored some struggling students and charged 💰 `{amount}` coins.",
+                f"✈️ You worked a flight as cabin crew and landed 💰 `{amount}` coins in pay and tips.",
             ]
         else:
             messages = [
-            f"👎Your boss found you smoking! You lost 💰`{abs(amount)}` coins",
-            f"👥A coworker found you had 2 jobs! You lost 💰`{abs(amount)}` coins",
-            f"💸You got caught stealing from the till! You lost 💰`{abs(amount)}` coins",
-            f"🚔You got caught slacking off! You lost 💰`{abs(amount)}` coins",
-            f"👮You got caught doing something illegal at work! You lost 💰`{abs(amount)}` coins"
+                f"👎 Your boss found you smoking on the clock! You lost 💰 `{abs(amount)}` coins.",
+                f"👥 A coworker found out you had 2 jobs! You lost 💰 `{abs(amount)}` coins.",
+                f"💸 You got caught stealing from the till! You lost 💰 `{abs(amount)}` coins.",
+                f"🚔 You got caught slacking off all week. Docked 💰 `{abs(amount)}` coins from your pay.",
+                f"👮 You got caught doing something illegal at work! You lost 💰 `{abs(amount)}` coins.",
+                f"😴 You fell asleep during a client presentation. Lost 💰 `{abs(amount)}` coins in commission.",
+                f"📧 You accidentally replied-all to a company-wide email. HR fined you 💰 `{abs(amount)}` coins somehow.",
+                f"🖨️ You jammed the printer so badly they docked 💰 `{abs(amount)}` coins from your check.",
+                f"🤳 You were on your phone during a safety briefing and caused an incident. Lost 💰 `{abs(amount)}` coins.",
+                f"🐌 You missed every deadline this week. Client refund cost you 💰 `{abs(amount)}` coins.",
+                f"🍔 You ate a coworker's labeled lunch for the third time. Paid them 💰 `{abs(amount)}` coins.",
+                f"💻 You got a virus on the work computer from a suspicious site. IT bill: 💰 `{abs(amount)}` coins.",
+                f"📦 You broke 3 deliveries in one day. Replacements cost 💰 `{abs(amount)}` coins.",
+                f"🎮 Your boss found your gaming setup under the desk. Confiscated and fined 💰 `{abs(amount)}` coins.",
+                f"🕐 You showed up 3 hours late every day this week. Lost 💰 `{abs(amount)}` coins in deductions.",
             ]
 
         msg_text = random.choice(messages)

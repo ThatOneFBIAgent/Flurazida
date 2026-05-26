@@ -587,6 +587,39 @@ class ModeratorCommands(app_commands.Group):
             log.error(f"Error purging messages in channel {interaction.channel.id}: {e}", exc_info=True)
             await interaction.followup.send("❌ An error occurred while trying to purge messages.", ephemeral=True)
 
+    @app_commands.command(name="slowmode", description="Sets the slowmode delay for the current channel.")
+    @app_commands.describe(duration="Duration of slowmode (e.g., 10s, 1m, 1h). Set to 0 to disable.")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.checks.bot_has_permissions(manage_channels=True)
+    @app_commands.guild_only()
+    @cooldown(cl=5, tm=15.0, ft=3)
+    async def slowmode(self, interaction: Interaction, duration: str):
+        await interaction.response.defer(ephemeral=True)
+        log.trace(f"Slowmode invoked by {interaction.user.id} with duration {duration}")
+
+        if not interaction.channel or not isinstance(interaction.channel, discord.TextChannel):
+            return await interaction.followup.send("❌ This command can only be used in text channels.", ephemeral=True)
+
+        delay_seconds = parse_duration(duration)
+        if delay_seconds is None or delay_seconds < 0:
+            return await interaction.followup.send("❌ Invalid duration format. Use something like `10s`, `1m`, `1h`, or `0` to disable.", ephemeral=True)
+        
+        if delay_seconds > 21600:
+            return await interaction.followup.send("❌ Slowmode cannot exceed 6 hours (21600 seconds).", ephemeral=True)
+
+        try:
+            await interaction.channel.edit(slowmode_delay=delay_seconds, reason=f"Slowmode set by {interaction.user} via command")
+            if delay_seconds == 0:
+                await interaction.followup.send("✅ Slowmode has been disabled for this channel.", ephemeral=False)
+            else:
+                await interaction.followup.send(f"✅ Slowmode has been set to {duration} for this channel.", ephemeral=False)
+        except discord.Forbidden:
+            log.warningtrace(f"Slowmode permission denied for {interaction.user.id} in channel {interaction.channel.id}")
+            await interaction.followup.send("❌ I don't have permission to edit this channel!", ephemeral=True)
+        except Exception as e:
+            log.error(f"Error setting slowmode in channel {interaction.channel.id}: {e}", exc_info=True)
+            await interaction.followup.send("❌ An error occurred while trying to set slowmode.", ephemeral=True)
+
     @app_commands.command(name="whois", description="Get detailed information about a user.")
     @app_commands.describe(user="The user to look up (defaults to yourself).")
     @app_commands.guild_only()
