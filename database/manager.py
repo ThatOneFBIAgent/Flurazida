@@ -35,6 +35,7 @@ log = get_logger()
 
 # ===================== Constants =====================
 DEBT_FLOOR = -1000
+MAX_BALANCE = 9000000000000000000
 
 # Path handling - DB files live in src/data to keep backward compat with existing data.
 # On Railway, CWD is /app. Locally, it's the project root. Both have data.
@@ -363,6 +364,15 @@ async def init_databases():
             PRIMARY KEY (user_id, effect_type)
         )
         """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            timestamp INTEGER NOT NULL
+        )
+        """)
         await conn.commit()
         log.database("Economy database initialized successfully")
 
@@ -664,12 +674,12 @@ async def update_balance(user_id, amount):
     await conn.execute("""
         UPDATE users
         SET balance = CASE
-            WHEN balance + ? < ?
-                THEN ?
+            WHEN balance + ? < ? THEN ?
+            WHEN balance + ? > ? THEN ?
             ELSE balance + ?
         END
         WHERE user_id = ?
-    """, (amount, DEBT_FLOOR, DEBT_FLOOR, amount, user_id))
+    """, (amount, DEBT_FLOOR, DEBT_FLOOR, amount, MAX_BALANCE, MAX_BALANCE, amount, user_id))
     await conn.commit()
 
 @log_db_call
@@ -737,6 +747,16 @@ async def get_total_economy_sum():
         _last_economy_sum_time = now
         log.trace(f"Updated total economy sum TTL cache: {_cached_total_economy}")
         return _cached_total_economy
+
+@log_db_call
+async def get_top_global_wealth(limit: int = 100) -> list:
+    """Fetches the top users by total wealth (balance + bank)."""
+    conn = await db.get_economy()
+    async with conn.execute(
+        "SELECT user_id, balance + bank AS wealth FROM users ORDER BY wealth DESC LIMIT ?",
+        (limit,)
+    ) as cursor:
+        return await cursor.fetchall()
 
 # ===================== Item Handling Functions =====================
 @log_db_call
@@ -1066,6 +1086,8 @@ async def deposit_bank(user_id: int, amount: int) -> bool:
             return False
         if bank + amount > bank_max:
             return False
+        if bank + amount > MAX_BALANCE:
+            return False
             
     await conn.execute("UPDATE users SET balance = balance - ?, bank = bank + ? WHERE user_id = ?", (amount, amount, user_id))
     await conn.commit()
@@ -1080,9 +1102,11 @@ async def withdraw_bank(user_id: int, amount: int) -> bool:
     if amount <= 0:
         return False
     conn = await db.get_economy()
-    async with conn.execute("SELECT bank FROM users WHERE user_id = ?", (user_id,)) as cursor:
+    async with conn.execute("SELECT balance, bank FROM users WHERE user_id = ?", (user_id,)) as cursor:
         row = await cursor.fetchone()
-        if not row or row[0] < amount:
+        if not row or row[1] < amount:
+            return False
+        if row[0] + amount > MAX_BALANCE:
             return False
             
     await conn.execute("UPDATE users SET balance = balance + ?, bank = bank - ? WHERE user_id = ?", (amount, amount, user_id))
@@ -1096,6 +1120,12 @@ async def withdraw_bank(user_id: int, amount: int) -> bool:
 async def increase_bank_max(user_id: int, amount: int) -> int:
     """Permanently increases user's bank maximum limit."""
     conn = await db.get_economy()
+    async with conn.execute("SELECT bank_max FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        row = await cursor.fetchone()
+        if row and row[0] + amount > MAX_BALANCE:
+            amount = MAX_BALANCE - row[0]
+            if amount <= 0:
+                return 0
     await conn.execute("UPDATE users SET bank_max = bank_max + ? WHERE user_id = ?", (amount, user_id))
     await conn.commit()
     async with conn.execute("SELECT bank_max FROM users WHERE user_id = ?", (user_id,)) as cursor:
@@ -1330,3 +1360,28 @@ def _log_unhandled_exception(exc_type, exc_value, exc_tb):
     log.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
 
 sys.excepthook = _log_unhandled_exception
+
+# ===================== Reminders =====================
+@log_db_call
+async def add_reminder(user_id: int, channel_id: int, message: str, timestamp: int):
+    conn = await db.get_economy()
+    await conn.execute(
+        "INSERT INTO reminders (user_id, channel_id, message, timestamp) VALUES (?, ?, ?, ?)",
+        (user_id, channel_id, message, timestamp)
+    )
+    await conn.commit()
+
+@log_db_call
+async def get_due_reminders(current_timestamp: int):
+    conn = await db.get_economy()
+    async with conn.execute(
+        "SELECT reminder_id, user_id, channel_id, message FROM reminders WHERE timestamp <= ?",
+        (current_timestamp,)
+    ) as cursor:
+        return await cursor.fetchall()
+
+@log_db_call
+async def delete_reminder(reminder_id: int):
+    conn = await db.get_economy()
+    await conn.execute("DELETE FROM reminders WHERE reminder_id = ?", (reminder_id,))
+    await conn.commit()

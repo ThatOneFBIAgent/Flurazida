@@ -22,6 +22,7 @@ from database.items import SHOP_ITEMS
 
 SHOP_PAGE_TIMEOUT = 180
 
+# Classes (Views, etc.)
 
 class ShopView(discord.ui.View):
     def __init__(self, user_id, page=0):
@@ -120,6 +121,8 @@ class ShopView(discord.ui.View):
         leet_dict = {"4": "a", "3": "e", "1": "i", "0": "o", "5": "s", "7": "t"}
         return re.sub(r"[431057]", lambda x: leet_dict[x.group()], text)
         # gen no idea why i made this func i am so sorry
+
+# Commands
 
 class ShopCommands(app_commands.Group):
     def __init__(self):

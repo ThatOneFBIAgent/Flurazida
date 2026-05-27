@@ -34,13 +34,20 @@ from extraconfig import BOT_OWNER
 from logging_modules.custom_logger import get_logger
 from utils.roll_logic import execute_roll
 from utils.eightball_responses import EIGHTBALL_RESPONSES
+from database.manager import add_reminder, get_due_reminders, delete_reminder
+from commands.moderator import parse_duration
+from discord.ext import tasks
 
 log = get_logger()
+
+# Constants/cache
 
 exchange_cache = {}
 CACHE_DURATION = 86400
 MAX_AMOUNT = 1e8
 MAX_VALUE = 1e8
+
+# Commands
 
 class FunCommands(app_commands.Group):
     def __init__(self, bot):
@@ -1287,12 +1294,54 @@ class FunCommands(app_commands.Group):
             log.error(f'Bored error: {e}')
             return await interaction.followup.send(f'❌ No activity today folks! Reason: {e}', ephemeral=True)
 
+    @app_commands.command(name="reminder", description="Set a reminder")
+    @app_commands.describe(time_str="Time in relative format (e.g. 10m, 1h) or timestamp", message="The message to remind you")
+    @cooldown(cl=5, tm=5.0, ft=3)
+    async def reminder(self, interaction: Interaction, time_str: str, message: str):
+        await interaction.response.defer(ephemeral=False)
+        duration = parse_duration(time_str)
+        if duration is None:
+            return await interaction.followup.send("❌ Invalid time format. Try things like `10m`, `1h30m`, `2d`.")
+            
+        due_time = int(time.time()) + duration
+        if duration > 31536000 * 5: 
+            return await interaction.followup.send("❌ Reminder is too far in the future.")
+            
+        await add_reminder(interaction.user.id, interaction.channel.id, message, due_time)
+        dt = datetime.fromtimestamp(due_time).strftime("%Y-%m-%d %H:%M:%S")
+        await interaction.followup.send(f"✅ Okay, I will remind you on **{dt}** (in {duration} seconds).")
+
 class FunCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.check_reminders.start()
     
     async def cog_load(self):
         self.bot.tree.add_command(FunCommands(self.bot))
+
+    def cog_unload(self):
+        self.check_reminders.cancel()
+
+    @tasks.loop(seconds=30)
+    async def check_reminders(self):
+        try:
+            current_time = int(time.time())
+            due = await get_due_reminders(current_time)
+            for reminder in due:
+                r_id, u_id, c_id, msg = reminder
+                channel = self.bot.get_channel(c_id)
+                if channel:
+                    try:
+                        await channel.send(f"🔔 <@{u_id}> **Reminder!**\n> {msg}")
+                    except:
+                        pass
+                await delete_reminder(r_id)
+        except Exception as e:
+            log.error(f"Error in check_reminders loop: {e}")
+
+    @check_reminders.before_loop
+    async def before_check_reminders(self):
+        await self.bot.wait_until_ready()
 
 async def setup(bot):
     await bot.add_cog(FunCog(bot))

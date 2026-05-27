@@ -24,6 +24,8 @@ log = get_logger()
 
 DEBT_FLOOR = -1000  # Minimum allowed balance
 
+# Classes (Views, etc.)
+
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
         super().__init__(timeout=90)
@@ -86,6 +88,63 @@ class PlayAgainView(ui.View):
                 await self.message.edit(view=self)
         except:
             pass  # Message might be deleted or we don't have permission
+
+class DoubleOrNothingView(ui.View):
+    def __init__(self, user_id, bet, current_multiplier, current_prob):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.bet = bet
+        self.current_multiplier = current_multiplier
+        self.current_prob = current_prob
+
+    @ui.button(label="Double", style=discord.ButtonStyle.success)
+    async def double(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("🚫 Not your game!", ephemeral=True)
+            
+        if random.random() < self.current_prob:
+            new_multiplier = self.current_multiplier * 2
+            new_prob = self.current_prob * 0.75 
+            
+            view = DoubleOrNothingView(self.user_id, self.bet, new_multiplier, new_prob)
+            embed = discord.Embed(title="Double or Nothing", color=discord.Color.green())
+            embed.description = f"🎉 **You won!**\n\nCurrent Multiplier: **{new_multiplier}x**\nPotential Winnings: **{self.bet * new_multiplier:,}**\n\nNext win probability: **{new_prob*100:.1f}%**"
+            
+            await interaction.response.edit_message(embed=embed, view=view)
+        else:
+            for child in self.children:
+                child.disabled = True
+            
+            embed = discord.Embed(title="Double or Nothing", color=discord.Color.red())
+            embed.description = f"💥 **You lost!**\n\nYou busted at **{self.current_multiplier}x** multiplier and lost your **{self.bet:,}** bet."
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    @ui.button(label="Cash Out", style=discord.ButtonStyle.primary)
+    async def cash_out(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("🚫 Not your game!", ephemeral=True)
+            
+        for child in self.children:
+            child.disabled = True
+            
+        winnings = self.bet * self.current_multiplier
+        await update_balance(self.user_id, winnings)
+        
+        embed = discord.Embed(title="Double or Nothing", color=discord.Color.gold())
+        embed.description = f"💰 **Cashed Out!**\n\nYou walked away with **{winnings:,}** coins ({self.current_multiplier}x multiplier)."
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+        
+    async def on_timeout(self):
+        for item in self.children:
+            if isinstance(item, ui.Button):
+                item.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except:
+            pass
 
 class HighLowView(ui.View):
     def __init__(self, user_id, bet, current_card, callback):
@@ -212,6 +271,8 @@ class HighLowView(ui.View):
 
         await self.end_game(interaction, won, next_card, boost_triggered=boost_triggered, chicken_cursed=chicken_cursed)
 
+# Helper
+
 async def resolve_bet_input(bet_input, user_id):
     """
     Accepts a user-provided bet (string or int).
@@ -239,6 +300,8 @@ async def resolve_bet_input(bet_input, user_id):
     if b > max(0, bal):  # Can't bet more than available positive funds
         return None
     return b
+
+# Commands
 
 class GamblingCommands(app_commands.Group):
     def __init__(self, bot):
@@ -1101,10 +1164,39 @@ class GamblingCommands(app_commands.Group):
             description=result_text,
             color=color_hex
         )
-        embed.set_footer(text=f"Bet: {bet} on {choice.title()}")
+        embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
-        view = PlayAgainView(self.run_roulette, user_id, bet, choice_str)
+        view = PlayAgainView(self.run_roulette, user_id, bet=bet, bet_type=bet_type, target=target)
         await msg.edit(content=None, embed=embed, view=view)
+        view.message = msg
+
+    @app_commands.command(name="doubleornothing", description="Risk it all for double or nothing!")
+    @app_commands.describe(bet="Amount to bet")
+    @cooldown(cl=5, tm=60.0, ft=3)
+    async def doubleornothing(self, interaction: discord.Interaction, bet: int):
+        await self.run_doubleornothing(interaction, bet)
+
+    async def run_doubleornothing(self, interaction: discord.Interaction, bet: int):
+        user_id = interaction.user.id
+        if bet <= 0:
+            return await interaction.response.send_message("❌ Bet must be greater than zero.", ephemeral=True)
+            
+        deducted = await atomic_deduct(user_id, bet)
+        if not deducted:
+            return await interaction.response.send_message(f"❌ You don't have enough coins! You need **{bet:,}**.", ephemeral=True)
+            
+        initial_prob = 0.5
+        view = DoubleOrNothingView(user_id, bet, 1, initial_prob)
+        
+        embed = discord.Embed(title="Double or Nothing", color=discord.Color.blue())
+        embed.description = f"You bet **{bet:,}** coins.\n\nCurrent Multiplier: **1x**\nNext win probability: **{initial_prob*100:.1f}%**\n\nDare to double?"
+        
+        if interaction.response.is_done():
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
+        else:
+            await interaction.response.send_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
 
     @app_commands.command(name="roulette", description="Spin the roulette wheel! (red/black, odd/even, 1st/2nd/3rd, 0-36)")
     @app_commands.describe(choice="What to bet on: red, black, odd, even, 1st, 2nd, 3rd, or a number 0-36")

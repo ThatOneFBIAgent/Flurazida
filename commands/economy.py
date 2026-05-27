@@ -2,6 +2,7 @@
 import asyncio
 import random
 import time
+import math
 
 
 # Third-Party Imports
@@ -11,7 +12,10 @@ from discord.ext import commands
 
 
 # Local Imports
+from discord.ext import tasks
+from database.manager import db
 from database import (
+    get_top_global_wealth,
     get_balance,
     update_balance,
     add_user,
@@ -45,11 +49,21 @@ from logging_modules.custom_logger import get_logger
 log = get_logger()
 from discord import ui
 
-# ===================== Constants =====================
+# Constants 
 DAILY_COOLDOWN    = 43_200      # 12 hours — the minimum gap between claims
 DAILY_STREAK_RESET = 129_600    # 36 h gap resets daily streak
 MONTHLY_COOLDOWN  = 2_548_800   # ~29.5 days (30 days − 12 h margin of error)
 WEEKLY_COOLDOWN   = 561_600      # 6.5 days (7 days - 12 h margin of error)
+
+RANK_PREFIXES = {
+    1: "🥇",
+    2: "🥈",
+    3: "🥉",
+    4: "4️⃣",
+    5: "5️⃣",
+}
+
+# Classes (Views, Paginators, etc.)
 
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
@@ -111,6 +125,7 @@ class PlayAgainView(ui.View):
                 await self.message.edit(view=self)
         except:
             pass  # Message might be deleted or we don't have permission
+
 _heist_victim_cooldowns = {}
 _rob_victim_cooldowns = {}
 
@@ -237,6 +252,90 @@ class HeistView(ui.View):
             
         await interaction.response.edit_message(embed=embed, view=self)
 
+class LeaderboardPaginator(discord.ui.View):
+    def __init__(self, data, title, is_server, interaction):
+        super().__init__(timeout=120)
+        self.data = data
+        self.title = title
+        self.is_server = is_server
+        self.interaction = interaction
+        self.current_page = 0
+        self.items_per_page = 5
+        self.max_pages = math.ceil(len(self.data) / self.items_per_page)
+        if self.max_pages == 0:
+            self.max_pages = 1
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.prev_btn.disabled = self.current_page == 0
+        self.next_btn.disabled = self.current_page >= self.max_pages - 1
+
+    def generate_embed(self):
+        embed = discord.Embed(title=self.title, color=discord.Color.gold())
+        start_idx = self.current_page * self.items_per_page
+        page_data = self.data[start_idx:start_idx + self.items_per_page]
+
+        if not page_data:
+            embed.description = "No one has any money!"
+            return embed
+
+        desc = ""
+        for i, (uid, wealth) in enumerate(page_data, start_idx + 1):
+            name = f"User {uid}"
+            if self.is_server:
+                member = self.interaction.guild.get_member(uid)
+                if member:
+                    name = member.display_name
+            else:
+                user = self.interaction.client.get_user(uid)
+                if user:
+                    name = user.name
+            prefix = RANK_PREFIXES.get(i, f"**{i}.**")
+            desc += f"{prefix} {name} — 💰 **{wealth:,}**\n"
+
+        embed.description = desc
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self.max_pages}")
+        return embed
+
+    @discord.ui.button(label="◀️", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.max_pages - 1:
+            self.current_page += 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+# Helpers
+
+def wallet_emoji(balance: int) -> str:
+    """Returns a contextual emoji based on wallet balance."""
+    if balance < 0:      return "💸"   # in debt
+    if balance == 0:     return "🪙"   # dead broke
+    if balance < 500:    return "💵"   # a little something
+    if balance < 5_000:  return "💰"   # comfortable
+    if balance < 50_000: return "🤑"   # doing well
+    if balance < 500_000: return "💎" # stacked
+    return "👑"                        # obscene wealth
+
+def bank_emoji(bank: int, bank_max: int) -> str:
+    """Returns a contextual emoji based on bank fill percentage."""
+    if bank_max <= 0:
+        return "🏦"
+    pct = bank / bank_max
+    if pct == 0:         return "🏚️"   # empty vault
+    if pct < 0.25:       return "🏦"   # mostly empty
+    if pct < 0.50:       return "🏛️"   # quarter full
+    if pct < 0.80:       return "💼"   # half full
+    if pct < 1.0:        return "🔐"   # nearly full
+    return "🏴‍☠️"                       # totally maxed
+
+# Commands
 
 class EconomyCommands(app_commands.Group):
     def __init__(self):
@@ -622,13 +721,16 @@ class EconomyCommands(app_commands.Group):
         bank = await get_bank(target_id)
         bank_max = await get_bank_max(target_id)
         
+        w_emoji = wallet_emoji(wallet)
+        b_emoji = bank_emoji(bank, bank_max)
+
         embed = discord.Embed(
-            title=f"💰 {target.display_name}'s Balance",
+            title=f"{w_emoji} {target.display_name}'s Balance",
             color=discord.Color.green()
         )
         embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(name="💵 Wallet", value=f"💰 `{wallet:,}` coins", inline=True)
-        embed.add_field(name="🏦 Bank", value=f"💰 `{bank:,}` / `{bank_max:,}` coins", inline=True)
+        embed.add_field(name=f"{w_emoji} Wallet", value=f"💰 `{wallet:,}` coins", inline=True)
+        embed.add_field(name=f"{b_emoji} Bank", value=f"💰 `{bank:,}` / `{bank_max:,}` coins", inline=True)
         embed.add_field(name="📊 Total", value=f"💰 `{wallet + bank:,}` coins", inline=False)
         
         await interaction.followup.send(embed=embed)
@@ -1108,14 +1210,72 @@ class EconomyCommands(app_commands.Group):
     async def monthly(self, interaction: discord.Interaction):
         await self.run_monthly(interaction)
 
+    @app_commands.command(name="leaderboard", description="View the wealthiest users.")
+    @app_commands.choices(scope=[
+        app_commands.Choice(name="Global", value="global"),
+        app_commands.Choice(name="Server", value="server"),
+    ])
+    @cooldown(cl=10, tm=10.0, ft=3)
+    async def leaderboard(self, interaction: discord.Interaction, scope: app_commands.Choice[str] = None):
+        scope_val = scope.value if scope else "global"
+        await interaction.response.defer(ephemeral=False)
 
+        if scope_val == "global":
+            if hasattr(self, "cog") and self.cog.global_leaderboard_cache:
+                top_users = self.cog.global_leaderboard_cache
+            else:
+                top_users = await get_top_global_wealth(50)
+            top_users = top_users[:50]
+            title = "🌍 Global Economy Leaderboard"
+            view = LeaderboardPaginator(top_users, title, False, interaction)
+            await interaction.followup.send(embed=view.generate_embed(), view=view)
+        else:
+            if not interaction.guild:
+                return await interaction.followup.send("❌ You can only view the server leaderboard inside a server.")
+
+            member_ids = [m.id for m in interaction.guild.members if not m.bot]
+            if not member_ids:
+                return await interaction.followup.send("No valid members found.")
+
+            conn = await db.get_economy()
+            if len(member_ids) > 900:
+                member_ids = member_ids[:900]
+
+            placeholders = ",".join("?" for _ in member_ids)
+            async with conn.execute(
+                f"SELECT user_id, balance + bank AS wealth FROM users WHERE user_id IN ({placeholders}) ORDER BY wealth DESC LIMIT 50",
+                tuple(member_ids)
+            ) as cursor:
+                top_users = await cursor.fetchall()
+
+            title = f"🏢 {interaction.guild.name} Leaderboard"
+            view = LeaderboardPaginator(top_users, title, True, interaction)
+            await interaction.followup.send(embed=view.generate_embed(), view=view)
 
 class EconomyCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.global_leaderboard_cache = []
+        self.update_leaderboard.start()
     
     async def cog_load(self):
-        self.bot.tree.add_command(EconomyCommands())
+        economy_cmds = EconomyCommands()
+        economy_cmds.cog = self
+        self.bot.tree.add_command(economy_cmds)
+
+    def cog_unload(self):
+        self.update_leaderboard.cancel()
+
+    @tasks.loop(minutes=15)
+    async def update_leaderboard(self):
+        try:
+            self.global_leaderboard_cache = await get_top_global_wealth(100)
+        except Exception as e:
+            log.error(f"Failed to update economy leaderboard cache: {e}")
+
+    @update_leaderboard.before_loop
+    async def before_update_leaderboard(self):
+        await self.bot.wait_until_ready()
 
 async def setup(bot):
     await bot.add_cog(EconomyCog(bot))

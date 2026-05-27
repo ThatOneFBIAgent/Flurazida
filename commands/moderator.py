@@ -26,6 +26,7 @@ from logging_modules.custom_logger import get_logger
 
 log = get_logger()
 
+# Helpers
 
 def parse_duration(duration_str: str) -> Optional[int]:
     """
@@ -136,6 +137,7 @@ async def check_moderation_target(
 
     return None
 
+# Commands
 
 class ModeratorCommands(app_commands.Group):
     def __init__(self, bot):
@@ -710,6 +712,139 @@ class ModeratorCommands(app_commands.Group):
         except Exception as e:
             log.error(f"WHOIS failed for {member}: {e}", exc_info=True)
             await interaction.followup.send("❌ Failed to fetch user info. Check logs for details.", ephemeral=True)
+
+    @app_commands.command(name="nickname", description="Change a user's nickname")
+    @app_commands.describe(target="The user to nickname", name="The new nickname (leave empty to reset)")
+    @app_commands.default_permissions(manage_nicknames=True)
+    async def nickname(self, interaction: Interaction, target: discord.Member, name: str = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command must be used in a server.", ephemeral=True)
+            
+        err = await check_moderation_target(interaction, target, self.bot, "change nickname", check_self=False)
+        if err:
+            return await interaction.response.send_message(err, ephemeral=True)
+            
+        try:
+            await target.edit(nick=name)
+            log.success(f"Nickname of {target.id} changed to {name} by {interaction.user.id}")
+            if name:
+                await interaction.response.send_message(f"✅ Changed {target.mention}'s nickname to **{name}**.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"✅ Reset {target.mention}'s nickname.", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ I don't have permission to change that user's nickname.", ephemeral=True)
+        except Exception as e:
+            log.error(f"Failed to change nickname: {e}")
+            await interaction.response.send_message("❌ Something went wrong.", ephemeral=True)
+
+    @app_commands.command(name="history", description="View moderation history for a user")
+    @app_commands.describe(target="The user to check")
+    @app_commands.default_permissions(manage_messages=True)
+    async def history(self, interaction: Interaction, target: discord.Member):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command must be used in a server.", ephemeral=True)
+            
+        await interaction.response.defer(ephemeral=False)
+        cases = await get_cases_for_user(interaction.guild.id, target.id)
+        
+        if not cases:
+            return await interaction.followup.send(f"✅ {target.mention} has a clean record!")
+            
+        embed = discord.Embed(title=f"Moderation History: {target.display_name}", color=discord.Color.blue())
+        desc = ""
+        for c in cases[:15]: 
+            c_num, c_reason, c_action, c_ts, _c_mod, _c_exp = c
+            dt = datetime.datetime.fromtimestamp(c_ts).strftime("%Y-%m-%d")
+            desc += f"`#{c_num}` **{c_action.upper()}** on {dt} - {c_reason}\n"
+            
+        if len(cases) > 15:
+            desc += f"\n*...and {len(cases) - 15} more cases.*"
+            
+        embed.description = desc
+        embed.set_thumbnail(url=target.display_avatar.url)
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="lockdown", description="Lockdown the current channel, category, or server.")
+    @app_commands.choices(scope=[
+        app_commands.Choice(name="Channel", value="channel"),
+        app_commands.Choice(name="Category", value="category"),
+        app_commands.Choice(name="Server", value="server"),
+    ], action=[
+        app_commands.Choice(name="Lock", value="lock"),
+        app_commands.Choice(name="Unlock", value="unlock"),
+    ])
+    @app_commands.default_permissions(manage_channels=True)
+    async def lockdown(self, interaction: Interaction, scope: app_commands.Choice[str] = None, action: app_commands.Choice[str] = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command must be used in a server.", ephemeral=True)
+            
+        scope_val = scope.value if scope else "channel"
+        action_val = action.value if action else "lock"
+        is_lock = (action_val == "lock")
+        
+        await interaction.response.defer(ephemeral=False)
+        
+        channels_to_lock = []
+        if scope_val == "channel":
+            channels_to_lock = [interaction.channel]
+        elif scope_val == "category":
+            if not interaction.channel.category:
+                channels_to_lock = [interaction.channel]
+            else:
+                channels_to_lock = interaction.channel.category.channels
+        else:
+            channels_to_lock = interaction.guild.channels
+            
+        locked_count = 0
+        for channel in channels_to_lock:
+            if not isinstance(channel, (discord.TextChannel, discord.ForumChannel, discord.Thread)):
+                continue
+                
+            try:
+                if isinstance(channel, discord.Thread):
+                    if is_lock:
+                        await channel.edit(locked=True, reason=f"Lockdown by {interaction.user}")
+                    else:
+                        await channel.edit(locked=False, reason=f"Unlockdown by {interaction.user}")
+                    locked_count += 1
+                    continue
+                    
+                overwrites = channel.overwrites
+                everyone_role = interaction.guild.default_role
+                everyone_ow = overwrites.get(everyone_role, discord.PermissionOverwrite())
+                
+                everyone_ow.send_messages = False if is_lock else None
+                everyone_ow.create_public_threads = False if is_lock else None
+                everyone_ow.send_messages_in_threads = False if is_lock else None
+                overwrites[everyone_role] = everyone_ow
+                
+                if is_lock:
+                    for target, ow in list(overwrites.items()):
+                        if isinstance(target, discord.Role) and target != everyone_role:
+                            if ow.send_messages == True:
+                                if not (target.permissions.manage_messages or target.permissions.administrator or target.permissions.manage_channels):
+                                    ow.send_messages = False
+                                    ow.create_public_threads = False
+                                    overwrites[target] = ow
+                else:
+                    for target, ow in list(overwrites.items()):
+                        if isinstance(target, discord.Role) and target != everyone_role:
+                            if ow.send_messages == False:
+                                if not (target.permissions.manage_messages or target.permissions.administrator or target.permissions.manage_channels):
+                                    ow.send_messages = None
+                                    ow.create_public_threads = None
+                                    overwrites[target] = ow
+                
+                await channel.edit(overwrites=overwrites, reason=f"{action_val.title()} by {interaction.user}")
+                locked_count += 1
+                await asyncio.sleep(0.5)
+            except discord.Forbidden:
+                pass
+            except Exception as e:
+                log.error(f"Lockdown error on channel {channel.name}: {e}")
+                
+        emoji = "🔒" if is_lock else "🔓"
+        await interaction.followup.send(f"{emoji} {action_val.title()} applied to {locked_count} channels in `{scope_val}` scope.")
 
 
 class ModeratorCog(commands.Cog):
