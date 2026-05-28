@@ -584,6 +584,8 @@ def find_unique_command_by_name(name: str):
     matches = []
 
     def walk(command):
+        if getattr(command, "qualified_name", "").startswith("shop "):
+            return
         if command.name.lower() == name and not isinstance(command, app_commands.Group):
             matches.append(command)
         if isinstance(command, app_commands.Group):
@@ -611,32 +613,55 @@ async def handle_prefix_command(message: discord.Message):
         
     cmd = None
     args_start_idx = 0
-    node = None
-    
-    for i, token in enumerate(tokens):
-        token_lower = token.lower()
-        found = None
-        if node is None:
-            for c in bot.tree.get_commands():
-                if c.name.lower() == token_lower:
-                    found = c
-                    break
-        elif isinstance(node, app_commands.Group):
-            for c in node.commands:
-                if c.name.lower() == token_lower:
-                    found = c
-                    break
-                    
-        if found is not None:
-            node = found
-            args_start_idx = i + 1
-            if isinstance(node, app_commands.Group):
-                continue
-            if isinstance(node, app_commands.Command):
-                cmd = node
+
+    # Special handling for shop prefix command exclusions (e.g. f!shop, f!shop buy)
+    if tokens[0].lower() == "shop":
+        shop_group = None
+        for c in bot.tree.get_commands():
+            if c.name.lower() == "shop" and isinstance(c, app_commands.Group):
+                shop_group = c
                 break
-        else:
-            break
+        if shop_group:
+            has_subcommand = False
+            if len(tokens) > 1 and tokens[1].lower() in ("buy", "use", "view"):
+                has_subcommand = True
+            
+            if not has_subcommand:
+                view_cmd = None
+                for c in shop_group.commands:
+                    if c.name.lower() == "view":
+                        view_cmd = c
+                        break
+                if view_cmd:
+                    cmd = view_cmd
+                    args_start_idx = 1
+
+    if cmd is None:
+        node = None
+        for i, token in enumerate(tokens):
+            token_lower = token.lower()
+            found = None
+            if node is None:
+                for c in bot.tree.get_commands():
+                    if c.name.lower() == token_lower:
+                        found = c
+                        break
+            elif isinstance(node, app_commands.Group):
+                for c in node.commands:
+                    if c.name.lower() == token_lower:
+                        found = c
+                        break
+                        
+            if found is not None:
+                node = found
+                args_start_idx = i + 1
+                if isinstance(node, app_commands.Group):
+                    continue
+                if isinstance(node, app_commands.Command):
+                    cmd = node
+                    break
+            else:
+                break
             
     if not isinstance(cmd, app_commands.Command):
         if tokens:

@@ -34,8 +34,8 @@ from extraconfig import BOT_OWNER
 from logging_modules.custom_logger import get_logger
 from utils.roll_logic import execute_roll
 from utils.eightball_responses import EIGHTBALL_RESPONSES
+from utils.duration import parse_duration
 from database.manager import add_reminder, get_due_reminders, delete_reminder
-from commands.moderator import parse_duration
 from discord.ext import tasks
 
 log = get_logger()

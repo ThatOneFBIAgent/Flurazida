@@ -304,3 +304,103 @@ class TestPrefixCommandExecution:
                 mock_cmd._invoke_error_handlers.assert_called_once_with(ANY, error)
                 mock_on_error.assert_called_once_with(ANY, error)
 
+
+class MockAppCommand(discord.app_commands.Command):
+    def __init__(self, name, parameters, qualified_name=None):
+        super().__init__(name=name, description="mock", callback=lambda x: None)
+        self._mock_parameters = parameters
+        self._mock_qualified_name = qualified_name or name
+        self._invoke_with_namespace = AsyncMock()
+        self._invoke_error_handlers = AsyncMock(return_value=False)
+
+    @property
+    def parameters(self):
+        return self._mock_parameters
+
+    @property
+    def qualified_name(self):
+        return self._mock_qualified_name
+
+
+class MockAppGroup(discord.app_commands.Group):
+    def __init__(self, name, commands):
+        super().__init__(name=name)
+        self._mock_commands = commands
+
+    @property
+    def commands(self):
+        return self._mock_commands
+
+
+class TestShopPrefixExclusions:
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    async def test_shop_view_no_subcommand(self, mock_blacklist):
+        """f!shop should run shop view command"""
+        mock_view_cmd = MockAppCommand("view", [], qualified_name="shop view")
+        mock_buy_cmd = MockAppCommand("buy", [MockParameter("item", discord.AppCommandOptionType.string)], qualified_name="shop buy")
+        mock_shop_group = MockAppGroup("shop", [mock_view_cmd, mock_buy_cmd])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_shop_group]):
+            message = AsyncMock()
+            message.content = "f!shop"
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            mock_view_cmd._invoke_with_namespace.assert_called_once()
+            mock_buy_cmd._invoke_with_namespace.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    async def test_shop_buy_subcommand(self, mock_blacklist):
+        """f!shop buy 'padlocked wallet' should run shop buy command"""
+        mock_view_cmd = MockAppCommand("view", [], qualified_name="shop view")
+        mock_buy_cmd = MockAppCommand("buy", [
+            MockParameter("item_name", discord.AppCommandOptionType.string, required=True),
+            MockParameter("quantity", discord.AppCommandOptionType.integer, required=False)
+        ], qualified_name="shop buy")
+        mock_shop_group = MockAppGroup("shop", [mock_view_cmd, mock_buy_cmd])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_shop_group]):
+            message = AsyncMock()
+            message.content = 'f!shop buy "padlocked wallet" 10'
+            message.guild = MagicMock()
+            message.attachments = []
+
+            await handle_prefix_command(message)
+
+            mock_buy_cmd._invoke_with_namespace.assert_called_once()
+            called_interaction, called_namespace = mock_buy_cmd._invoke_with_namespace.call_args[0]
+            assert called_namespace.item_name == "padlocked wallet"
+            assert called_namespace.quantity == 10
+            mock_view_cmd._invoke_with_namespace.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("main.global_blacklist_check", return_value=True)
+    async def test_shop_subcommands_fallback_exclusions(self, mock_blacklist):
+        """f!buy and f!view should be invalid (not fall back to shop subcommands)"""
+        mock_view_cmd = MockAppCommand("view", [], qualified_name="shop view")
+        mock_buy_cmd = MockAppCommand("buy", [MockParameter("item", discord.AppCommandOptionType.string)], qualified_name="shop buy")
+        mock_shop_group = MockAppGroup("shop", [mock_view_cmd, mock_buy_cmd])
+
+        with patch.object(bot.tree, "get_commands", return_value=[mock_shop_group]):
+            # Test f!buy
+            message_buy = AsyncMock()
+            message_buy.content = "f!buy wallet"
+            message_buy.guild = MagicMock()
+            message_buy.attachments = []
+
+            await handle_prefix_command(message_buy)
+            mock_buy_cmd._invoke_with_namespace.assert_not_called()
+
+            # Test f!view
+            message_view = AsyncMock()
+            message_view.content = "f!view"
+            message_view.guild = MagicMock()
+            message_view.attachments = []
+
+            await handle_prefix_command(message_view)
+            mock_view_cmd._invoke_with_namespace.assert_not_called()
+

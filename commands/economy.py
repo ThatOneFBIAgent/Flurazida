@@ -260,7 +260,7 @@ class LeaderboardPaginator(discord.ui.View):
         self.is_server = is_server
         self.interaction = interaction
         self.current_page = 0
-        self.items_per_page = 5
+        self.items_per_page = 10
         self.max_pages = math.ceil(len(self.data) / self.items_per_page)
         if self.max_pages == 0:
             self.max_pages = 1
@@ -1215,7 +1215,7 @@ class EconomyCommands(app_commands.Group):
         app_commands.Choice(name="Global", value="global"),
         app_commands.Choice(name="Server", value="server"),
     ])
-    @cooldown(cl=10, tm=10.0, ft=3)
+    @cooldown(cl=10, tm=15.0, ft=3)
     async def leaderboard(self, interaction: discord.Interaction, scope: app_commands.Choice[str] = None):
         scope_val = scope.value if scope else "global"
         await interaction.response.defer(ephemeral=False)
