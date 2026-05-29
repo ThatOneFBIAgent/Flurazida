@@ -63,32 +63,39 @@ RANK_PREFIXES = {
     5: "5️⃣",
 }
 
+# run_* callback -> (slash @cooldown command name, seconds)
+PLAY_AGAIN_COOLDOWNS = {
+    "run_crime": ("crime", 8),
+    "run_slut": ("slut", 10),
+    "run_work": ("work", 7),
+}
+
+
+def _play_again_timeout(cooldown_seconds: float) -> float:
+    return max(30.0, float(cooldown_seconds) + 25.0)
+
+
 # Classes (Views, Paginators, etc.)
 
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
-        super().__init__(timeout=30) # adjust at your own risk people WILL spam this
         self.callback = callback
         self.user_id = user_id
         self.args = args
         self.kwargs = kwargs
+        self.cooldown_key, self.cooldown_seconds = PLAY_AGAIN_COOLDOWNS.get(
+            callback.__name__, (callback.__name__, 5)
+        )
+        super().__init__(timeout=_play_again_timeout(self.cooldown_seconds))
 
     @ui.button(label="🔄 Do Again", style=discord.ButtonStyle.primary)
     async def play_again(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("🚫 This isn't your command!", ephemeral=True)
-        
-        # Cooldown mapping for economy commands
-        cooldowns = {
-            'run_crime': 8,
-            'run_slut': 10,
-            'run_work': 7
-        }
-        
-        cmd_name = self.callback.__name__
-        cl_duration = cooldowns.get(cmd_name, 5) # default 5s
-        
-        is_on_cooldown, retry_after = check_cooldown(self.user_id, cmd_name, cl_duration)
+
+        is_on_cooldown, retry_after = check_cooldown(
+            self.user_id, self.cooldown_key, self.cooldown_seconds
+        )
         if is_on_cooldown:
             return await interaction.response.send_message(
                 f"🕒 You're working too fast! Try again in {round(retry_after, 1)}s.",
@@ -105,9 +112,9 @@ class PlayAgainView(ui.View):
         except:
             pass  # Message might be deleted or inaccessible
         
-        # Update cooldown timestamp before running
-        update_cooldown(self.user_id, cmd_name)
-        
+        # Update cooldown timestamp before running (same key as @cooldown on slash commands)
+        update_cooldown(self.user_id, self.cooldown_key)
+
         # Run the callback with the new interaction (callback will respond)
         await self.callback(interaction, *self.args, **self.kwargs)
     

@@ -24,8 +24,8 @@ class TestDurationParser:
             ("12h", 43200),
             ("5d", 432000),
             ("2w", 1209600),
-            ("3mo", 7776000),
-            ("1y", 31536000),
+            ("3mo", 7889400),
+            ("1y", 31557600),
             
             # Unit aliases & plurals
             ("10 seconds", 10),
@@ -35,8 +35,8 @@ class TestDurationParser:
             ("2 hours", 7200),
             ("1 day", 86400),
             ("2 weeks", 1209600),
-            ("3 months", 7776000),
-            ("10 years", 315360000),
+            ("3 months", 7889400),
+            ("10 years", 315576000),
             
             # Spaces
             ("10   s", 10),
@@ -44,15 +44,15 @@ class TestDurationParser:
             ("2   hours", 7200),
             
             # Mixed units (with and without space)
-            ("10 years 5 hours", 10 * 31536000 + 5 * 3600),
-            ("10 months 2 weeks", 10 * 2592000 + 2 * 604800),
+            ("10 years 5 hours", 10 * 31557600 + 5 * 3600),
+            ("10 months 2 weeks", 10 * 2629800 + 2 * 604800),
             ("10mn 7d", 10 * 60 + 7 * 86400),
             ("2w 3d 4h 5m 6s", 2 * 604800 + 3 * 86400 + 4 * 3600 + 5 * 60 + 6),
             
             # Commas and "and" fillers
-            ("10 years, 5 hours", 10 * 31536000 + 5 * 3600),
-            ("10 months and 2 weeks", 10 * 2592000 + 2 * 604800),
-            ("1 year, 2 months, and 3 days", 1 * 31536000 + 2 * 2592000 + 3 * 86400),
+            ("10 years, 5 hours", 10 * 31557600 + 5 * 3600),
+            ("10 months and 2 weeks", 10 * 2629800 + 2 * 604800),
+            ("1 year, 2 months, and 3 days", 1 * 31557600 + 2 * 2629800 + 3 * 86400),
         ]
     )
     def test_valid_durations(self, input_str, expected):

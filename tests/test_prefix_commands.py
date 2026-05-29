@@ -131,6 +131,26 @@ class TestPrefixSystem:
         channel.send.assert_called_with(content="Followup content", embed=None, embeds=None, view=None)
         assert interaction._deferred_thinking is False
 
+    @pytest.mark.asyncio
+    async def test_fake_followup_send_accepts_wait_kwarg(self):
+        """Blackjack uses followup.send(..., wait=True) on prefix interactions."""
+        channel = AsyncMock()
+        message = MagicMock()
+        message.channel = channel
+        message.author = MagicMock()
+        message.guild = MagicMock()
+
+        interaction = FakeInteraction(message, MagicMock())
+        await interaction.response.defer()
+
+        followup_msg = MagicMock()
+        channel.send.return_value = followup_msg
+
+        result = await interaction.followup.send(
+            embed=MagicMock(), view=MagicMock(), wait=True
+        )
+        assert result is followup_msg
+
 
 class MockParameter:
     def __init__(self, name, opt_type, required=True, default=None, choices=None):

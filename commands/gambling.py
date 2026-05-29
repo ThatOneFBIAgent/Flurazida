@@ -24,35 +24,43 @@ log = get_logger()
 
 DEBT_FLOOR = -1000  # Minimum allowed balance
 
+# run_* callback -> (slash @cooldown command name, seconds)
+PLAY_AGAIN_COOLDOWNS = {
+    "run_blackjack": ("blackjack", 20),
+    "run_slots": ("slots", 5),
+    "run_coinflip": ("coinflip", 5),
+    "run_war": ("war", 5),
+    "run_highlow": ("highlow", 5),
+    "run_roulette": ("roulette", 5),
+}
+
+
+def _play_again_timeout(cooldown_seconds: float) -> float:
+    # Keep the button alive long enough to use after the command cooldown ends.
+    return max(90.0, float(cooldown_seconds) + 75.0)
+
+
 # Classes (Views, etc.)
 
 class PlayAgainView(ui.View):
     def __init__(self, callback, user_id, *args, **kwargs):
-        super().__init__(timeout=90)
         self.callback = callback
         self.user_id = user_id
         self.args = args
         self.kwargs = kwargs
+        self.cooldown_key, self.cooldown_seconds = PLAY_AGAIN_COOLDOWNS.get(
+            callback.__name__, (callback.__name__, 5)
+        )
+        super().__init__(timeout=_play_again_timeout(self.cooldown_seconds))
 
     @ui.button(label="🔄 Play Again", style=discord.ButtonStyle.primary)
     async def play_again(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("🚫 This isn't your game!", ephemeral=True)
-        
-        # Custom cooldown mapping for gambling commands
-        cooldowns = {
-            'run_blackjack': 20,
-            'run_slots': 5,
-            'run_coinflip': 5,
-            'run_war': 5,
-            'run_highlow': 5,
-            'run_roulette': 5
-        }
-        
-        cmd_name = self.callback.__name__
-        cl_duration = cooldowns.get(cmd_name, 5) # default 5s
-        
-        is_on_cooldown, retry_after = check_cooldown(self.user_id, cmd_name, cl_duration)
+
+        is_on_cooldown, retry_after = check_cooldown(
+            self.user_id, self.cooldown_key, self.cooldown_seconds
+        )
         if is_on_cooldown:
             return await interaction.response.send_message(
                 f"🕒 You're wagering too fast! Try again in {round(retry_after, 1)}s.",
@@ -69,9 +77,9 @@ class PlayAgainView(ui.View):
         except:
             pass  # Message might be deleted or inaccessible
         
-        # Update cooldown timestamp before running
-        update_cooldown(self.user_id, cmd_name)
-        
+        # Update cooldown timestamp before running (same key as @cooldown on slash commands)
+        update_cooldown(self.user_id, self.cooldown_key)
+
         # Run the callback with the new interaction (callback will respond)
         await self.callback(interaction, *self.args, **self.kwargs)
     
@@ -176,21 +184,20 @@ class HighLowView(ui.View):
         embed.description = f"Card was **{self.current_card}**. Next was **{next_card}**.\n\n{result}"
         embed.color = color
         
-        # Add Play Again button
-        self.clear_items()
-        self.add_item(PlayAgainView(self.callback, self.user_id, self.bet).children[0])
-        await interaction.response.edit_message(embed=embed, view=self)
+        again_view = PlayAgainView(self.callback, self.user_id, self.bet)
+        await interaction.response.edit_message(embed=embed, view=again_view)
+        again_view.message = interaction.message
 
     @ui.button(label="Higher ⬆️", style=discord.ButtonStyle.success)
     async def higher(self, interaction: discord.Interaction, button: ui.Button):
-        is_on_cooldown, retry_after = check_cooldown(self.user_id, "run_highlow", 5)
+        is_on_cooldown, retry_after = check_cooldown(self.user_id, "highlow", 5)
         if is_on_cooldown:
             return await interaction.response.send_message(
                 f"🕒 Slow down! Try again in {round(retry_after, 1)}s.",
                 ephemeral=True
             )
-        
-        update_cooldown(self.user_id, "run_highlow")
+
+        update_cooldown(self.user_id, "highlow")
         next_card = random.randint(1, 13)
         won = next_card >= self.current_card
         
@@ -228,14 +235,14 @@ class HighLowView(ui.View):
 
     @ui.button(label="Lower ⬇️", style=discord.ButtonStyle.danger)
     async def lower(self, interaction: discord.Interaction, button: ui.Button):
-        is_on_cooldown, retry_after = check_cooldown(self.user_id, "run_highlow", 5)
+        is_on_cooldown, retry_after = check_cooldown(self.user_id, "highlow", 5)
         if is_on_cooldown:
             return await interaction.response.send_message(
                 f"🕒 Slow down! Try again in {round(retry_after, 1)}s.",
                 ephemeral=True
             )
-        
-        update_cooldown(self.user_id, "run_highlow")
+
+        update_cooldown(self.user_id, "highlow")
         next_card = random.randint(1, 13)
         won = next_card <= self.current_card
         
@@ -357,6 +364,7 @@ class GamblingCommands(app_commands.Group):
                 # Switch to a proper PlayAgainView instead of stealing its button
                 view = PlayAgainView(self.start_new_game, self.user_id, self.bet)
                 await self.message.edit(embed=self.embed, view=view)
+                view.message = self.message
             else:
                 await self.message.edit(embed=self.embed, view=self)
 
@@ -728,6 +736,7 @@ class GamblingCommands(app_commands.Group):
 
         view = PlayAgainView(self.run_slots, user_id, bet)
         await suspense_msg.edit(content=None, embed=embed, view=view)
+        view.message = suspense_msg
 
     @app_commands.command(name="slots", description="Spin the slots!")
     @cooldown(cl=5, tm=200.0, ft=3)
@@ -817,7 +826,8 @@ class GamblingCommands(app_commands.Group):
         )
         
         view = PlayAgainView(self.run_coinflip, user_id, bet, choice)
-        await interaction.followup.send(embed=embed, view=view)
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
 
     @app_commands.command(name="coinflip", description="Flip a coin!")
     @app_commands.describe(choice="Heads or Tails")
@@ -932,7 +942,8 @@ class GamblingCommands(app_commands.Group):
         )
         
         view = PlayAgainView(self.run_war, user_id, bet)
-        await interaction.followup.send(embed=embed, view=view)
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
 
     @app_commands.command(name="war", description="Play a game of War (High card wins)")
     @cooldown(cl=5, tm=200.0, ft=3)
@@ -1166,7 +1177,7 @@ class GamblingCommands(app_commands.Group):
         )
         embed.set_footer(text=f"Requested by {interaction.user.display_name}")
 
-        view = PlayAgainView(self.run_roulette, user_id, bet=bet, bet_type=bet_type, target=target)
+        view = PlayAgainView(self.run_roulette, user_id, bet, choice)
         await msg.edit(content=None, embed=embed, view=view)
         view.message = msg
 

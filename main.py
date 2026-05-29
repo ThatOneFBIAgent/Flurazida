@@ -260,7 +260,7 @@ class FakeResponse:
     def is_done(self):
         return self.responded
 
-    async def send_message(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
+    async def send_message(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None, **kwargs):
         # If a prefix/fake interaction previously deferred, create the real
         # response now instead of having sent a "Thinking" message earlier.
         if getattr(self._interaction, "_deferred_thinking", False):
@@ -291,7 +291,16 @@ class FakeResponse:
                 self._interaction._response_message = None
 
         if self.responded:
-            return await self._interaction.followup.send(content=content, embed=embed, embeds=embeds, view=view, ephemeral=ephemeral, file=file, files=files)
+            return await self._interaction.followup.send(
+                content=content,
+                embed=embed,
+                embeds=embeds,
+                view=view,
+                ephemeral=ephemeral,
+                file=file,
+                files=files,
+                **kwargs,
+            )
         self.responded = True
         
         msg = await self._interaction.channel.send(
@@ -327,7 +336,7 @@ class FakeFollowup:
     def __init__(self, fake_interaction):
         self._interaction = fake_interaction
 
-    async def send(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None):
+    async def send(self, content=None, *, embed=None, embeds=None, view=None, ephemeral=False, file=None, files=None, wait=False, **kwargs):
         # Handle a previously-deferred prefix/fake interaction by creating
         # the real message now instead of editing a non-existent thinking
         # message.
