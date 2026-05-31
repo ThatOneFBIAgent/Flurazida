@@ -213,7 +213,7 @@ class ConfigSync:
     Usage:
         config_sync = ConfigSync(
             api_url=os.getenv("DASHBOARD_URL"),
-            bot_id="flurazide",
+            bot_id="my_bot",
             bot=bot,
         )
         asyncio.create_task(config_sync.run_forever())
@@ -228,7 +228,7 @@ class ConfigSync:
         bot_id: str,
         bot: "discord.Bot | discord.AutoShardedBot",
         *,
-        interval: int = 30,
+        interval: int = 60,
         on_maintenance_cleared=None,
     ):
         api_url = api_url.rstrip("/")
@@ -237,12 +237,15 @@ class ConfigSync:
         self.api_url = api_url
         self.bot_id = bot_id
         self.bot = bot
-        self.interval = interval
+        # Support configuring sync interval via environment variable, defaulting to a highly optimized 60 seconds
+        self.interval = int(os.getenv("DASHBOARD_SYNC_INTERVAL", str(interval)))
         self._cache: Dict[str, Dict[str, Any]] = {}  # guild_id -> settings
         self._session: Optional[aiohttp.ClientSession] = None
         self._last_sync: float = 0
         self.maintenance_mode: bool = False
         self._on_maintenance_cleared = on_maintenance_cleared
+        self._config_etag: Optional[str] = None
+        self._maintenance_etag: Optional[str] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -271,6 +274,10 @@ class ConfigSync:
                     logger.info("ConfigSync: Successfully pushed state for guild %s", guild_id)
                     # Update local cache to match what we just pushed
                     self._cache[str(guild_id)] = settings
+                    # Capture and store the new ETag immediately to prevent redundant pull in next sync loop
+                    new_etag = resp.headers.get("X-Config-ETag")
+                    if new_etag:
+                        self._config_etag = new_etag
                     return True
                 else:
                     logger.debug("Config push for guild %s returned %d", guild_id, resp.status)
@@ -319,7 +326,7 @@ class ConfigSync:
         return self._cache.get(str(guild_id), {})
 
     async def sync_all(self):
-        """Bulk pull config for all guilds the bot is in."""
+        """Bulk pull config for all guilds."""
         if not self.bot.is_ready():
             return
 
@@ -328,14 +335,23 @@ class ConfigSync:
         try:
             session = await self._get_session()
             
-            # Check maintenance status first
+            # Check maintenance status first with ETag support
             url_mt = f"{self.api_url}/config/maintenance"
-            async with session.get(url_mt) as resp_mt:
-                if resp_mt.status == 200:
+            headers_mt = {}
+            if self._maintenance_etag:
+                headers_mt["If-None-Match"] = self._maintenance_etag
+                
+            async with session.get(url_mt, headers=headers_mt) as resp_mt:
+                if resp_mt.status == 304:
+                    # Maintenance status has not changed
+                    pass
+                elif resp_mt.status == 200:
                     mt_data = await resp_mt.json()
                     self.maintenance_mode = mt_data.get("maintenance", False)
+                    self._maintenance_etag = resp_mt.headers.get("ETag")
                 elif resp_mt.status == 418:
                     self.maintenance_mode = True
+                    self._maintenance_etag = resp_mt.headers.get("ETag")
             
             if self.maintenance_mode:
                 if self._last_sync != -1: # Log only once
@@ -344,11 +360,20 @@ class ConfigSync:
                 return
 
             url = f"{self.api_url}/config/pull_all/{self.bot_id}"
-            async with session.get(url) as resp:
-                if resp.status == 200:
+            headers_pull = {}
+            if self._config_etag:
+                headers_pull["If-None-Match"] = self._config_etag
+
+            async with session.get(url, headers=headers_pull) as resp:
+                if resp.status == 304:
+                    # ETag matches! Config is completely unchanged.
+                    self._last_sync = time.monotonic()
+                    logger.debug("ConfigSync: ETag match (304) — local cache is already up-to-date.")
+                elif resp.status == 200:
                     data = await resp.json()
                     # Keep local cache clean by replacing it entirely
                     self._cache = data
+                    self._config_etag = resp.headers.get("ETag")
                     
                     self._last_sync = time.monotonic()
                     logger.info(
@@ -385,4 +410,3 @@ class ConfigSync:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
-
