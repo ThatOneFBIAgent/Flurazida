@@ -57,6 +57,16 @@ class FunCommands(app_commands.Group):
         psutil.cpu_percent(interval=None) 
         # channel_id: (comic_num, timestamp)
         self.xkcd_history = {}
+        # Per-user dice roll failure counter — cleared every 10 minutes
+        self._roll_fail_cache = {}
+        self._clear_roll_fail_cache.start()
+
+    def cog_unload(self):
+        self._clear_roll_fail_cache.cancel()
+
+    @tasks.loop(minutes=10)
+    async def _clear_roll_fail_cache(self):
+        self._roll_fail_cache.clear()
     # table tennis?
     @app_commands.command(name="ping", description="Check the bot's response time!")
     @cooldown(cl=10, tm=30.0, ft=3)
@@ -129,123 +139,177 @@ class FunCommands(app_commands.Group):
 
         # Quick help
         if dice.strip().lower() == "help":
-            HELP_TEXT = (
-                "🎲 **Dice Roller Help**\n\n"
-                "Syntax: combine terms with + or -: `1d20 + 1d4 - 2 + 3d6k2`\n\n"
-                "`XdY` — roll X Y-sided dice\n"
-                "`XdYkN` / `XdYD N` — keep highest N / drop lowest N (per-group). NOTE: **drop uses uppercase `D`** to avoid ambiguity with the dice `d`.\n\n"
-                "numeric terms like `+2` or `-1` are constants\n\n"
-                "`!` / `!!` / `!p` / `!!p` — explode / compound / penetrate / compound+penetrate\n"
-                "Simplified inputs, such as `20` will auto convert to a 1d20.\n"
-                "Tip: pass the slash option `expand=True` for a full breakdown."
-            )
-            help_embed = discord.Embed(title="🎲 Dice Roller Help", description=HELP_TEXT, color=0x3498db)
-            await interaction.followup.send(embed=help_embed, ephemeral=False)
+            help_pages = [
+                {
+                    "title": "🎯 Basics & 🔄 Rerolls",
+                    "fields": [
+                        ("🎯 Basics", "`d20` / `1d20` — roll 1 twenty-sided die\n`2d6+5` — roll 2d6 and add 5\n`d%` — percentile die (1-100)\n`2d6*2`, `2d6-3` — arithmetic on pools"),
+                        ("🔄 Rerolls", "`2d6r1` — reroll 1s (infinite)\n`2d6ro1` — reroll 1s (once)\n`2d6r<3` — reroll below 3\n`2d6r[1,2]` — reroll 1s and 2s\n`2d6r[1,2]o` — reroll list, once")
+                    ]
+                },
+                {
+                    "title": "💥 Exploding & 📊 Keep / Drop",
+                    "fields": [
+                        ("💥 Exploding", "`4d6!` — explode on max face\n`4d6!!` — compound explode\n`4d6!p` — penetrating explode\n`4d6!>4` — explode on 5+\n`4d6![6: 2d6, 5: 1d8]` — cascade"),
+                        ("📊 Keep / Drop", "`4d6kh3` — keep highest 3\n`4d6kl1` — keep lowest 1\n`4d6dh1` / `4d6dl1` — drop high/low\n`4d6k[gt3]` — keep dice > 3\n`4d6k[neq1,neq6]` — predicate keep")
+                    ]
+                },
+                {
+                    "title": "✅ Successes/Failures & 🧮 Advanced",
+                    "fields": [
+                        ("✅ Successes & Failures", "`5d10>=8` — count successes ≥ 8\n`5d10>=8f1` — minus failures on 1s\n`5d10>=8f<=2` — failures ≤ 2"),
+                        ("🧮 Advanced", "`4d6&2+3` — add 3 to first 2 dice\n`5d10[0]` — lowest die (index)\n`5d10[1:3]` — slice sorted pool\n`(4d6) vs (3d8)` — opposed rolls")
+                    ]
+                },
+                {
+                    "title": "🔗 Macros & 🏷️ Labels",
+                    "fields": [
+                        ("🔗 Sequences & Macros", "`[1d6 -> d8]` — chain rolls\n`adv(n) = nd20kh1; adv(2)+5`\nDefine macros, call nested: `f(f(2))`"),
+                        ("🏷️ Labels & Conditionals", "`(2d6+3):hit` — label a result\n`if hit>10 then 2d8 else 1d8`\nReference labels in expressions")
+                    ]
+                },
+                {
+                    "title": "🎰 Patterns & 🔀 Dependent Dice",
+                    "fields": [
+                        ("🎰 Patterns & Weights", "`4d6{3-of-a-kind: +5}` — set bonus\n`5d6{straight: x2}` — multiply\n`1d6{1:10, 6:100}` — remap faces"),
+                        ("🔀 Dependent Dice", "`4d6[r=1: 1d4]` — if any raw 1, +1d4\n`4d6[all=6: x2]` — if all 6s, x2\n`4d6[count>=3: 1d8]` — count trigger")
+                    ]
+                },
+                {
+                    "title": "🤯 Jesus Mode Examples",
+                    "fields": [
+                        ("Baby's First Roll", "`d20` — Classic, simple, clean."),
+                        ("The Stat Roller", "`4d6kh3` — Roll 4d6, keep the highest 3."),
+                        ("Overkill Fireball", "`8d6![6: 2d6]r1` — Roll 8d6. Reroll 1s. If you roll a 6, it explodes into 2 more d6s!"),
+                        ("The Casino", "`5d6{full-house: +10, straight: x2}` — Roll 5d6. If it's a full house, add 10. If it's a straight, double the total."),
+                        ("Absolute Jesus Mode", "`adv(n,s) = nd20kh1+s; if adv(2,5)>=18 then 4d6[all=6: x2] else 1d4` — Define a macro for advantage with a modifier. If it beats 18, roll a nuke that doubles on max rolls. Otherwise, take 1d4 damage in shame.")
+                    ]
+                }
+            ]
+
+            def get_roll_help_embed(page: int):
+                embed = discord.Embed(
+                    title=f"🎲 Dice Roller Syntax ({page+1}/{len(help_pages)})",
+                    description="Flurazide's dice roller supports advanced TTRPG notation.\nPass `expand=True` for a detailed breakdown.",
+                    color=0x3498db
+                )
+                page_data = help_pages[page]
+                for name, value in page_data["fields"]:
+                    embed.add_field(name=name, value=value, inline=False)
+                embed.set_footer(text="Tip: pass expand=True for a full breakdown of any roll.")
+                return embed
+
+            class RollHelpView(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=60)
+                    self.page = 0
+                    self.total_pages = len(help_pages)
+
+                @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary)
+                async def prev(self, i: discord.Interaction, b: discord.ui.Button):
+                    if self.page > 0:
+                        self.page -= 1
+                        await i.response.edit_message(embed=get_roll_help_embed(self.page), view=self)
+                    else:
+                        await i.response.defer()
+
+                @discord.ui.button(label="❌", style=discord.ButtonStyle.danger)
+                async def close(self, i: discord.Interaction, b: discord.ui.Button):
+                    await i.response.edit_message(content="Help menu closed.", embed=None, view=None)
+
+                @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary)
+                async def next(self, i: discord.Interaction, b: discord.ui.Button):
+                    if self.page < self.total_pages - 1:
+                        self.page += 1
+                        await i.response.edit_message(embed=get_roll_help_embed(self.page), view=self)
+                    else:
+                        await i.response.defer()
+
+                async def on_timeout(self):
+                    for item in self.children:
+                        item.disabled = True
+
+            await interaction.followup.send(embed=get_roll_help_embed(0), view=RollHelpView(), ephemeral=False)
             return
 
         # Execute roll using roll_logic.py
         try:
             roll_result = execute_roll(dice)
         except ValueError as e:
-            await interaction.followup.send(f"❌ **{str(e)}** Do /roll dice: help for syntax and examples", ephemeral=False)
+            # Track per-user failures for contextual help hint
+            uid = interaction.user.id
+            if not hasattr(self, '_roll_fail_cache'):
+                self._roll_fail_cache = {}
+            self._roll_fail_cache[uid] = self._roll_fail_cache.get(uid, 0) + 1
+            error_msg = f"❌ **{str(e)}**"
+            if self._roll_fail_cache[uid] >= 2:
+                error_msg += "\n💡 Stuck? Try passing `help` as the dice expression."
+            await interaction.followup.send(error_msg, ephemeral=False)
             return
         except Exception as e:
             log.error(f"Error executing roll: {e}", exc_info=True)
             await interaction.followup.send("❌ **An error occurred while rolling dice.**", ephemeral=False)
             return
 
-        group_summaries = roll_result["group_summaries"]
-        footer_keepdrop = roll_result["footer_keepdrop"]
-        ampersand_notes = roll_result["ampersand_notes"]
-        const_total = roll_result["const_total"]
-        pre_mod_total = roll_result["pre_mod_total"]
-        post_mod_total = roll_result["post_mod_total"]
+        # Clear fail counter on success
+        if hasattr(self, '_roll_fail_cache') and interaction.user.id in self._roll_fail_cache:
+            del self._roll_fail_cache[interaction.user.id]
 
-        # Build output
-        # CONTRACTED (simple): "@user rolled (dice): (result)"
+        total = roll_result["total"]
+        breakdown = roll_result["breakdown"]
+
+        # CONTRACTED (simple): "@user rolled `expr`: **total**"
         if not expand:
-            compact_parts = []
-            for gs in group_summaries:
-                if gs["kind"] == "const":
-                    # constants shown as their signed value/label
-                    compact_parts.append(f"{gs['label']}")
-                    continue
-
-                per_die = gs["details"]
-                die_texts = []
-                for d in per_die:
-                    # show explosion chains compactly (e.g. (6 + 4)=10) or single face values
-                    if len(d["chain_display"]) > 1:
-                        die_texts.append("(" + " + ".join(map(str, d["chain_display"])) + f")={d['pre_contrib']}")
-                    else:
-                        die_texts.append(str(d["pre_contrib"]))
-                compact_parts.append(f"{gs['label']}: " + ", ".join(die_texts))
-
-            simple_text = f"{interaction.user.mention} rolled `{dice}`: " + " | ".join(compact_parts)
-            if footer_keepdrop:
-                simple_text += "  _(keeps/drops applied — use expand for totals)_"
-            await interaction.followup.send(simple_text, ephemeral=False)
+            await interaction.followup.send(
+                f"{interaction.user.mention} rolled `{dice}`: **{total}**",
+                ephemeral=False
+            )
             return
 
-        # EXPANDED: Build embed with before/after and modifiers
-        embed = discord.Embed(title=f"🎲 Dice Roll — {interaction.user.display_name}", color=0x3498db)
-        # Before modifiers: per-group show each die's chain_display and pre_keep_sum (signed)
-        before_lines = []
-        for gs in group_summaries:
-            if gs["kind"] == "const":
-                before_lines.append(f"`{gs['label']}` → pre-keep sum: `{gs['pre_keep_sum']}`")
-                continue
-            # show each die (chain) before modifiers; indicate dropped dice too
-            per_die = gs["details"]
-            die_texts = []
-            for d in per_die:
-                if len(d["chain_display"]) > 1:
-                    die_texts.append("(" + " + ".join(map(str, d["chain_display"])) + f")={d['pre_contrib']}")
-                else:
-                    die_texts.append(str(d["pre_contrib"]))
-            before_lines.append(f"`{gs['label']}`: " + ", ".join(die_texts) + f" → pre-keep sum: `{gs['pre_keep_sum']}`")
+        # EXPANDED: Build rich embed with breakdown
+        embed = discord.Embed(
+            title=f"🎲 Dice Roll — {interaction.user.display_name}",
+            color=0x3498db
+        )
+        embed.add_field(name="📝 Expression", value=f"`{dice}`", inline=True)
+        embed.add_field(name="🎯 Result", value=f"**{total}**", inline=True)
 
-        embed.add_field(name="🔍 Before Modifiers", value="\n".join(before_lines), inline=False)
-
-        # Modifiers section
-        mod_lines = []
-        if ampersand_notes:
-            mod_lines.extend(ampersand_notes)
-        if footer_keepdrop:
-            mod_lines.append("Keep/Drop: " + ", ".join(footer_keepdrop))
-        mod_lines.append(f"Constants total: `{const_total}`")
-        if not mod_lines:
-            mod_lines = ["No modifiers applied"]
-        embed.add_field(name="✨ Modifiers Applied", value="\n".join(mod_lines), inline=False)
-
-        # After modifiers: per-group totals and final totals
-        after_lines = []
-        for idx, gs in enumerate(group_summaries):
-            if gs["kind"] == "const":
-                after_lines.append(f"`{gs['label']}` → `{gs['post_mod_sum']}`")
-                continue
-            after_lines.append(f"`{gs['label']}` → before: `{gs['pre_keep_sum']}` → after: `{gs['post_mod_sum']}`")
-
-        embed.add_field(name="🏁 After Modifiers", value="\n".join(after_lines), inline=False)
-        embed.add_field(name="📊 Totals", value=f"Pre-mod total: `{pre_mod_total}`\nPost-mod total: `{post_mod_total}`", inline=False)
+        # Breakdown — truncate if too long for embed field
+        if len(breakdown) > 900:
+            breakdown_display = breakdown[:897] + "..."
+        else:
+            breakdown_display = breakdown
+        embed.add_field(name="🔍 Breakdown", value=f"```{breakdown_display}```", inline=False)
 
         embed.set_footer(text=f"Dice rolled: {dice}")
-        # size-check (like before)
-        fields_too_long = any(len(field.value) > 1024 for field in embed.fields)
+
+        # Size-check for Discord limits
         total_embed_length = (
             len(embed.title or "") +
             len(embed.description or "") +
             sum((len(field.name or "") + len(field.value or "")) for field in embed.fields) +
             (len(embed.footer.text or "") if embed.footer else 0)
         )
-        too_long = fields_too_long or total_embed_length > 6000
-        if too_long:
+        if total_embed_length > 6000 or any(len(field.value) > 1024 for field in embed.fields):
             file = io.BytesIO(json.dumps(embed.to_dict(), indent=2).encode('utf-8'))
-            file.name = "dice_roll_embed.json"
             error_embed = discord.Embed(title="🎲 Dice Roll (Output to File)", color=0x3498db)
-            error_embed.add_field(name="⚠️ Error", value="Embed content exceeded Discord's size limit. Output is in file", inline=False)
+            error_embed.add_field(
+                name="📝 Expression", value=f"`{dice}`", inline=True
+            )
+            error_embed.add_field(
+                name="🎯 Result", value=f"**{total}**", inline=True
+            )
+            error_embed.add_field(
+                name="⚠️ Note",
+                value="Full breakdown exceeded Discord's size limit — see attached file.",
+                inline=False
+            )
             error_embed.set_footer(text=f"Dice rolled: {dice}")
-            await interaction.followup.send(embed=error_embed, file=discord.File(file, filename="dice_roll_embed.json"), ephemeral=False)
+            await interaction.followup.send(
+                embed=error_embed,
+                file=discord.File(file, filename="dice_roll_breakdown.json"),
+                ephemeral=False
+            )
             file.close()
         else:
             await interaction.followup.send(embed=embed, ephemeral=False)
