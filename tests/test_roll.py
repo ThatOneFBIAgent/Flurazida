@@ -71,6 +71,11 @@ def test_valid_dice_expressions(expr):
     assert isinstance(res["total"], (int, float))
     assert isinstance(res["breakdown"], str)
 
+def test_multi_die_roll_breakdown_keeps_each_die_separate():
+    res = execute_roll("2d1")
+    assert res["total"] == 2
+    assert res["breakdown"] == "[1, 1]"
+
 @pytest.mark.parametrize("expr", ERROR_CASES)
 def test_invalid_dice_expressions(expr):
     with pytest.raises(ValueError):

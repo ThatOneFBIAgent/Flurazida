@@ -46,6 +46,17 @@ exchange_cache = {}
 CACHE_DURATION = 86400
 MAX_AMOUNT = 1e8
 MAX_VALUE = 1e8
+MAX_SIMPLE_ROLL_BREAKDOWN = 1500
+
+
+def format_simple_roll_message(mention: str, dice: str, total, breakdown: str) -> str:
+    if breakdown and breakdown != str(total):
+        if breakdown.startswith("[") and breakdown.endswith("]"):
+            breakdown = breakdown[1:-1]
+        if len(breakdown) > MAX_SIMPLE_ROLL_BREAKDOWN:
+            breakdown = breakdown[:MAX_SIMPLE_ROLL_BREAKDOWN - 3] + "..."
+        return f"{mention} rolled `{dice}`: {breakdown}. Total: **{total}**"
+    return f"{mention} rolled `{dice}`: **{total}**"
 
 # Commands
 
@@ -258,10 +269,10 @@ class FunCommands(app_commands.Group):
         total = roll_result["total"]
         breakdown = roll_result["breakdown"]
 
-        # CONTRACTED (simple): "@user rolled `expr`: **total**"
+        # CONTRACTED (simple): "@user rolled `expr`: each die. Total: **total**"
         if not expand:
             await interaction.followup.send(
-                f"{interaction.user.mention} rolled `{dice}`: **{total}**",
+                format_simple_roll_message(interaction.user.mention, dice, total, breakdown),
                 ephemeral=False
             )
             return
