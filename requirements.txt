@@ -2,17 +2,13 @@ discord.py
 aiohttp
 psutil
 python-dotenv
-ping3
 google-api-python-client
-packaging
 google-auth
 google-auth-httplib2
 google-auth-oauthlib
 pillow
-imageio-ffmpeg
 qrcode[pil]
 pyzbar
-numpy
 aiosqlite
 
 # Testing
@@ -22,4 +18,3 @@ pytest-asyncio
 # If you migrate to MySQL, add one of:
 # mysql-connector-python    # sync client
 # aiomysql                  # async client
-

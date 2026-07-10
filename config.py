@@ -76,7 +76,7 @@ log.addHandler(fh)
 
 log.propagate = False
 
-# Use a dict to store cooldowns: {(user_id, command_name): timestamp}
+# Use a dict to store cooldowns: {(user_id, command_name): (timestamp, cooldown_seconds)}
 _user_command_cooldowns = {}
 _command_failures = {}
 
@@ -85,14 +85,33 @@ def check_cooldown(user_id: int, command_name: str, cooldown_seconds: float) -> 
     key = (user_id, command_name)
     now = time.time()
     if key in _user_command_cooldowns:
-        elapsed = now - _user_command_cooldowns[key]
-        if elapsed < cooldown_seconds:
-            return True, cooldown_seconds - elapsed
+        last_time, saved_seconds = _user_command_cooldowns[key]
+        seconds = cooldown_seconds if cooldown_seconds is not None else saved_seconds
+        elapsed = now - last_time
+        if elapsed < seconds:
+            return True, seconds - elapsed
+        else:
+            del _user_command_cooldowns[key]
     return False, 0.0
 
-def update_cooldown(user_id: int, command_name: str):
+def update_cooldown(user_id: int, command_name: str, cooldown_seconds: float = 0.0):
     """Update the cooldown timestamp for a user and command."""
-    _user_command_cooldowns[(user_id, command_name)] = time.time()
+    _user_command_cooldowns[(user_id, command_name)] = (time.time(), cooldown_seconds)
+    
+    # Periodically prune expired entries
+    update_cooldown.counter = getattr(update_cooldown, 'counter', 0) + 1
+    if update_cooldown.counter % 50 == 0:
+        prune_expired_cooldowns()
+
+def prune_expired_cooldowns():
+    """Prune all expired cooldown entries from memory."""
+    now = time.time()
+    expired_keys = []
+    for key, (last_time, cooldown_seconds) in _user_command_cooldowns.items():
+        if now - last_time >= cooldown_seconds:
+            expired_keys.append(key)
+    for key in expired_keys:
+        _user_command_cooldowns.pop(key, None)
 
 # reason we use equals to all three is so even if we forget one it still works with defaults, although that "none" error is annoying
 def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
@@ -143,7 +162,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
                     log.warningtrace(f"[Cooldown] {command_name} by {user_id} (wait {round(retry_after, 1)}s)")
                     return
 
-            update_cooldown(user_id, command_name)
+            update_cooldown(user_id, command_name, cl)
 
             # --- main run + timeout ---
             if nw:
@@ -160,7 +179,7 @@ def cooldown(*, cl: int = 0, tm: float = None, ft: int = 3, nw: bool = False):
                 else:
                     result = await func(*args, **kwargs)
 
-                _command_failures[key] = 0
+                _command_failures.pop(key, None)
                 log.successtrace(f"[CommandSuccess] {command_name} executed by {user_id}")
                 return result
 
@@ -188,7 +207,7 @@ async def _handle_failure(interaction: Interaction, key: tuple, message: str,
     # when threshold hit, reset and alert owner
     if count >= ft:
         message += "\n\n⚠️ **Found a bug? Report it to the developer!**"
-        _command_failures[key] = 0
+        _command_failures.pop(key, None)
         await _alert_owner(interaction, command_name, exc)
 
     # send error to user

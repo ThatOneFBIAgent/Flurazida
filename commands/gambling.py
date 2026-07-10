@@ -78,7 +78,7 @@ class PlayAgainView(ui.View):
             pass  # Message might be deleted or inaccessible
         
         # Update cooldown timestamp before running (same key as @cooldown on slash commands)
-        update_cooldown(self.user_id, self.cooldown_key)
+        update_cooldown(self.user_id, self.cooldown_key, self.cooldown_seconds)
 
         # Run the callback with the new interaction (callback will respond)
         await self.callback(interaction, *self.args, **self.kwargs)
@@ -197,7 +197,7 @@ class HighLowView(ui.View):
                 ephemeral=True
             )
 
-        update_cooldown(self.user_id, "highlow")
+        update_cooldown(self.user_id, "highlow", 5.0)
         next_card = random.randint(1, 13)
         won = next_card >= self.current_card
         
@@ -242,7 +242,7 @@ class HighLowView(ui.View):
                 ephemeral=True
             )
 
-        update_cooldown(self.user_id, "highlow")
+        update_cooldown(self.user_id, "highlow", 5.0)
         next_card = random.randint(1, 13)
         won = next_card <= self.current_card
         

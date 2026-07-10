@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 class StatusReporter:
     """Signs and sends status payloads to the dashboard server."""
 
-    def __init__(self, api_url: str, private_key_pem: str, bot_id: str):
+    def __init__(self, api_url: str, private_key_pem: str, bot_id: str, *, session: Optional[aiohttp.ClientSession] = None):
         api_url = api_url.rstrip("/")
         if not api_url.startswith(("http://", "https://")):
             api_url = f"http://{api_url}"
@@ -52,7 +52,8 @@ class StatusReporter:
             private_key_pem.encode() if isinstance(private_key_pem, str) else private_key_pem,
             password=None,
         )
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._is_shared_session = session is not None
+        self._session = session
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Re-use a single session for connection pooling."""
@@ -114,7 +115,7 @@ class StatusReporter:
         return False
 
     async def close(self):
-        if self._session and not self._session.closed:
+        if not self._is_shared_session and self._session and not self._session.closed:
             await self._session.close()
 
 
@@ -230,6 +231,7 @@ class ConfigSync:
         *,
         interval: int = 60,
         on_maintenance_cleared=None,
+        session: Optional[aiohttp.ClientSession] = None,
     ):
         api_url = api_url.rstrip("/")
         if not api_url.startswith(("http://", "https://")):
@@ -240,20 +242,25 @@ class ConfigSync:
         # Support configuring sync interval via environment variable, defaulting to a highly optimized 60 seconds
         self.interval = int(os.getenv("DASHBOARD_SYNC_INTERVAL", str(interval)))
         self._cache: Dict[str, Dict[str, Any]] = {}  # guild_id -> settings
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._is_shared_session = session is not None
+        self._session = session
         self._last_sync: float = 0
         self.maintenance_mode: bool = False
         self._on_maintenance_cleared = on_maintenance_cleared
         self._config_etag: Optional[str] = None
         self._maintenance_etag: Optional[str] = None
 
+    def _get_headers(self, custom_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        headers = {
+            "X-Bot-Token": os.getenv("DASHBOARD_BOT_SECRET", "molecular_internal_secret")
+        }
+        if custom_headers:
+            headers.update(custom_headers)
+        return headers
+
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            headers = {
-                "X-Bot-Token": os.getenv("DASHBOARD_BOT_SECRET", "molecular_internal_secret")
-            }
             self._session = aiohttp.ClientSession(
-                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             )
         return self._session
@@ -269,7 +276,7 @@ class ConfigSync:
         try:
             session = await self._get_session()
             url = f"{self.api_url}/config/push/{self.bot_id}/{guild_id}"
-            async with session.post(url, json={"settings": settings}) as resp:
+            async with session.post(url, json={"settings": settings}, headers=self._get_headers()) as resp:
                 if resp.status == 200:
                     logger.info("ConfigSync: Successfully pushed state for guild %s", guild_id)
                     # Update local cache to match what we just pushed
@@ -290,7 +297,7 @@ class ConfigSync:
         try:
             session = await self._get_session()
             url = f"{self.api_url}/config/sync/{self.bot_id}"
-            async with session.post(url, json={"guilds": guilds_data}) as resp:
+            async with session.post(url, json={"guilds": guilds_data}, headers=self._get_headers()) as resp:
                 if resp.status == 200:
                     res_data = await resp.json()
                     logger.info(
@@ -313,7 +320,7 @@ class ConfigSync:
         try:
             session = await self._get_session()
             url = f"{self.api_url}/config/pull/{self.bot_id}/{guild_id}"
-            async with session.get(url) as resp:
+            async with session.get(url, headers=self._get_headers()) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     settings = data.get("settings", {})
@@ -341,7 +348,7 @@ class ConfigSync:
             if self._maintenance_etag:
                 headers_mt["If-None-Match"] = self._maintenance_etag
                 
-            async with session.get(url_mt, headers=headers_mt) as resp_mt:
+            async with session.get(url_mt, headers=self._get_headers(headers_mt)) as resp_mt:
                 if resp_mt.status == 304:
                     # Maintenance status has not changed
                     pass
@@ -364,7 +371,7 @@ class ConfigSync:
             if self._config_etag:
                 headers_pull["If-None-Match"] = self._config_etag
 
-            async with session.get(url, headers=headers_pull) as resp:
+            async with session.get(url, headers=self._get_headers(headers_pull)) as resp:
                 if resp.status == 304:
                     # ETag matches! Config is completely unchanged.
                     self._last_sync = time.monotonic()
@@ -408,5 +415,5 @@ class ConfigSync:
             await asyncio.sleep(self.interval)
 
     async def close(self):
-        if self._session and not self._session.closed:
+        if not self._is_shared_session and self._session and not self._session.closed:
             await self._session.close()

@@ -610,14 +610,20 @@ class FunCommands(app_commands.Group):
         embed.add_field(name="Roles", value=str(len(guild.roles)), inline=True)
         embed.add_field(name="Channels", value=str(len(guild.channels)), inline=True)
         embed.add_field(name="Boosts", value=str(getattr(guild, "premium_subscription_count", 0)), inline=True)
-
-        # Member counts
+        
+        # Member counts - chunk on demand if not already cached
         total_members = guild.member_count
-        if hasattr(guild, "members") and guild.members:  # Requires members intent!
+        if not guild.chunked:
+            try:
+                await guild.chunk()
+            except Exception:
+                pass  # Chunking can fail if members intent is restricted; fall back gracefully
+
+        if guild.members:
             bot_count = sum(1 for m in guild.members if m.bot)
             human_count = total_members - bot_count
         else:
-            # Fallback if members intent is not enabled
+            # Fallback if chunking failed or members unavailable
             bot_count = "?"
             human_count = "?"
 

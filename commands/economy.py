@@ -113,7 +113,7 @@ class PlayAgainView(ui.View):
             pass  # Message might be deleted or inaccessible
         
         # Update cooldown timestamp before running (same key as @cooldown on slash commands)
-        update_cooldown(self.user_id, self.cooldown_key)
+        update_cooldown(self.user_id, self.cooldown_key, self.cooldown_seconds)
 
         # Run the callback with the new interaction (callback will respond)
         await self.callback(interaction, *self.args, **self.kwargs)
@@ -1239,6 +1239,10 @@ class EconomyCommands(app_commands.Group):
         else:
             if not interaction.guild:
                 return await interaction.followup.send("❌ You can only view the server leaderboard inside a server.")
+
+            # Ensure member list is populated (chunk_guilds_at_startup=False means we must do this on demand)
+            if not interaction.guild.chunked:
+                await interaction.guild.chunk()
 
             member_ids = [m.id for m in interaction.guild.members if not m.bot]
             if not member_ids:

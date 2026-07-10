@@ -28,10 +28,6 @@ from discord import Interaction, app_commands
 from discord.app_commands import CheckFailure
 from discord.ext import commands
 
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-
 # Local Application Imports
 import services.cloudflare_ping as cf
 import config
@@ -67,7 +63,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.guilds = True
 intents.message_content = True
-intents.presences = True
+intents.presences = False
 intents.members = True
 from extraconfig import BOT_OWNER, TEST_SERVER, FORBIDDEN_GUILDS, FORBIDDEN_USERS
 bot_owner = BOT_OWNER
@@ -80,7 +76,7 @@ def prefix(bot, message):
     return ['f!', 'F!', '>>', bot.user.mention]
 class Main(commands.AutoShardedBot):
     def __init__(self, *args, **kwargs):
-        super().__init__(command_prefix=prefix, shard_count=3, intents=intents, max_messages=100, *args, **kwargs)
+        super().__init__(command_prefix=prefix, shard_count=3, intents=intents, max_messages=100, chunk_guilds_at_startup=False, *args, **kwargs)
         self.user_id = bot_owner
         self._ready_once = asyncio.Event()
         self._activity_sync_lock = asyncio.Lock()
@@ -92,6 +88,10 @@ class Main(commands.AutoShardedBot):
         # Initialize shared HTTP session
         self.http_session = aiohttp.ClientSession()
         log.info("Initialized shared HTTP session")
+        
+        # Share http_session with reporter and config_sync
+        reporter._session = self.http_session
+        reporter._is_shared_session = True
         
         # Start Cloudflare ping loop with shared session
         cf.ensure_started(session=self.http_session)
@@ -110,6 +110,7 @@ class Main(commands.AutoShardedBot):
             api_url=os.getenv("DASHBOARD_URL"),
             bot_id="flurazide",
             bot=self,
+            session=self.http_session,
         )
         asyncio.create_task(self._delayed_config_sync_start(self.config_sync, 7.0))
 

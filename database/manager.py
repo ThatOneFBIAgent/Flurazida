@@ -16,17 +16,11 @@ import tempfile
 import time
 import zipfile
 from functools import wraps
-
 # Third-Party Imports
 import aiosqlite
 from dotenv import load_dotenv
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-# Local Imports
+
 from logging_modules.custom_logger import get_logger
 from extraconfig import BACKUP_GDRIVE_FOLDER_ID, BOT_OWNER
 from database.items import SHOP_ITEMS, ITEM_EFFECTS
@@ -67,11 +61,14 @@ CREDENTIALS_ENV = "DRIVE_CREDENTIALS_B64"
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def load_creds_local():
+    from google.oauth2.credentials import Credentials
     with open("token.json", "r") as f:
         token_info = json.load(f)
     return Credentials.from_authorized_user_info(token_info, SCOPES)
 
 def load_creds_from_env():
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
     # Try the user's requested 'DRIVE_' prefix first, then fallback to 'GDRIVE_'
     token_b64 = os.environ.get(TOKEN_ENV) or os.environ.get(f"G{TOKEN_ENV}")
     if not token_b64:
@@ -97,6 +94,7 @@ def load_creds_from_env():
     return creds
 
 def build_drive_service():
+    from googleapiclient.discovery import build
     if os.getenv("RAILWAY_PROJECT_ID"):
         log.trace("Running on Railway, using env-based credentials.")
         creds = load_creds_from_env()
@@ -110,6 +108,7 @@ def build_drive_service():
 
 # ===================== Google Drive Backup / Restore =====================
 def _backup_db_to_gdrive_sync(local_path, drive_filename, folder_id):
+    from googleapiclient.http import MediaFileUpload
     log.info(f"Backing up {local_path} -> {drive_filename}")
     service = build_drive_service()
     query = f"'{folder_id}' in parents and name='{drive_filename}' and trashed=false"
@@ -129,6 +128,7 @@ async def backup_db_to_gdrive_env(local_path, drive_filename, folder_id):
     await asyncio.to_thread(_backup_db_to_gdrive_sync, local_path, drive_filename, folder_id)
 
 def _backup_all_dbs_sync(dbs, folder_id):
+    from googleapiclient.http import MediaFileUpload
     zip_filename = "Databases_Flurazide.zip"
     temp_zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
     log.info(f"Creating combined backup: {temp_zip_path}")
@@ -171,6 +171,8 @@ async def backup_all_dbs_to_gdrive_env(dbs: list[tuple[str, str]], folder_id: st
     await asyncio.to_thread(_backup_all_dbs_sync, dbs, folder_id)
 
 def _restore_db_sync(local_path, drive_filename, folder_id):
+    from googleapiclient.http import MediaIoBaseDownload
+    from googleapiclient.errors import HttpError
     log.info(f"Restoring {drive_filename} -> {local_path}")
     service = build_drive_service()
     if folder_id:
@@ -203,6 +205,8 @@ async def restore_db_from_gdrive_env(local_path, drive_filename, folder_id=None)
     return await asyncio.to_thread(_restore_db_sync, local_path, drive_filename, folder_id)
 
 def _restore_all_dbs_sync(folder_id, restore_map):
+    from googleapiclient.http import MediaIoBaseDownload
+    from googleapiclient.errors import HttpError
     zip_filename = "Databases_Flurazide.zip"
     service = build_drive_service()
     log.info(f"Searching for {zip_filename} in Google Drive folder {folder_id}...")

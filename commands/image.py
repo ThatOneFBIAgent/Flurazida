@@ -16,7 +16,6 @@ from typing import Dict, Optional, Tuple, List, Literal
 # Third-Party Imports
 import aiohttp
 import discord
-import numpy as np
 import qrcode
 from PIL import (
     Image, ImageDraw, ImageFont, ImageEnhance, ImageSequence, ImageFilter, ImageOps
@@ -842,8 +841,11 @@ class ImageCommands(app_commands.Group):
     def _sphere_project_frame(self, src: Image.Image, phase: float, out_size: Tuple[int, int]) -> Image.Image:
         src_w, src_h = src.size
         w, h = out_size
-        src_np = np.array(src.convert("RGBA"))
-        dst = np.zeros((h, w, 4), dtype=np.uint8)
+        src_rgba = src.convert("RGBA")
+        src_px = src_rgba.load()
+
+        dst = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        dst_px = dst.load()
 
         cx = w / 2.0
         cy = h / 2.0
@@ -864,8 +866,8 @@ class ImageCommands(app_commands.Group):
                 src_y = (0.5 - lat / math.pi) * src_h
                 sx = int(src_x) % src_w
                 sy = int(max(0, min(src_h - 1, src_y)))
-                dst[y, x] = src_np[sy, sx]
-        return Image.fromarray(dst, "RGBA")
+                dst_px[x, y] = src_px[sx, sy]
+        return dst
 
     @app_commands.command(name="globe", description="Wrap an image onto a rotating globe (exports a GIF).")
     @cooldown(cl=20, tm=30.0, ft=3)
@@ -982,14 +984,10 @@ class ImageCommands(app_commands.Group):
         out_frames = []
         for f in frames:
             rgb = f.convert("RGB")
-            hsv = rgb.convert("HSV")
-            np_hsv = np.array(hsv, dtype=np.uint8)
-
-            hue_channel = np_hsv[..., 0].astype(np.uint16)
-            hue_channel = (hue_channel + shift_amount) % 256
-            np_hsv[..., 0] = hue_channel.astype(np.uint8)
-
-            shifted_rgb = Image.fromarray(np_hsv, "HSV").convert("RGB")
+            h_ch, s_ch, v_ch = rgb.convert("HSV").split()
+            # Shift hue channel using point() — runs in compiled C, no numpy needed
+            h_ch = h_ch.point(lambda px: (px + shift_amount) % 256)
+            shifted_rgb = Image.merge("HSV", (h_ch, s_ch, v_ch)).convert("RGB")
             if f.mode == 'RGBA':
                 shifted = shifted_rgb.convert("RGBA")
                 alpha = f.split()[3]
@@ -1207,10 +1205,13 @@ class ImageCommands(app_commands.Group):
 
         out_frames = []
         for f in frames:
-            np_img = np.array(f.convert("RGBA"))
-            h, w = np_img.shape[:2]
+            img = f.convert("RGBA")
+            w, h = img.size
             cx, cy = w / 2, h / 2
-            dst = np.zeros_like(np_img)
+            src_px = img.load()
+
+            dst = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            dst_px = dst.load()
 
             for y in range(h):
                 for x in range(w):
@@ -1227,10 +1228,9 @@ class ImageCommands(app_commands.Group):
                         src_x, src_y = x, y
                     src_x = max(0, min(w - 1, src_x))
                     src_y = max(0, min(h - 1, src_y))
-                    dst[y, x] = np_img[src_y, src_x]
+                    dst_px[x, y] = src_px[src_x, src_y]
 
-            out_frame = Image.fromarray(dst, "RGBA")
-            out_frames.append(out_frame)
+            out_frames.append(dst)
 
         gif = self._frames_to_gif_bytes(out_frames, duration_ms=duration)
         await self._send_image_bytes(interaction, gif, "swirled.gif")
